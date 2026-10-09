@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import importlib.util
 
+from .errors import MissingExtraError
+
 DISTRIBUTION = "agent-trajviz"
 
 EXTRAS: dict[str, tuple[str, ...]] = {
@@ -19,18 +21,6 @@ EXTRAS: dict[str, tuple[str, ...]] = {
     "llm": ("requests",),
     "app": ("gradio", "plotly", "pygments", "requests"),
 }
-
-
-class MissingExtraError(ImportError):
-    """An optional feature was used without the extra that provides it."""
-
-    def __init__(self, extra: str, missing: list[str], feature: str) -> None:
-        self.extra = extra
-        self.missing = missing
-        super().__init__(
-            f"{feature} needs the '{extra}' extra (not installed: {', '.join(missing)}). "
-            f'Install it with: pip install "{DISTRIBUTION}[{extra}]"'
-        )
 
 
 def _importable(name: str) -> bool:
@@ -49,7 +39,7 @@ def require(extra: str, feature: str) -> None:
     """Raise :class:`MissingExtraError` unless every package of *extra* is importable."""
     gaps = missing(extra)
     if gaps:
-        raise MissingExtraError(extra, gaps, feature)
+        raise MissingExtraError(extra, gaps, feature, DISTRIBUTION)
 
 
 def require_or_exit(extra: str, feature: str, prog: str) -> None:

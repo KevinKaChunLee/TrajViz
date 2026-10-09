@@ -40,7 +40,7 @@ class CoreWithoutExtrasTests(unittest.TestCase):
     def test_core_modules_import_with_no_third_party_package(self):
         proc = _run("""
             import importlib
-            for name in ("agent_trajviz", "agent_trajviz.insight.loaders", "agent_trajviz.insight.parser",
+            for name in ("agent_trajviz", "agent_trajviz.api", "agent_trajviz.insight.loaders", "agent_trajviz.insight.parser",
                          "agent_trajviz.insight.metrics", "agent_trajviz.insight.session",
                          "agent_trajviz.insight.context_usage", "agent_trajviz.insight.patterns",
                          "agent_trajviz.insight.run_group", "agent_trajviz.converge.alignment",
@@ -60,6 +60,26 @@ class CoreWithoutExtrasTests(unittest.TestCase):
         """)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertRegex(proc.stdout.strip(), r"^[1-9][0-9]* True$")
+
+    def test_the_public_api_loads_and_compares_with_no_third_party_package(self):
+        proc = _run(f"""
+            import agent_trajviz as tv
+            run = tv.load({str(FIXTURE)!r})
+            print(run.format, run.metrics["tokens"]["total"] > 0, "alignment" in tv.compare(run, run))
+        """)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "ccsession True True")
+
+    def test_write_report_without_charts_raises_missing_extra(self):
+        proc = _run(f"""
+            import agent_trajviz as tv
+            try:
+                tv.write_report({str(FIXTURE)!r})
+            except tv.MissingExtraError as exc:
+                print("extra:", exc.extra)
+        """, blocked=("plotly",))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "extra: charts")
 
     def test_the_collection_tools_run_with_no_third_party_package(self):
         proc = _run("""

@@ -117,6 +117,37 @@ python -m agent_trajviz.insight --share
 
 ---
 
+## Use it as a library
+
+The core needs no third-party packages (`pip install agent-trajviz`):
+
+```python
+import agent_trajviz as tv
+
+run = tv.load("trajectory.json")           # any supported format, detected from the content
+print(run.format_label, len(run.steps))     # e.g. "Codex CLI", 66
+print(run.metrics["tokens"]["total"], run.metrics["tool_success_rate"])
+for check in run.health:                     # {"metric", "status", "label", "detail"}
+    print(check["metric"], check["status"], check["label"])
+
+pressure = run.context_pressure()["stats"]   # peak_occupancy, peak_pct, compaction_count, window_source, ...
+report = tv.compare(run, "other_run.json")   # alignment, divergence, outcome, confidence
+data = run.to_dict()                         # JSON-serializable, versioned by tv.SCHEMA_VERSION
+
+tv.write_report(run, "reports/")             # standalone HTML; needs the `charts` extra
+```
+
+`tv.load` raises `tv.LoadError` (with `.code` and `.path`) for a file it cannot
+read; every error the package raises on purpose is a `tv.TrajVizError`. Steps
+are plain dicts described by the `tv.Step`, `tv.ToolCall` and `tv.TokenUsage`
+typed records, and the package ships type information (`py.typed`).
+
+Only the names exported from `agent_trajviz` are public. The `insight`
+(dashboard) and `converge` (comparison) subpackages are internal and may
+change between minor versions.
+
+---
+
 ## Common Issues
 
 ### Server cannot start

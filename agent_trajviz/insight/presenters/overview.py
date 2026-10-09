@@ -32,7 +32,7 @@ from ..formatting import (
     _build_per_message_md,
 )
 from ..help import HELP_TEXT
-from ..loaders import FORMAT_LABELS
+from ..loaders import FORMAT_LABELS, tokens_are_estimates
 from ..metrics import extract_agent_info
 from ..palette import AGENT_COLORS
 from ..rendering import (
@@ -501,13 +501,6 @@ def build_diagnostics_outputs(session: LoadedSession, dark: bool = False) -> dic
         "diag_file_chart": file_chart,
         "diag_rootcause_html": rootcause_html,
     }
-
-
-def tokens_are_estimates(raw: dict | None) -> bool:
-    """True when the export recorded no runtime token usage, so token counts are
-    the converter's estimates (Cursor derives them from logged text)."""
-    caps = raw.get("_capabilities") if isinstance(raw, dict) else None
-    return isinstance(caps, dict) and caps.get("has_runtime_token_usage") is False
 
 
 def load_warnings_html(session: LoadedSession) -> str:

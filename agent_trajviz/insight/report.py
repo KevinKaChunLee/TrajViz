@@ -16,6 +16,8 @@ from typing import Any
 
 import plotly.graph_objects as go
 
+from ..errors import ReportError  # public; importable without the charts extra
+
 from .loaders import FORMAT_LABELS
 from .presenters.overview import (
     build_chart_outputs,
@@ -51,10 +53,6 @@ _LIVE_MARKUP = re.compile(
 # A markdown cell delimiter is an unescaped `|`; `formatting._md_cell_text`
 # writes `\|` for a pipe that came out of the trajectory.
 _MD_CELL_SEP = re.compile(r"(?<!\\)\|")
-
-
-class ReportError(ValueError):
-    """Raised when a trajectory cannot be turned into a report."""
 
 
 def build_report_html(

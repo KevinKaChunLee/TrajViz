@@ -248,6 +248,13 @@ def _load_zip_trajectory(file_path: str, format_hint: str | None, source_sha: st
     return result
 
 
+def tokens_are_estimates(raw: dict | None) -> bool:
+    """True when the export recorded no runtime token usage, so token counts are
+    the converter's estimates (Cursor derives them from logged text)."""
+    caps = raw.get("_capabilities") if isinstance(raw, dict) else None
+    return isinstance(caps, dict) and caps.get("has_runtime_token_usage") is False
+
+
 def load_trajectory(file_path: str, format_hint: str | None = None) -> dict:
     """Load a trajectory file; for any input, a parsed trajectory or ``{"_error": ...}``.
 
