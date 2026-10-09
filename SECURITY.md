@@ -23,7 +23,9 @@ print. It is built to keep them on your machine.
   anything, and never write outside the output you asked for. Content is
   HTML-escaped wherever it is rendered, including the standalone report.
 - **Nothing leaves the machine unless you ask.** The core library, the HTML
-  report and the dashboards make no network calls. The LLM features (the AI
+  report and the dashboards make no network calls: Gradio's usage telemetry
+  is switched off, and a `--share` link reaches Gradio's tunnel service only
+  because you asked for one. The LLM features (the AI
   analysis sidebar, the Issues judge, `agent-trajviz-label`) are off until
   you configure an endpoint, and in the dashboard they run only on an
   explicit action: opening the sidebar or pressing the judge button. They

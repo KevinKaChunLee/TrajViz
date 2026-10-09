@@ -44,7 +44,9 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
     """
     load_env_files()
 
-    with gr.Blocks(title="TrajViz", elem_classes=["trajectory-viz"]) as app:
+    # analytics_enabled=False: Gradio otherwise fetches a version check and
+    # reports launches to its servers; nothing leaves the machine unasked.
+    with gr.Blocks(title="TrajViz", elem_classes=["trajectory-viz"], analytics_enabled=False) as app:
         shared = SharedState(
             state_steps=gr.State([]),
             # Light-only by design: the app.load handler below is the single

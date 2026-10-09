@@ -272,7 +272,8 @@ def build_ui(*, data_root: str | os.PathLike | None = None) -> gr.Blocks:
     """
     root = Path(data_root) if data_root is not None else Path.cwd()
 
-    with gr.Blocks(title="Converge") as app:
+    # No Gradio telemetry, as in the Insight app.
+    with gr.Blocks(title="Converge", analytics_enabled=False) as app:
         gr.Markdown("# Converge\nCross-agent trajectory comparison and alignment analysis.")
 
         with gr.Row():
