@@ -452,6 +452,8 @@ Installed with the package (each takes `--help`):
 
 | Command | Purpose |
 |---|---|
+| `agent-trajviz` | The Insight dashboard; `--report TRAJECTORY` writes the standalone HTML report instead. See **Run** above. |
+| `agent-trajviz-converge` | Compare two runs of a task (`REF CMP`), a batch manifest (`--batch`), or two batches before and after an intervention (`--before`/`--after`); JSON or `--output summary`. The comparison dashboard is `python -m agent_trajviz.converge`. |
 | `agent-trajviz-collect cursor` | Read-only export of a Cursor Agent chat: JSONL transcripts + Composer `state.vscdb`, including subagent sessions. See the **Cursor** collection section above. |
 | `agent-trajviz-collect codearts` | Read-only export from a CodeArts `opencode.db` with recursive child sessions, or lossless archival merge of legacy `messages_<n>.json` shards. See the **CodeArts** collection section above. |
 | `agent-trajviz-collect opencode` | Recursively merge an OpenCode parent session and child sub-agent sessions into a single JSON. See the **OpenCode** collection section above. |
@@ -500,8 +502,28 @@ agent-trajviz-label cc_trajectory.json \
     --model gpt-4o-mini
 ```
 
+Prefer `LABEL_API_KEY` over `--api-key`: a key on the command line is
+visible to other users in the process list and stays in your shell history.
+
 Upload the trajectory **and** its labels sidecar in the dashboard's two upload
 slots to unlock phase-aware analytics and label-phase charts.
+
+---
+
+## Development
+
+```bash
+uv sync --extra dev                          # locked environment with every extra
+uv run pytest                                # test suite
+uv run ruff check agent_trajviz tests        # lint
+uv run --with mypy mypy --strict agent_trajviz/__init__.py agent_trajviz/api.py \
+    agent_trajviz/errors.py agent_trajviz/model.py   # the typed public API
+uv build                                     # sdist + wheel into dist/
+```
+
+Tests that need the optional DECAF checkout skip when it is absent. Changes
+are recorded in [CHANGELOG.md](./CHANGELOG.md); see [SECURITY.md](./SECURITY.md)
+for reporting vulnerabilities.
 
 ---
 

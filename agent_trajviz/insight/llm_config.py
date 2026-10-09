@@ -204,8 +204,9 @@ def config_status_html(*, loaded_steps: int | None = None) -> str:
     cfg = resolve_analysis_config()
     bits: list[str] = []
     if cfg.ready:
-        # Name where the trajectory brief goes: the base URL comes from .env and
-        # can point anywhere, so the host is the egress the user is consenting to.
+        # Name where the trajectory brief goes: the base URL comes from the
+        # environment or .env and can point anywhere, so the host is the egress
+        # the user is consenting to.
         host = urlparse(cfg.base_url).netloc or cfg.base_url
         bits.append(
             f"<span class='analysis-status-ok'>Ready</span> · "
@@ -213,16 +214,16 @@ def config_status_html(*, loaded_steps: int | None = None) -> str:
             f"sends to <code>{_escape(host)}</code>"
         )
         if cfg.source == "label":
-            bits.append("using LABEL_* from .env")
+            bits.append("using LABEL_*")
         elif cfg.source == "mixed":
             bits.append("ANALYZE_* + LABEL_*")
         else:
-            bits.append("ANALYZE_* from .env")
+            bits.append("ANALYZE_*")
     elif len(cfg.missing) >= 3:
         bits.append(
             "<span class='analysis-status-warn'>Not configured</span> · "
-            "copy <code>.env.example</code> to <code>.env</code> and set "
-            "<code>ANALYZE_*</code> (or <code>LABEL_*</code>)"
+            "set <code>ANALYZE_*</code> (or <code>LABEL_*</code>) in the environment "
+            "or a <code>.env</code> file"
         )
     else:
         missing = ", ".join(cfg.missing)
@@ -243,8 +244,9 @@ def setup_help_text(cfg: AnalysisLLMConfig | None = None) -> str:
     missing = ", ".join(cfg.missing) if cfg.missing else "ANALYZE_BASE_URL, ANALYZE_API_KEY, ANALYZE_MODEL"
     return (
         "The analysis panel is not configured.\n\n"
-        "Copy `.env.example` to `.env` in the repo root (or the process CWD) "
-        f"and set: {missing}.\n\n"
+        f"Set {missing} in the environment, or in a `.env` file in the directory "
+        "TrajViz was launched from (`.env.example` in the source repository lists "
+        "every option).\n\n"
         "`LABEL_*` from the step labeler is used when `ANALYZE_*` is omitted."
     )
 
