@@ -102,3 +102,7 @@ First release as the `agent-trajviz` package.
 - Errors shown in the Converge dashboard carry no traceback and no server
   paths.
 - The dashboards no longer send Gradio's usage telemetry.
+- Every LLM request (AI sidebar, Issues judge, step labeler) is redacted
+  before it leaves: provider API keys, tokens, JWTs, private keys, URL
+  passwords, authorization headers and generated-looking values of
+  secret-named assignments become `[REDACTED]`.

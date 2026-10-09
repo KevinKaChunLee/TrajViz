@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .._redact import redact
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,8 +94,14 @@ def call_llm(
     """Send one system + user message pair and return the model's text answer.
 
     *provider* is ``"openai"`` (any OpenAI-compatible ``/chat/completions``
-    endpoint) or ``"anthropic"`` (the ``/messages`` API).
+    endpoint) or ``"anthropic"`` (the ``/messages`` API). Both messages are
+    redacted first (see :mod:`agent_trajviz._redact`): step text can carry
+    credentials the agent printed.
     """
+    system_prompt, in_system = redact(system_prompt)
+    user_message, in_user = redact(user_message)
+    if in_system + in_user:
+        logger.info("redacted %d credential-shaped string(s) from the LLM request", in_system + in_user)
     if provider == "anthropic":
         return _call_anthropic(base_url, api_key, model, system_prompt, user_message,
                                temperature, max_tokens, timeout)

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import requests
 
+from .._redact import redact
 from .analytics import compute_step_analytics
 from .diagnostics import (
     compute_failure_chain_metrics,
@@ -42,6 +44,8 @@ from .tool_failure import tool_call_failed
 
 if TYPE_CHECKING:
     from .session import LoadedSession
+
+logger = logging.getLogger(__name__)
 
 _BRIEF_CHAR_LIMIT = 28_000
 _OUTPUT_CLIP = 180
@@ -619,7 +623,20 @@ def complete_chat(
     system: str,
     messages: list[dict[str, str]],
 ) -> str:
-    """One chat completion. ``messages`` is user/assistant only."""
+    """One chat completion. ``messages`` is user/assistant only.
+
+    This is where the sidebar and the Issues judge leave the machine, so every
+    outgoing string is redacted here (see :mod:`agent_trajviz._redact`).
+    """
+    system, redacted = redact(system)
+    outgoing: list[dict[str, str]] = []
+    for message in messages:
+        content, count = redact(message["content"])
+        redacted += count
+        outgoing.append({**message, "content": content})
+    messages = outgoing
+    if redacted:
+        logger.info("redacted %d credential-shaped string(s) from the LLM request", redacted)
     if config.provider == "anthropic":
         return _call_anthropic(config, system, messages)
     return _call_openai(config, system, messages)
