@@ -7,6 +7,9 @@ TOKEN_COLORS = {
     "cache_write": "#14b8a6",   # teal — cache-family, distinct from cache_read
     "output": "#f59e0b",        # amber
     "reasoning": "#8b5cf6",     # violet
+    # A step whose export reports an impossible count (e.g. a negative input):
+    # drawn as its reported total, hatched, never as a breakdown.
+    "invalid_breakdown": "#9ca3af",  # grey
 }
 
 # Session/lane color cycle shared by the subagent swimlane and timeline charts.

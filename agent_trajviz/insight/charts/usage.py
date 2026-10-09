@@ -9,7 +9,7 @@ from collections.abc import Callable
 from ._layout import _add_legend_hint, _apply_chart_layout, _apply_dark, _empty_figure, _truncate_chart_labels
 import plotly.graph_objects as go
 
-from ..parser import token_segments
+from ..parser import token_segments, usable_token_count
 from ..palette import (
     AGENT_COLORS,
     CHART_ACCENT,
@@ -20,6 +20,7 @@ from ..palette import (
 from agent_trajviz.tool_vocab import parse_skill_name
 from ._timeline import _legend_label, bind_timeline_agents
 from ..metrics import (
+    TOKEN_FIELDS,
     spawn_wait_seconds,
     step_duration_excluding_spawn,
     tool_call_stats_duration_ms,
@@ -94,6 +95,29 @@ def _detect_outliers(values: list[float], threshold: float = 2.0) -> list[tuple[
     return outliers
 
 
+def _impossible_token_fields(tokens: dict) -> list[tuple[str, object]]:
+    """``(field, reported value)`` for each token value that is not a count.
+
+    The rule is :func:`metrics.sum_usable_tokens`' own, so the steps this chart
+    flags are exactly the steps the Overview's totals call partial.
+    """
+    return [
+        (field, tokens.get(field))
+        for field in TOKEN_FIELDS
+        if tokens.get(field) not in (None, 0) and usable_token_count(tokens.get(field)) is None
+    ]
+
+
+def _describe_impossible(fields: list[tuple[str, object]]) -> str:
+    if not fields:
+        return ""
+    reported = ", ".join(
+        f"{field} = {value:,}" if isinstance(value, (int, float)) else f"{field} = {value!r}"
+        for field, value in fields
+    )
+    return f"Breakdown not drawn: the export reports {reported}"
+
+
 def build_token_chart(steps: list[dict], dark: bool = False, *, format: str | None = None) -> go.Figure:
     """Stacked bar of token breakdown over steps (non-overlapping segments).
 
@@ -107,6 +131,11 @@ def build_token_chart(steps: list[dict], dark: bool = False, *, format: str | No
       trajectory.  Both formats expose the same complete token schema.
     - No breakdown available: fall back to a single ``Total``
       bar.
+
+    A step reporting an impossible count (a negative input, as some OpenCode
+    exports write) has no breakdown that can be stacked -- its remaining
+    fields overshoot its own total. It is drawn as its reported total in a
+    separate hatched series, and the title counts such steps.
     """
     if not steps:
         fig = _empty_figure(380)
@@ -128,6 +157,10 @@ def build_token_chart(steps: list[dict], dark: bool = False, *, format: str | No
         )
         for s in steps
     ]
+    impossible = [_impossible_token_fields(s["tokens"]) for s in steps]
+    for seg, bad in zip(segs, impossible, strict=True):
+        if bad:
+            seg.update(fresh=0, cache_read=0, cache_write=0, output=0, reasoning=0)
     fresh_input = [g["fresh"] for g in segs]
     cache_r = [g["cache_read"] for g in segs]
     output_t = [g["output"] for g in segs]
@@ -150,7 +183,10 @@ def build_token_chart(steps: list[dict], dark: bool = False, *, format: str | No
         )
     else:
         # No breakdown available — single "Total" trace.
-        totals = [s["tokens"]["total"] for s in steps]
+        totals = [
+            0 if bad else s["tokens"]["total"]
+            for s, bad in zip(steps, impossible, strict=True)
+        ]
         fig.add_trace(
             go.Bar(
                 x=indices,
@@ -161,9 +197,30 @@ def build_token_chart(steps: list[dict], dark: bool = False, *, format: str | No
             )
         )
 
+    flagged = sum(1 for bad in impossible if bad)
+    title = "Token Usage by Step"
+    if flagged:
+        fig.add_trace(
+            go.Bar(
+                x=indices,
+                y=[
+                    (usable_token_count(s["tokens"]["total"]) or 0) if bad else 0
+                    for s, bad in zip(steps, impossible, strict=True)
+                ],
+                name="Total only (invalid breakdown)",
+                marker=dict(
+                    color=TOKEN_COLORS["invalid_breakdown"],
+                    pattern=dict(shape="/", fgcolor="#4b5563"),
+                ),
+                customdata=[_describe_impossible(bad) for bad in impossible],
+                hovertemplate="Step %{x}<br>Reported total: %{y:,.0f}<br>%{customdata}<extra></extra>",
+            )
+        )
+        title += f" — {flagged} step{'s' if flagged != 1 else ''} with an invalid breakdown"
+
     _apply_chart_layout(
         fig,
-        "Token Usage by Step",
+        title,
         xaxis="Step",
         yaxis="Tokens",
         height=380,
