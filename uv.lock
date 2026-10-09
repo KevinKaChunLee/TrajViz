@@ -18,7 +18,6 @@ resolution-markers = [
 
 [[package]]
 name = "agent-trajviz"
-version = "1.0.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
@@ -53,18 +52,26 @@ llm = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-trajviz", extras = ["all"], marker = "extra == 'dev'" },
-    { name = "agent-trajviz", extras = ["app"], marker = "extra == 'all'" },
-    { name = "agent-trajviz", extras = ["charts", "llm"], marker = "extra == 'app'" },
+    { name = "gradio", marker = "extra == 'all'", specifier = ">=6.14.0" },
     { name = "gradio", marker = "extra == 'app'", specifier = ">=6.14.0" },
+    { name = "gradio", marker = "extra == 'dev'", specifier = ">=6.14.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.0" },
+    { name = "plotly", marker = "extra == 'all'", specifier = ">=5.0" },
+    { name = "plotly", marker = "extra == 'app'", specifier = ">=5.0" },
     { name = "plotly", marker = "extra == 'charts'", specifier = ">=5.0" },
+    { name = "plotly", marker = "extra == 'dev'", specifier = ">=5.0" },
+    { name = "pygments", marker = "extra == 'all'", specifier = ">=2.0" },
+    { name = "pygments", marker = "extra == 'app'", specifier = ">=2.0" },
     { name = "pygments", marker = "extra == 'charts'", specifier = ">=2.0" },
+    { name = "pygments", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "requests", marker = "extra == 'all'", specifier = ">=2.0" },
+    { name = "requests", marker = "extra == 'app'", specifier = ">=2.0" },
+    { name = "requests", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "requests", marker = "extra == 'llm'", specifier = ">=2.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.16" },
 ]
-provides-extras = ["charts", "llm", "app", "all", "dev"]
+provides-extras = ["all", "app", "charts", "dev", "llm"]
 
 [[package]]
 name = "annotated-doc"
