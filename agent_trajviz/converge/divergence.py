@@ -146,7 +146,7 @@ def count_patterns(patterns: list[dict], ptype: str) -> int:
     """Count patterns whose ``type`` *or* ``parent_type`` is ``ptype``.
 
     The umbrella taxonomy keys ('write_retry') exist only as a ``parent_type``,
-    so a type-only count silently reports 0 for them (C4). Single-sourced here,
+    so a type-only count silently reports 0 for them. Single-sourced here,
     in the module that writes ``parent_type``, rather than in eval_layers.py:
     intervention.py importing eval_layers would invert the dependency direction.
     """

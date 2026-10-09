@@ -100,7 +100,7 @@ def _count_pattern(report: dict, pattern_type: str) -> int:
     """Count occurrences of a pattern type in a report.
 
     Delegates to the shared predicate so this and eval_layers cannot disagree
-    about umbrella types such as 'write_retry' (C4).
+    about umbrella types such as 'write_retry'.
     """
     return count_patterns(report.get("patterns", []), pattern_type)
 
@@ -176,7 +176,7 @@ def compute_pattern_deltas(
     """Compute pattern frequency deltas between before and after batches.
 
     Candidate keys include each pattern's ``parent_type`` as well as its
-    ``type`` (C4): without it the umbrella 'write_retry' never became a key and
+    ``type``: without it the umbrella 'write_retry' never became a key and
     its PATTERN_DIRECTIONS entry was dead. This is additive — the per-``type``
     entries keep their previous frequencies.
     """

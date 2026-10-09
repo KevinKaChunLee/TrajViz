@@ -16,7 +16,7 @@ DEFAULT_VALIDATION_PATTERNS = {"test", "build", "lint", "check", "verify"}
 # Milestone identity
 # ---------------------------------------------------------------------------
 
-# Defined here, next to extract_milestones, as the single source of truth (C5):
+# Defined here, next to extract_milestones, as the single source of truth:
 # charts.py and rendering.py each used to carry their own copy. The list also
 # fixes the display ORDER of the milestone timeline, which is why it is a list
 # and not just the label map's keys.
@@ -64,7 +64,7 @@ def extract_milestones(
     norm_targets = {_norm(f) for f in target_files} if target_files else None
 
     def _is_target(target: str) -> bool:
-        """Normalize-and-suffix-match against the target set (R26: hoisted
+        """Normalize-and-suffix-match against the target set (hoisted
         from three verbatim copies below; behavior unchanged)."""
         nt = _norm(target)
         return any(

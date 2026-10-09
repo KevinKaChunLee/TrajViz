@@ -2,7 +2,7 @@
 
 Delegates to converge.alignment.build_comparison_report_from_steps — the same
 core the file-path entry point (build_comparison_report) uses — so the two
-pipelines cannot drift (R21). This module only adapts already-loaded trajectory
+pipelines cannot drift. This module only adapts already-loaded trajectory
 dicts, parses the optional anchor patch via the shared helper, and renders the
 HTML report.
 """
@@ -56,7 +56,7 @@ def run_comparison(
     ref_labels, cmp_labels : dict or None
         Optional step-index → {'phase', 'action'} maps from the step labeler.
         When supplied, CanonicalActions carry phase/action labels and
-        divergence confidence scoring becomes phase-aware (C7). Opt-in on
+        divergence confidence scoring becomes phase-aware. Opt-in on
         purpose: the batch path must stay label-free so the
         ``patterns[].confidence`` values it already reported are not
         retroactively rescored.
@@ -93,7 +93,7 @@ def run_comparison(
         ref_steps = parse_steps(ref_raw)
         cmp_steps = parse_steps(cmp_raw)
 
-        # The `_error` checks above are not enough (C1): `load_trajectory`
+        # The `_error` checks above are not enough: `load_trajectory`
         # returns an unrecognised JSON *object* with no `_error` at all, and it
         # then scores 0.0 on every metric. Same shared guard the file-path
         # entry point raises on, so the two cannot drift again.

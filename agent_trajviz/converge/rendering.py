@@ -259,7 +259,7 @@ def build_comparison_report_html(report: dict) -> str:
         parts.append("</tbody></table>")
 
     # ── Anchor analysis (external anchor mode only) ──────────
-    # R22: brings the HTML report to parity with the CLI's anchor section.
+    # Brings the HTML report to parity with the CLI's anchor section.
     if anchor_analysis:
         parts.append(build_anchor_analysis_html(anchor_analysis))
 

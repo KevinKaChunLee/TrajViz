@@ -66,7 +66,7 @@ def align_trajectories(
     partitions actions into disjoint step-index ranges, so sum(n_i*m_i) over
     segments stays strictly below n*m — the re-entry is additive, not
     multiplicative. Only trajectories an order of magnitude longer
-    would justify a banded/anchored DP (C9).
+    would justify a banded/anchored DP.
     """
     # Filter out REASON actions for alignment
     ref_non_reason = [(i, a) for i, a in enumerate(reference) if a.action_type != "REASON"]
@@ -157,7 +157,7 @@ def compute_alignment_metrics(
 
     # Fall back to count-based metrics when token weights are 0
     # (e.g., Codex trajectories which lack per-action token data).
-    # The fallback is JOINT (B24): if either side lacks cost data, BOTH sides
+    # The fallback is JOINT: if either side lacks cost data, BOTH sides
     # switch to counts, so overhead_ratio and P/R/F1 never divide an action
     # count by a token weight (mixed units made them meaningless).
     if ((reference_weight == 0 and ref_non_reason)
@@ -197,7 +197,7 @@ def compute_harmful_divergence(
     Includes failed, reverted, and dead_end_branch actions per the spec.
 
     When the compared side carries no cost data at all, the *ratio* switches to
-    a count basis (C3) so that 0.0 keeps meaning "no harmful extras".
+    a count basis so that 0.0 keeps meaning "no harmful extras".
     ``harmful_cost`` still reports the genuine token/latency totals.
     """
     cmp_non_reason = [a for a in compared if a.action_type != "REASON"]
@@ -244,7 +244,7 @@ def _parse_anchor_files(patch_path: str | None) -> set[str] | None:
     """Extract anchor file paths from a unified diff's ``a/``/``b/`` headers.
 
     Returns ``None`` (un-anchored) when the patch is missing/unreadable — and
-    also when it contains no recognizable ``a/ b/`` headers (B25): an empty
+    also when it contains no recognizable ``a/ b/`` headers: an empty
     set would silently empty the target-file grounding in assign_effect_labels
     while every downstream ``if anchor_files:`` check still reported
     anchor_mode='self'. Shared by build_comparison_report and the Insight UI's
@@ -274,12 +274,12 @@ def empty_steps_reason(
     check — that keeps a non-trajectory from scoring 0.0 on every metric. Both
     entry points must apply it: ``build_comparison_report`` raises this as a
     ValueError and ``run_comparison`` renders it as an error banner with
-    ``ok: False``. Shared here for the same reason ``_parse_anchor_files`` is
-    (C1): a guard that lives in only one of the two cannot stay closed.
+    ``ok: False``. Shared here for the same reason ``_parse_anchor_files`` is:
+    a guard that lives in only one of the two cannot stay closed.
     """
     if steps:
         return None
-    # _describe_format, not a raw key lookup (C2): nothing in the package ever
+    # _describe_format, not a raw key lookup: nothing in the package ever
     # writes `_format`, and `_detected` is only set alongside `_error`, so the
     # old expression always degraded to 'unrecognised'.
     return (f"Could not load {label} trajectory {path!r}: no steps parsed "
@@ -365,7 +365,7 @@ def build_comparison_report_from_steps(
     ref_labels: dict[int, dict[str, str]] | None = None,
     cmp_labels: dict[int, dict[str, str]] | None = None,
 ) -> dict:
-    """Core comparison pipeline over already-loaded trajectories (R21).
+    """Core comparison pipeline over already-loaded trajectories.
 
     Single implementation shared by build_comparison_report (file paths) and
     agent_trajviz.insight.comparison.run_comparison (pre-loaded dicts).
@@ -488,7 +488,7 @@ def build_comparison_report_from_steps(
         anchor_analysis = compute_anchor_analysis(
             ref_actions, cmp_actions, anchor_files)
 
-    # Evaluation layers (R25: compute_eval_layers reads only patterns and
+    # Evaluation layers (compute_eval_layers reads only patterns and
     # anchor_analysis; the old throwaway alignment dict was never consumed)
     from .eval_layers import compute_eval_layers
     eval_layers = compute_eval_layers(patterns, anchor_analysis)

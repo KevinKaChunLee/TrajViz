@@ -5,13 +5,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from agent_trajviz.tool_vocab import BASH_TOOL_NAMES as _BASH_TOOLS, WRITE_TOOL_NAMES as _WRITE_TOOLS
-# Shared single-source helpers (C8/C9): validation-command detection lives in
+# Shared single-source helpers: validation-command detection lives in
 # insight/patterns.py and bash path extraction in insight/diagnostics.py (the
 # quoted + Windows-drive-aware implementation). Both modules import only
 # stdlib/tool_vocab at module level, so there is no import cycle.
 from agent_trajviz.insight.diagnostics import _extract_bash_paths
 from agent_trajviz.insight.patterns import _is_validation_command
-# D3: failure detection is tool_failure.py's job. These two call sites hold a
+# Failure detection is tool_failure.py's job. These two call sites hold a
 # bare status *string* rather than a whole tool-call dict, so they use
 # status_failed rather than tool_call_failed.
 from agent_trajviz.insight.tool_failure import status_failed
@@ -71,7 +71,7 @@ _PLANNING_TOOLS = {"todowrite", "TodoWrite", "TaskCreate", "TaskUpdate", "TaskLi
 # Navigation/utility commands excluded from alignment (like REASON)
 _NAVIGATION_COMMANDS = {"cd", "pwd", "ls", "echo", "export", "set", "source"}
 
-# sed/awk read by default (B22): `sed -n '1,50p' file` is a view, not a write.
+# sed/awk read by default: `sed -n '1,50p' file` is a view, not a write.
 # Only explicit in-place flags (see _is_in_place_edit) make them writes,
 # mirroring the Codex mapping in insight/formats/codex.py.
 _FUZZY_KEYWORDS: dict[str, str] = {
@@ -85,7 +85,7 @@ _AWK_IN_PLACE_RE = re.compile(r"(?:^|\s)(?:-i\s+inplace\b|--in-place\b)")
 
 
 def _is_in_place_edit(base_cmd: str, command: str) -> bool:
-    """True when a sed/awk invocation edits files in place (B22).
+    """True when a sed/awk invocation edits files in place.
 
     sed: ``-i`` / ``-i.bak`` / ``--in-place``; awk: only gawk's
     ``-i inplace`` / ``--in-place`` forms (plain ``awk -i`` loads a library).
@@ -217,7 +217,7 @@ def canonicalize_steps(
                 elif "|" not in command and base_cmd in _FUZZY_KEYWORDS:
                     action_type = _FUZZY_KEYWORDS[base_cmd]
                     if action_type == "FILE_READ" and _is_in_place_edit(base_cmd, command):
-                        action_type = "FILE_WRITE"  # sed -i / gawk -i inplace (B22)
+                        action_type = "FILE_WRITE"  # sed -i / gawk -i inplace
                     paths = _extract_bash_paths(command)
                     if action_type in ("FILE_READ", "FILE_WRITE") and paths:
                         target = _normalize_target(paths[0])
@@ -302,7 +302,7 @@ def _find_own_tool_call(
     """Locate the tool call that produced action ``a`` within its step.
 
     Prefers exact ``tool_call_id`` matching. When ids are unavailable, falls
-    back to POSITIONAL pairing (B23): canonicalize_steps emits exactly one
+    back to POSITIONAL pairing: canonicalize_steps emits exactly one
     action per tool call, in order, so the k-th action of this step carrying
     tool name T corresponds to the k-th tool call named T. This prevents a
     failing sibling call from being cross-attributed to a different same-named
@@ -339,7 +339,7 @@ def assign_effect_labels(
     anchor_files: set[str] | None = None,
 ) -> None:
     """Assign effect_label to each action based on full trajectory context. Mutates in place."""
-    # Determine target files (patch footprint). Truthiness check (B25): an
+    # Determine target files (patch footprint). Truthiness check: an
     # EMPTY anchor set (e.g. a patch whose headers matched no `a/ b/` prefixes)
     # must not suppress the identify_target_files fallback — downstream
     # consumers already treat an empty set as "un-anchored".
@@ -410,7 +410,7 @@ def assign_effect_labels(
             a.effect_label = "failed"
             a.effect_detail["reason"] = "tool_status_error"
             continue
-        # Check exit code from the action's OWN tool call only (B23): id match
+        # Check exit code from the action's OWN tool call only: id match
         # when available, positional pairing otherwise — never a name-scan that
         # picks up a failing sibling call.
         step = step_by_index.get(a.step_index)
@@ -433,7 +433,7 @@ def assign_effect_labels(
                 a.effect_detail["reason"] = "survived_within_run"
 
         elif a.action_type == "COMMAND":
-            # Read the command text from the action's OWN call (B23), not the
+            # Read the command text from the action's OWN call, not the
             # first same-named sibling.
             command = ""
             if own_tc is not None:
@@ -537,7 +537,7 @@ def _targets_match(a: str, b: str) -> bool:
 
 
 def _search_targets_match(a_target: str, b_target: str) -> bool:
-    """Compare SEARCH targets ('pattern@scope' or bare 'pattern') (B27).
+    """Compare SEARCH targets ('pattern@scope' or bare 'pattern').
 
     Patterns must be equal; scopes get the same cross-root suffix matching as
     FILE_READ/FILE_WRITE targets (_targets_match), so identical searches run
@@ -626,7 +626,7 @@ def reduce_composite_command(action: CanonicalAction) -> CanonicalAction | None:
     if reduced_type == "SEARCH":
         # Native SEARCH targets are 'pattern@scope' (or bare 'pattern');
         # emit the same format so strict equality in semantic_equivalent's
-        # fuzzy branch can actually match (B26).
+        # fuzzy branch can actually match.
         parts = last_stage.split()
         non_flag_args = [p for p in parts[1:] if not p.startswith("-")]
         pattern = non_flag_args[0] if non_flag_args else ""

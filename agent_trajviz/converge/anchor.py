@@ -68,7 +68,7 @@ def classify_anchor_files(
 ) -> tuple[dict[str, str], dict[str, int]]:
     """Classify all anchor files.
 
-    No custom-rules parameter (C6): nothing could reach it — no entry point,
+    No custom-rules parameter: nothing could reach it — no entry point,
     CLI flag or UI control ever threaded one through compute_anchor_analysis,
     so it was permanently None. :func:`classify_file` keeps its own hook, which
     is the documented first-match-wins extension point.

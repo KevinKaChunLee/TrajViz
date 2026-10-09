@@ -19,7 +19,7 @@ from .milestones import MILESTONE_LABELS, MILESTONE_NAMES
 _TPL = "plotly_white"
 
 # Milestone names/labels live in milestones.py, next to extract_milestones, so
-# the chart and the HTML table cannot drift apart (C5). Aliased to the private
+# the chart and the HTML table cannot drift apart. Aliased to the private
 # names this module already used; the miss fallback stays `.get(name, name)`
 # here and `.title()`-cased in rendering.py, so no rendered string changes.
 _MILESTONE_NAMES = MILESTONE_NAMES

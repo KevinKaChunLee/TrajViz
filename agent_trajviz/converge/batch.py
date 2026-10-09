@@ -158,7 +158,7 @@ def _safe_stat(values: list[float], func, default=None):
 
 
 def _percentile(values: list[float], q: float) -> float:
-    """Compute percentile using true nearest-rank: ceil(q*n)-1 (B28).
+    """Compute percentile using true nearest-rank: ceil(q*n)-1.
 
     The old truncated index int((n-1)*q) biased every tail low — p95 of 10
     values returned the 89th percentile and p5 collapsed to the minimum for
