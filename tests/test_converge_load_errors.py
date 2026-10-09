@@ -106,8 +106,8 @@ class BatchExcludesUnloadableTasks(unittest.TestCase):
             agg_good = aggregate_reports(good_only)
             agg_bad = aggregate_reports(with_bad)
 
-            self.assertEqual(agg_bad["success_count"], 1)
-            self.assertEqual(agg_bad["failure_count"], 1)
+            self.assertEqual(agg_bad["compared_count"], 1)
+            self.assertEqual(agg_bad["error_count"], 1)
             # The bad task must not perturb the statistics of the good one.
             self.assertEqual(
                 agg_bad["metrics"]["alignment_f1"]["mean"],
@@ -135,8 +135,8 @@ class BatchExcludesUnloadableTasks(unittest.TestCase):
 
             agg_good = aggregate_reports(good_only)
             agg_poison = aggregate_reports(with_poison)
-            self.assertEqual(agg_poison["success_count"], 1)
-            self.assertEqual(agg_poison["failure_count"], 1)
+            self.assertEqual(agg_poison["compared_count"], 1)
+            self.assertEqual(agg_poison["error_count"], 1)
             self.assertEqual(
                 agg_poison["metrics"]["alignment_f1"]["mean"],
                 agg_good["metrics"]["alignment_f1"]["mean"],

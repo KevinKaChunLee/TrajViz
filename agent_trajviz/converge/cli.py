@@ -23,13 +23,17 @@ def _print_summary(report: dict) -> None:
         print(f"Task: {report['task_id']}")
     print("=" * 60)
 
-    # Outcome
-    ref_agent = report.get("reference_agent", "reference")
-    cmp_agent = report.get("compared_agent", "compared")
-    print(f"\n  {ref_agent}: {'Success' if outcome.get('reference_success') else 'Failure'}"
-          f"  ({outcome.get('reference_steps', 0)} steps, {outcome.get('reference_tokens', 0):,} tokens)")
-    print(f"  {cmp_agent}: {'Success' if outcome.get('compared_success') else 'Failure'}"
-          f"  ({outcome.get('compared_steps', 0)} steps, {outcome.get('compared_tokens', 0):,} tokens)")
+    # Outcome. "Stopped normally" is what the heuristic can see: whether the
+    # run's last assistant step ended with a normal finish. It says nothing
+    # about whether the task was solved, so it is never printed as success.
+    for side in ("reference", "compared"):
+        label = outcome.get(f"{side}_format") or report.get(f"{side}_agent") or "?"
+        stopped = "stopped normally" if outcome.get(f"{side}_success") else "did not stop normally"
+        print(f"\n  {side.capitalize()} ({label}): {stopped}"
+              f"  ({outcome.get(f'{side}_steps', 0)} steps, {outcome.get(f'{side}_tokens', 0):,} tokens)", end="")
+    print()
+    if outcome.get("success_detection"):
+        print(f"  Outcome: {outcome['success_detection']}")
 
     # Alignment metrics with confidence badges
     conf = report.get("confidence", {})
@@ -129,10 +133,10 @@ def _print_batch_summary(batch_report: dict) -> None:
     print("=" * 60)
 
     print(f"\n  Tasks: {summary.get('task_count', 0)} total, "
-          f"{summary.get('success_count', 0)} succeeded, "
-          f"{summary.get('failure_count', 0)} failed")
+          f"{summary.get('compared_count', 0)} compared, "
+          f"{summary.get('error_count', 0)} could not be compared")
     if summary.get("anchored_count", 0) > 0:
-        print(f"  Anchored: {summary['anchored_count']} of {summary['success_count']}")
+        print(f"  Anchored: {summary['anchored_count']} of {summary['compared_count']}")
 
     # Aggregate metrics
     metrics = summary.get("metrics", {})

@@ -31,7 +31,9 @@ LAYER_DEFINITIONS = {
         },
     },
     "completion_quality": {
-        "description": "Did the agent finish the job?",
+        # What the two metrics measure, not whether the task was solved: with no
+        # anchor patch only the dead-end count is available.
+        "description": "Did the edits reach the target files, without abandoned branches?",
         "intervention_targets": "Multi-agent architecture, checklist prompting, task decomposition",
         "metrics": {
             "anchor_write_recall": {"source": "anchor", "key": "compared.write_recall", "good_dir": "higher"},

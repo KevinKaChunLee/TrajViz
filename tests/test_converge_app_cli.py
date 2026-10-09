@@ -99,6 +99,15 @@ class ConvergeCliRuns(unittest.TestCase):
         # Confidence labelling is the honesty contract of this report.
         self.assertIn("Confidence:", proc.stdout)
 
+    def test_summary_never_calls_the_finish_heuristic_success(self):
+        """The outcome is whether a run stopped normally, not whether it solved the task."""
+        proc = self._run(str(self.ref), str(self.cmp), "--output", "summary")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("Success", proc.stdout)
+        self.assertNotIn("Failure", proc.stdout)
+        self.assertRegex(proc.stdout, r"Reference \(.+\): (stopped normally|did not stop normally)")
+        self.assertRegex(proc.stdout, r"Compared \(.+\): (stopped normally|did not stop normally)")
+
     def test_json_output_is_parseable_and_carries_alignment(self):
         proc = self._run(str(self.ref), str(self.cmp), "--output", "json")
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -129,8 +138,8 @@ class ConvergeBatchAndIntervention(unittest.TestCase):
         results = run_batch(parse_manifest(str(path)))
         self.assertEqual(len(results), 2)
         agg = aggregate_reports(results)
-        self.assertEqual(agg["success_count"], 2)
-        self.assertEqual(agg["failure_count"], 0)
+        self.assertEqual(agg["compared_count"], 2)
+        self.assertEqual(agg["error_count"], 0)
         self.assertEqual(agg["metrics"]["alignment_f1"]["count"], 2)
 
     def test_manifest_rejects_a_missing_reference_up_front(self):

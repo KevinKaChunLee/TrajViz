@@ -167,7 +167,7 @@ def build_ui() -> gr.Blocks:
                 import html as html_mod
                 parts = ['<div class="cvg-report">']
                 parts.append("<h2>Batch Report</h2>")
-                parts.append(f"<p>{aggregate.get('success_count', 0)} of {aggregate.get('task_count', 0)} tasks succeeded</p>")
+                parts.append(f"<p>{aggregate.get('compared_count', 0)} of {aggregate.get('task_count', 0)} tasks compared</p>")
 
                 # Metrics table
                 metrics = aggregate.get("metrics", {})

@@ -160,7 +160,7 @@ def aggregate_reports(results: list[BatchResult]) -> dict[str, Any]:
     """
     successful = [r for r in results if r.report is not None]
     if not successful:
-        return {"task_count": 0, "success_count": 0, "failure_count": len(results), "metrics": {}}
+        return {"task_count": len(results), "compared_count": 0, "error_count": len(results), "metrics": {}}
 
     # Define which metrics to aggregate and where to find them
     metric_paths = {
@@ -227,8 +227,10 @@ def aggregate_reports(results: list[BatchResult]) -> dict[str, Any]:
 
     return {
         "task_count": len(results),
-        "success_count": len(successful),
-        "failure_count": len(results) - len(successful),
+        # Counts of comparisons computed / not computed. Neither says whether
+        # any run solved its task; per-task outcomes carry that heuristic.
+        "compared_count": len(successful),
+        "error_count": len(results) - len(successful),
         "anchored_count": anchored_count,
         "metrics": metrics,
     }
@@ -323,10 +325,10 @@ def build_batch_report(
     for r in results:
         entry: dict[str, Any] = {"task_id": r.task_id}
         if r.error:
-            entry["status"] = "failed"
+            entry["status"] = "error"
             entry["error"] = r.error
         else:
-            entry["status"] = "success"
+            entry["status"] = "compared"
             outcome = r.report.get("outcome", {})
             alignment = r.report.get("alignment", {})
             # Keep what says how far to trust the pair: which formats were
