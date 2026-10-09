@@ -33,12 +33,12 @@ import types
 import unittest
 from pathlib import Path
 
-from trajviz.insight.loaders import load_trajectory
-from trajviz.insight.rendering import _md_to_html_preview
-from trajviz.insight.report import write_report_file
-from trajviz.insight.session import LoadError, LoadedSession, load_session
-from trajviz.insight.ui import upload
-from trajviz.insight.ui.load import load_slot_keys, pack_load_outputs
+from agent_trajviz.insight.loaders import load_trajectory
+from agent_trajviz.insight.rendering import _md_to_html_preview
+from agent_trajviz.insight.report import write_report_file
+from agent_trajviz.insight.session import LoadError, LoadedSession, load_session
+from agent_trajviz.insight.ui import upload
+from agent_trajviz.insight.ui.load import load_slot_keys, pack_load_outputs
 
 _REPO_FIXTURES = Path(__file__).parent / "fixtures"
 _THREADS = 4
@@ -434,7 +434,7 @@ class ProcessGlobalFootprintTests(_SyntheticExportsMixin, unittest.TestCase):
         def snapshot() -> dict[str, str]:
             out: dict[str, str] = {}
             for mod_name, module in list(sys.modules.items()):
-                if not mod_name.startswith("trajviz."):
+                if not mod_name.startswith("agent_trajviz."):
                     continue
                 for attr, value in list(vars(module).items()):
                     if attr.startswith("__") or not isinstance(value, (dict, list, set, frozenset, tuple)):
@@ -597,7 +597,7 @@ class AttributionRootIsolationTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        from trajviz.insight import attribution
+        from agent_trajviz.insight import attribution
 
         if not attribution.DECAF_AVAILABLE:
             raise unittest.SkipTest("DECAF (awe) is not importable in this environment")

@@ -219,7 +219,7 @@ class EnvironmentGatedCoverageTests(unittest.TestCase):
         inert — but it reads as live code to anyone browsing the tree, and it is
         exactly what a half-finished deletion leaves behind.
         """
-        pkg_root = _TESTS_DIR.parent / "trajviz"
+        pkg_root = _TESTS_DIR.parent / "agent_trajviz"
         stale = [
             str(d.relative_to(pkg_root.parent))
             for d in pkg_root.rglob("*")

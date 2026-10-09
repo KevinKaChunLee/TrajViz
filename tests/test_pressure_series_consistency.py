@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.charts.activity import build_context_pressure_chart
-from trajviz.insight.context_usage import (
+from agent_trajviz.insight.charts.activity import build_context_pressure_chart
+from agent_trajviz.insight.context_usage import (
     context_pressure_series,
     context_pressure_stats,
     detect_compaction_events,

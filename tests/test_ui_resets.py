@@ -28,8 +28,8 @@ import unittest
 
 import gradio as gr
 
-from trajviz.insight import insight as insight_mod
-from trajviz.insight.ui import comparison_tab, overview_tab, shared, upload
+from agent_trajviz.insight import insight as insight_mod
+from agent_trajviz.insight.ui import comparison_tab, overview_tab, shared, upload
 
 _TRAJECTORY_FILE_LABEL = "Trajectory (.json / .jsonl / .zip)"
 _LOAD_BUTTON_LABEL = "Load Trajectory"
@@ -235,7 +235,7 @@ class LaunchPresentationTests(unittest.TestCase):
     """U9: `css`/`head` are launch() parameters in Gradio 6, not Blocks ones."""
 
     def test_launch_presentation_carries_the_stylesheet_and_the_head_tag(self):
-        from trajviz.insight.styles import APP_CSS
+        from agent_trajviz.insight.styles import APP_CSS
 
         presentation = insight_mod.LAUNCH_PRESENTATION
         self.assertIs(presentation["css"], APP_CSS)

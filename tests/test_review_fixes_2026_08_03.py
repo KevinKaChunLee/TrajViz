@@ -9,14 +9,14 @@ import os
 import tempfile
 import unittest
 
-from trajviz.insight.loaders import load_trajectory, detect_format
-from trajviz.insight.parser import parse_steps
-from trajviz.insight import rendering, formatting
-from trajviz.insight.metrics import (
+from agent_trajviz.insight.loaders import load_trajectory, detect_format
+from agent_trajviz.insight.parser import parse_steps
+from agent_trajviz.insight import rendering, formatting
+from agent_trajviz.insight.metrics import (
     compute_metrics, compute_health_verdict, effective_agent,
 )
-from trajviz.insight.analytics import compute_step_analytics
-from trajviz.insight import patterns, diagnostics
+from agent_trajviz.insight.analytics import compute_step_analytics
+from agent_trajviz.insight import patterns, diagnostics
 
 
 def _codex_event(t, ts, payload):
@@ -448,7 +448,7 @@ class PatternsDiagnosticsTests(unittest.TestCase):
         self.assertEqual(by_step[2]["type"], "read")
         self.assertEqual(by_step[3]["type"], "write")
 
-        from trajviz.insight.charts import build_file_interaction_chart
+        from agent_trajviz.insight.charts import build_file_interaction_chart
 
         fig = build_file_interaction_chart(inter)
         names = {t.name for t in fig.data}
@@ -462,7 +462,7 @@ class PatternsDiagnosticsTests(unittest.TestCase):
         self.assertEqual(write_trace.marker.symbol, "square")
 
     def test_multi_agent_file_legend_explains_marker_shapes(self):
-        from trajviz.insight.charts import build_file_interaction_chart
+        from agent_trajviz.insight.charts import build_file_interaction_chart
 
         interactions = [
             {"step": 0, "path": "/repo/a.py", "type": "read", "tool": "Read", "tokens": 1},
@@ -500,20 +500,20 @@ class PatternsDiagnosticsTests(unittest.TestCase):
 
 class ConvergeTests(unittest.TestCase):
     def test_extract_base_command_multi_env(self):
-        from trajviz.converge.canonical import _extract_base_command
+        from agent_trajviz.converge.canonical import _extract_base_command
         self.assertEqual(_extract_base_command("FOO=1 BAR=2 pytest"), "pytest")
         self.assertEqual(_extract_base_command("make test"), "make")
 
     def test_first_passing_validation_fires_for_validation_command(self):
-        from trajviz.converge.canonical import CanonicalAction
-        from trajviz.converge.milestones import extract_milestones
+        from agent_trajviz.converge.canonical import CanonicalAction
+        from agent_trajviz.converge.milestones import extract_milestones
         acts = [CanonicalAction(step_index=5, action_type="COMMAND", target="pytest",
                                 effect_label="justified",
                                 effect_detail={"reason": "validation_command"})]
         self.assertEqual(extract_milestones(acts)["first_passing_validation"], 5)
 
     def test_recommendation_reports_minor_regressions(self):
-        from trajviz.converge.intervention import generate_recommendation
+        from agent_trajviz.converge.intervention import generate_recommendation
         rec = generate_recommendation(
             {"latency": {"direction": "improved"}, "tokens": {"direction": "regressed"}}, [])
         self.assertNotIn("without regressions", rec)

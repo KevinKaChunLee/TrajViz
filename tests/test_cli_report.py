@@ -1,4 +1,4 @@
-"""Contract of the headless entry point: ``python -m trajviz.insight --report``.
+"""Contract of the headless entry point: ``python -m agent_trajviz.insight --report``.
 
 The dashboard is interactive and gets exercised by hand; the ``--report`` CLI is
 the only way TrajViz is driven from a script, a Makefile or a batch job, so its
@@ -139,7 +139,7 @@ def _tiny_trajectory() -> dict:
 def _run_cli(*args: str) -> subprocess.CompletedProcess:
     """Invoke the module entry point as a real process, so exit codes are the real thing."""
     return subprocess.run(
-        [sys.executable, "-m", "trajviz.insight", *args],
+        [sys.executable, "-m", "agent_trajviz.insight", *args],
         capture_output=True,
         text=True,
         env=dict(os.environ, PYTHONPATH=REPO_ROOT),
@@ -256,11 +256,11 @@ class ReportCliFailureModeTests(unittest.TestCase):
     """
 
     def _assert_clean_exit(self, path: str) -> str:
-        from trajviz.insight.__main__ import main
+        from agent_trajviz.insight.__main__ import main
 
         out, err = io.StringIO(), io.StringIO()
         with (
-            patch.object(sys, "argv", ["trajviz", "--report", path]),
+            patch.object(sys, "argv", ["agent-trajviz", "--report", path]),
             contextlib.redirect_stdout(out),
             contextlib.redirect_stderr(err),
             self.assertRaises(SystemExit) as raised,
@@ -314,7 +314,7 @@ class ReportOfflineGuaranteeTests(unittest.TestCase):
         """No trajectory content may leave the machine when a report is exported.
 
         Driven through the real ``__main__.main`` with a CPython audit hook armed
-        *before* any trajviz import, so an egress anywhere on the path — including
+        *before* any agent_trajviz import, so an egress anywhere on the path — including
         one added later by a new presenter or an LLM helper — fails the run. The
         child also proves the hook is live, so a green result can never be vacuous.
         """
@@ -328,8 +328,8 @@ class ReportOfflineGuaranteeTests(unittest.TestCase):
                 "    if name in BLOCKED:\n"
                 "        raise RuntimeError('EGRESS ATTEMPT: ' + name)\n"
                 "sys.addaudithook(_hook)\n"
-                "from trajviz.insight.__main__ import main\n"
-                "sys.argv = ['trajviz', '--report', sys.argv[1], '-o', sys.argv[2]]\n"
+                "from agent_trajviz.insight.__main__ import main\n"
+                "sys.argv = ['agent-trajviz', '--report', sys.argv[1], '-o', sys.argv[2]]\n"
                 "main()\n"
                 "try:\n"
                 "    socket.getaddrinfo('blocked.invalid', 80)\n"
@@ -376,7 +376,7 @@ class ReportAgreesWithDashboardTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        from trajviz.insight.session import LoadError, load_session
+        from agent_trajviz.insight.session import LoadError, load_session
 
         session = load_session(TRAJECTORY_PATH)
         assert not isinstance(session, LoadError), session
@@ -389,8 +389,8 @@ class ReportAgreesWithDashboardTests(unittest.TestCase):
         future change repoints one of them, this catches the split before a
         researcher quotes two different figures for one trajectory.
         """
-        from trajviz.insight.report import build_report_html
-        from trajviz.insight.ui.overview_tab import pack_load
+        from agent_trajviz.insight.report import build_report_html
+        from agent_trajviz.insight.ui.overview_tab import pack_load
 
         dashboard = pack_load(self.session)
         report_text = _visible_text(build_report_html(self.session))
@@ -407,7 +407,7 @@ class ReportAgreesWithDashboardTests(unittest.TestCase):
 
     def test_dark_and_light_reports_differ_only_in_theming(self) -> None:
         """``--dark`` is a rendering switch; it must not change a single reported value."""
-        from trajviz.insight.report import build_report_html
+        from agent_trajviz.insight.report import build_report_html
 
         light = build_report_html(self.session, dark=False)
         dark = build_report_html(self.session, dark=True)
@@ -425,7 +425,7 @@ class DashboardFlagWiringTests(unittest.TestCase):
     """``--host``/``--port``/``--share`` must reach Gradio unchanged."""
 
     def _launch_kwargs(self, argv: list[str]) -> dict:
-        import trajviz.insight.insight as insight_module
+        import agent_trajviz.insight.insight as insight_module
 
         recorded: dict = {}
 
@@ -433,11 +433,11 @@ class DashboardFlagWiringTests(unittest.TestCase):
             def launch(self, **kwargs: object) -> None:
                 recorded.update(kwargs)
 
-        from trajviz.insight.__main__ import main
+        from agent_trajviz.insight.__main__ import main
 
         with (
             patch.object(insight_module, "build_ui", lambda: _Recorder()),
-            patch.object(sys, "argv", ["trajviz", *argv]),
+            patch.object(sys, "argv", ["agent-trajviz", *argv]),
         ):
             main()
         return recorded

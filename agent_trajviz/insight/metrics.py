@@ -4,7 +4,7 @@ import math
 import statistics
 from collections.abc import Callable
 
-from trajviz.tool_vocab import SPAWN_TOOL_NAMES
+from agent_trajviz.tool_vocab import SPAWN_TOOL_NAMES
 
 from .tool_failure import tool_call_failed
 
@@ -939,7 +939,7 @@ def compute_diagnostic_metrics(
         else sum(1 for s in steps for tc in s.get("tool_calls", []) if tool_call_failed(tc))
     )
 
-    from trajviz.tool_vocab import WRITE_TOOL_NAMES as edit_tools
+    from agent_trajviz.tool_vocab import WRITE_TOOL_NAMES as edit_tools
     edit_total = 0
     edit_success = 0
     for s in steps:

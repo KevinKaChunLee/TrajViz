@@ -21,7 +21,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trajviz.insight.attribution import _select_judge_model
+from agent_trajviz.insight.attribution import _select_judge_model
 
 
 def _verdict(root: Path, slug: str, agent: str, inst: str, *, model: str, schema: int) -> None:

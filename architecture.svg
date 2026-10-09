@@ -178,7 +178,7 @@
     <rect x="554" y="1048" width="124" height="30" rx="15" fill="#fffaf4" stroke="#e0913a" stroke-width="1.3"/><text x="616" y="1068" text-anchor="middle" fill="#0f172a">Workflow</text>
     <rect x="688" y="1048" width="124" height="30" rx="15" fill="#fffaf4" stroke="#e0913a" stroke-width="1.3"/><text x="750" y="1068" text-anchor="middle" fill="#0f172a">Raw Data</text>
   </g>
-  <text x="420" y="1110" font-size="11.5" fill="#64748b">single-trajectory · python -m trajviz.insight · localhost:7860</text>
+  <text x="420" y="1110" font-size="11.5" fill="#64748b">single-trajectory · python -m agent_trajviz.insight · localhost:7860</text>
 
   <!-- Converge standalone -->
   <rect x="860" y="970" width="360" height="160" rx="10" fill="#ffffff" stroke="#e07b39" stroke-width="1.5"/>

@@ -790,7 +790,7 @@ def _convert_dsh_to_internal(
     child_event_lists: list[list[dict]] | None = None,
     child_warnings: list[str] | None = None,
 ) -> dict:
-    """Convert DeepSeek Harness JSONL events into the trajviz internal format.
+    """Convert DeepSeek Harness JSONL events into the TrajViz internal format.
 
     DSH emits newline-delimited JSON with a ``session`` header and slash-typed
     body events (``user/message``, ``assistant/message``, ``tool/call``,

@@ -5,15 +5,15 @@ import os
 import tempfile
 import unittest
 
-from trajviz.converge.canonical import CanonicalAction
-from trajviz.insight.charts import (
+from agent_trajviz.converge.canonical import CanonicalAction
+from agent_trajviz.insight.charts import (
     bind_timeline_agents,
     build_run_group_agent_timeline,
     build_skill_agent_chart,
     build_tool_chart,
 )
-from trajviz.insight.rendering import render_workflow_html
-from trajviz.insight.run_group import (
+from agent_trajviz.insight.rendering import render_workflow_html
+from agent_trajviz.insight.run_group import (
     build_behavioral_comparison,
     build_run_group_scorecard,
     build_run_group_scorecard_html,
@@ -356,7 +356,7 @@ class FileCoverageCountTests(unittest.TestCase):
         self.assertEqual(files["x.py"]["cells"]["b"]["write"], 0)
         types = {r["type"] for r in behavior["action_matrix"]}
         self.assertEqual(types, {"SEARCH", "COMMAND"})
-        from trajviz.insight.run_group import _rw_badges
+        from agent_trajviz.insight.run_group import _rw_badges
 
         self.assertIn("R×3", _rw_badges(files["x.py"]["cells"]["a"]))
         self.assertIn("W×2", _rw_badges(files["x.py"]["cells"]["a"]))
@@ -936,7 +936,7 @@ class ScorecardDisplayTests(unittest.TestCase):
 
 class CoverageMatrixExpandTests(unittest.TestCase):
     def test_keeps_all_actions_and_files_with_show_all_toggle(self):
-        from trajviz.insight.run_group import _ACTION_MATRIX_PREVIEW
+        from agent_trajviz.insight.run_group import _ACTION_MATRIX_PREVIEW
 
         n_files = 62
         n_actions = _ACTION_MATRIX_PREVIEW + 7
@@ -999,7 +999,7 @@ class CoverageMatrixExpandTests(unittest.TestCase):
 
 class FileCoverageFolderTests(unittest.TestCase):
     def test_groups_shared_folder_and_keeps_root_files_flat(self):
-        from trajviz.insight.run_group import _render_file_matrix_html
+        from agent_trajviz.insight.run_group import _render_file_matrix_html
 
         runs = [
             {
@@ -1043,7 +1043,7 @@ class FileCoverageFolderTests(unittest.TestCase):
         self.assertIn("rg-run-swatch", html)
 
     def test_single_file_folder_stays_a_row(self):
-        from trajviz.insight.run_group import _render_file_matrix_html
+        from agent_trajviz.insight.run_group import _render_file_matrix_html
 
         behavior = build_behavioral_comparison(
             [
@@ -1065,7 +1065,7 @@ class FileCoverageFolderTests(unittest.TestCase):
         self.assertNotIn("rg-tree-dir", html)
 
     def test_home_absolutes_keep_project_under_work(self):
-        from trajviz.insight.run_group import _file_tree_from_rows
+        from agent_trajviz.insight.run_group import _file_tree_from_rows
 
         root = "/home/dev/Work/TrajectoryVisualizer"
         runs = [
@@ -1105,8 +1105,8 @@ class FileCoverageFolderTests(unittest.TestCase):
         self.assertIn("rel.py", src_names)
 
     def test_wsl_unc_merges_with_posix_and_lists_both_reads(self):
-        from trajviz.converge.canonical import _normalize_target
-        from trajviz.insight.run_group import _render_file_matrix_html
+        from agent_trajviz.converge.canonical import _normalize_target
+        from agent_trajviz.insight.run_group import _render_file_matrix_html
 
         unc = r"\\wsl.localhost\Ubuntu-26.04\home\dev\Work\sample_app\src\app.py"
         posix = "/home/dev/Work/sample_app/src/app.py"
@@ -1146,7 +1146,7 @@ class FileCoverageFolderTests(unittest.TestCase):
         self.assertIn("tests/", html)
 
     def test_project_stays_nested_under_work(self):
-        from trajviz.insight.run_group import _file_tree_from_rows
+        from agent_trajviz.insight.run_group import _file_tree_from_rows
 
         root = "/home/dev/Work/sample_app"
         runs = [

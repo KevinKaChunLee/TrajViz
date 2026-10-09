@@ -26,10 +26,10 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from trajviz.insight import attribution
-from trajviz.insight.formats.dsh import _zip_dsh_members
-from trajviz.insight.loaders import load_trajectory
-from trajviz.insight.parser import parse_steps
+from agent_trajviz.insight import attribution
+from agent_trajviz.insight.formats.dsh import _zip_dsh_members
+from agent_trajviz.insight.loaders import load_trajectory
+from agent_trajviz.insight.parser import parse_steps
 
 GOLD_AGENT = "claude_code"
 GOLD_INST = "astropy__astropy-13033"

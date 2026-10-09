@@ -13,7 +13,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from trajviz.insight import assistant, issue_judge
+from agent_trajviz.insight import assistant, issue_judge
 
 
 class AnalysisLanguageTests(unittest.TestCase):
@@ -42,8 +42,8 @@ class AnalysisLanguageTests(unittest.TestCase):
 
         from pathlib import Path
 
-        from trajviz.insight.presenters.issues import OverviewIssue
-        from trajviz.insight.session import load_session
+        from agent_trajviz.insight.presenters.issues import OverviewIssue
+        from agent_trajviz.insight.session import load_session
 
         fixture = sorted((Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory"
                           / "claude_code").glob("*.json"))[0]

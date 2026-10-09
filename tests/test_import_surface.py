@@ -3,14 +3,14 @@
 PR #13 split ``insight.py``/``charts.py`` into the ``ui/``, ``presenters/``,
 ``formats/`` and ``charts/`` packages.  Most of the new modules are reached only
 from inside a Gradio callback (``ui/attribution_tab.py`` imports
-``trajviz.insight.attribution`` inside ``on_diagnose``, ``ui/overview_tab.py``
+``agent_trajviz.insight.attribution`` inside ``on_diagnose``, ``ui/overview_tab.py``
 imports the judge inside its handler, ...), so a stale or circular import in one
 of them cannot fail the test suite — it fails the first time a user clicks.  A
 refactor of this size is exactly the change that leaves such a module behind.
 
 Two invariants are pinned here:
 
-1. *Every* module under ``trajviz/`` and ``scripts/`` imports cleanly, whether
+1. *Every* module under ``agent_trajviz/`` and ``scripts/`` imports cleanly, whether
    or not any other test happens to reach it.
 2. Importing them is inert.  Importing a library must not ingest configuration
    from the process launch directory (``llm_config.load_env_files`` documents
@@ -67,7 +67,7 @@ _DOTENV_KEYS = {
 # through environment variables, so there is nothing to allow here.
 
 _PROBE = '''
-"""Import every trajviz/scripts module and report what the imports did."""
+"""Import every agent_trajviz/scripts module and report what the imports did."""
 import json
 import os
 import pathlib
@@ -95,7 +95,7 @@ socket.create_connection = _blocked
 socket.getaddrinfo = _blocked
 
 modules = []
-for py in sorted(repo.glob("trajviz/**/*.py")) + sorted(repo.glob("scripts/*.py")):
+for py in sorted(repo.glob("agent_trajviz/**/*.py")) + sorted(repo.glob("scripts/*.py")):
     parts = list(py.relative_to(repo).parts)
     parts = parts[:-1] if parts[-1] == "__init__.py" else parts[:-1] + [parts[-1][:-3]]
     if parts:
@@ -121,9 +121,9 @@ print(json.dumps({
 
 
 def _discover_modules() -> list[str]:
-    """Dotted names for every module under ``trajviz/`` and ``scripts/``."""
+    """Dotted names for every module under ``agent_trajviz/`` and ``scripts/``."""
     names: list[str] = []
-    for py in sorted(_REPO_ROOT.glob("trajviz/**/*.py")) + sorted(_REPO_ROOT.glob("scripts/*.py")):
+    for py in sorted(_REPO_ROOT.glob("agent_trajviz/**/*.py")) + sorted(_REPO_ROOT.glob("scripts/*.py")):
         parts = list(py.relative_to(_REPO_ROOT).parts)
         parts = parts[:-1] if parts[-1] == "__init__.py" else parts[:-1] + [parts[-1][:-3]]
         if parts:
@@ -139,12 +139,12 @@ class ModuleImportTests(unittest.TestCase):
         names = _discover_modules()
         self.assertGreater(len(names), 60, f"only found {len(names)} modules — the package walk is broken")
         for expected in (
-            "trajviz.insight.insight",
-            "trajviz.insight.attribution",      # imported inside on_diagnose only
-            "trajviz.insight.issue_judge",      # imported inside the Issues handler only
-            "trajviz.insight.charts.label_charts",
-            "trajviz.insight.formats.dsh",
-            "trajviz.converge.cli",
+            "agent_trajviz.insight.insight",
+            "agent_trajviz.insight.attribution",      # imported inside on_diagnose only
+            "agent_trajviz.insight.issue_judge",      # imported inside the Issues handler only
+            "agent_trajviz.insight.charts.label_charts",
+            "agent_trajviz.insight.formats.dsh",
+            "agent_trajviz.converge.cli",
             "scripts.cursor_consolidator",
         ):
             self.assertIn(expected, names)
@@ -287,7 +287,7 @@ class DeclaredDependencyTests(unittest.TestCase):
     REQUIREMENTS = _REPO_ROOT / "requirements.txt"
 
     def _sources(self) -> list[Path]:
-        return sorted(_REPO_ROOT.glob("trajviz/**/*.py")) + sorted(_REPO_ROOT.glob("scripts/*.py"))
+        return sorted(_REPO_ROOT.glob("agent_trajviz/**/*.py")) + sorted(_REPO_ROOT.glob("scripts/*.py"))
 
     def test_requirements_txt_mirrors_project_dependencies(self):
         """requirements.txt claims to mirror ``[project.dependencies]``; hold it to that.
@@ -353,7 +353,7 @@ def test_pytest_rootdir_and_path_come_from_this_repository(pytestconfig):
 def test_the_scripts_modules_resolve_inside_this_repository():
     """``scripts`` is a namespace package that sibling trees also define.
 
-    This is not hypothetical: ``trajviz.insight.attribution`` puts the DECAF
+    This is not hypothetical: ``agent_trajviz.insight.attribution`` puts the DECAF
     checkout's parent on ``sys.path`` to import ``awe``, and if that checkout also
     has a ``scripts/`` directory then ``scripts.__path__`` really does contain it
     ahead of ours.

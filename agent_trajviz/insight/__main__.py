@@ -1,4 +1,4 @@
-"""Entry point for `python -m trajviz.insight`."""
+"""Entry point for `python -m agent_trajviz.insight`."""
 
 import argparse
 import sys

@@ -5,9 +5,9 @@ import os
 import tempfile
 import unittest
 
-from trajviz.insight.loaders import detect_format, load_trajectory
-from trajviz.insight.metrics import extract_agent_info
-from trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.loaders import detect_format, load_trajectory
+from agent_trajviz.insight.metrics import extract_agent_info
+from agent_trajviz.insight.parser import parse_steps
 
 
 def _write(tmp: str, name: str, events: list) -> str:

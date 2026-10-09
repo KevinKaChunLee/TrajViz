@@ -17,8 +17,8 @@ import os
 import tempfile
 import unittest
 
-from trajviz.insight.context_usage import context_pressure_series, context_pressure_stats, step_context_occupancy
-from trajviz.insight.session import LoadedSession, load_session
+from agent_trajviz.insight.context_usage import context_pressure_series, context_pressure_stats, step_context_occupancy
+from agent_trajviz.insight.session import LoadedSession, load_session
 
 _WINDOW = 258_400
 

@@ -1,6 +1,6 @@
 """Trajectory format detection and conversion (Claude Code, Cursor, OpenCode, CodeArts, ICode, Codex, Pi, DSH).
 
-Converters live in ``trajviz.insight.formats``. This module is the public
+Converters live in ``agent_trajviz.insight.formats``. This module is the public
 facade: ``detect_format``, ``load_trajectory``, and the names callers already
 import.
 """

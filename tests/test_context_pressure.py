@@ -2,8 +2,8 @@
 
 import unittest
 
-from trajviz.insight.charts import build_context_pressure_chart
-from trajviz.insight.context_usage import (
+from agent_trajviz.insight.charts import build_context_pressure_chart
+from agent_trajviz.insight.context_usage import (
     DEFAULT_CONTEXT_WINDOW_LIMIT,
     PRESSURE_ALL_AGENTS,
     PRESSURE_MAIN_AGENT,
@@ -16,7 +16,7 @@ from trajviz.insight.context_usage import (
     resolve_context_window_limit,
     step_context_occupancy,
 )
-from trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.parser import parse_steps
 
 
 def _tokens(*, total, inp, out=0, reasoning=0, cache_read=0):

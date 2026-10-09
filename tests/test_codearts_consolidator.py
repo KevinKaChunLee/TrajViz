@@ -647,13 +647,13 @@ class CodeArtsConsolidatorV2Tests(unittest.TestCase):
         output = self.root / "trajectory.json"
         consolidator.write_output(result, output)
 
-        if not (PROJECT_ROOT / "trajviz").is_dir():
-            self.skipTest("trajviz package is not beside this staged test")
+        if not (PROJECT_ROOT / "agent_trajviz").is_dir():
+            self.skipTest("agent_trajviz package is not beside this staged test")
         sys.path.insert(0, str(PROJECT_ROOT))
         try:
-            from trajviz.insight.loaders import detect_format, load_trajectory
-            from trajviz.insight.parser import parse_steps
-            from trajviz.insight.patterns import extract_subagent_sessions
+            from agent_trajviz.insight.loaders import detect_format, load_trajectory
+            from agent_trajviz.insight.parser import parse_steps
+            from agent_trajviz.insight.patterns import extract_subagent_sessions
 
             self.assertEqual(detect_format(result), "codearts")
             loaded = load_trajectory(str(output))

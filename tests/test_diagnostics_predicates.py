@@ -2,7 +2,7 @@
 session fields, and a scrubbed judge error banner.
 
 Pins the four places where the Issues/Diagnostics surfaces used to disagree with
-``trajviz.insight.tool_failure`` or hid a defect behind a defensive default.
+``agent_trajviz.insight.tool_failure`` or hid a defect behind a defensive default.
 """
 
 import dataclasses
@@ -13,17 +13,17 @@ from types import SimpleNamespace
 
 import requests
 
-from trajviz.insight import diagnostics
-from trajviz.insight.diagnostics import _error_pattern, identify_target_files
-from trajviz.insight.issue_judge import iter_judge_overview_issues
-from trajviz.insight.presenters.issues import (
+from agent_trajviz.insight import diagnostics
+from agent_trajviz.insight.diagnostics import _error_pattern, identify_target_files
+from agent_trajviz.insight.issue_judge import iter_judge_overview_issues
+from agent_trajviz.insight.presenters.issues import (
     build_overview_issues_html,
     collect_overview_issues,
     rank_issues,
 )
-from trajviz.insight.session import LoadedSession
+from agent_trajviz.insight.session import LoadedSession
 
-_SRC_ROOT = Path(__file__).resolve().parents[1] / "trajviz" / "insight"
+_SRC_ROOT = Path(__file__).resolve().parents[1] / "agent_trajviz" / "insight"
 
 
 def _step(**tc) -> dict:
@@ -180,7 +180,7 @@ class JudgeErrorScrubbingTests(unittest.TestCase):
     _URL = "https://api.example.test/v1/chat/completions?api-key=sk-SECRET123"
 
     def _run(self, chat_fn) -> list[str]:
-        from trajviz.insight.llm_config import AnalysisLLMConfig
+        from agent_trajviz.insight.llm_config import AnalysisLLMConfig
 
         cfg = AnalysisLLMConfig(
             base_url="https://api.example.test/v1",

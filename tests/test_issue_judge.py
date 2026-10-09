@@ -3,15 +3,15 @@
 import unittest
 from types import SimpleNamespace
 
-from trajviz.insight.issue_judge import (
+from agent_trajviz.insight.issue_judge import (
     judge_issue_fix,
     judge_overview_issues,
     iter_judge_overview_issues,
     pack_issue_judge_context,
     parse_issue_judgment,
 )
-from trajviz.insight.llm_config import AnalysisLLMConfig
-from trajviz.insight.presenters.issues import (
+from agent_trajviz.insight.llm_config import AnalysisLLMConfig
+from agent_trajviz.insight.presenters.issues import (
     OverviewIssue,
     collect_overview_issues,
     rank_issues,

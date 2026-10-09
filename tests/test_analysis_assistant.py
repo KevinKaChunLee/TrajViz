@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import requests
 
-from trajviz.insight import assistant, llm_config
-from trajviz.insight.llm_config import (
+from agent_trajviz.insight import assistant, llm_config
+from agent_trajviz.insight.llm_config import (
     AnalysisLLMConfig,
     config_status_html,
     load_env_files,
@@ -279,7 +279,7 @@ class AnalysisChatTests(unittest.TestCase):
 
 class AnalysisUiTests(unittest.TestCase):
     def test_sidebar_is_wired_in_build_ui(self):
-        from trajviz.insight.ui import sidebar
+        from agent_trajviz.insight.ui import sidebar
 
         source = inspect.getsource(sidebar)
         self.assertIn("🤖 AI Trajectory Analysis", source)
@@ -289,7 +289,7 @@ class AnalysisUiTests(unittest.TestCase):
         self.assertNotIn("Where did it go wrong?", source)
         self.assertNotIn("analysis-panel-sub", source)
         self.assertNotIn("Simplified Chinese", source)
-        from trajviz.insight.styles import APP_CSS
+        from agent_trajviz.insight.styles import APP_CSS
         self.assertIn("#analysis-sidebar .analysis-panel-title", APP_CSS)
         self.assertIn("text-align: center", APP_CSS)
         self.assertIn("color-scheme: light", APP_CSS)

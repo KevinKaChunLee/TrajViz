@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.presenters.workflow import FILTER_CHIPS_DEFAULT, filter_workflow_steps
+from agent_trajviz.insight.presenters.workflow import FILTER_CHIPS_DEFAULT, filter_workflow_steps
 
 
 def _step(i: int, role: str) -> dict:

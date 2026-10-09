@@ -18,8 +18,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from trajviz.insight.charts.activity import build_plan_timeline_chart
-from trajviz.insight.patterns import compute_plan_metrics
+from agent_trajviz.insight.charts.activity import build_plan_timeline_chart
+from agent_trajviz.insight.patterns import compute_plan_metrics
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -60,7 +60,7 @@ class PlanOrderIsInsertionOrdered(unittest.TestCase):
         script = textwrap.dedent(
             """
             import json, sys
-            from trajviz.insight.patterns import compute_plan_metrics
+            from agent_trajviz.insight.patterns import compute_plan_metrics
             history = json.loads(sys.argv[1])
             pm = compute_plan_metrics(history)
             print(json.dumps([i["content"] for i in pm["items"]]))

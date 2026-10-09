@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.charts.swimlanes import (
+from agent_trajviz.insight.charts.swimlanes import (
     USER_SWIMLANE_LABEL,
     build_agent_swimlane_chart,
 )
-from trajviz.insight.palette import USER_SWIMLANE_COLOR
+from agent_trajviz.insight.palette import USER_SWIMLANE_COLOR
 
 
 def _step(

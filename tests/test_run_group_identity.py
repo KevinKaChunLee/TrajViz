@@ -20,7 +20,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trajviz.insight.run_group import _unify_path_keys, build_run_group_scorecard
+from agent_trajviz.insight.run_group import _unify_path_keys, build_run_group_scorecard
 
 _CC = Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory" / "claude_code"
 
@@ -77,7 +77,7 @@ class RunIdentityTests(unittest.TestCase):
         self.assertEqual(sorted(r["run_id"] for r in out["rows"]), sorted([self.stem, other.stem]))
 
     def test_a_baseline_without_a_source_path_keeps_uploads_aligned(self):
-        from trajviz.insight.loaders import load_trajectory
+        from agent_trajviz.insight.loaders import load_trajectory
 
         raw = load_trajectory(self.cc)
         raw.pop("_source_path", None)

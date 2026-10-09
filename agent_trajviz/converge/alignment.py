@@ -13,7 +13,7 @@ from .canonical import (
 
 def _describe_format(raw: dict) -> str:
     """Human-readable format name for a loaded trajectory (best-effort)."""
-    from trajviz.insight.loaders import detect_format, FORMAT_LABELS
+    from agent_trajviz.insight.loaders import detect_format, FORMAT_LABELS
     fmt = detect_format(raw) if isinstance(raw, dict) else "unknown"
     return FORMAT_LABELS.get(fmt, fmt or "unknown")
 
@@ -320,8 +320,8 @@ def build_comparison_report(
             :func:`empty_steps_reason` so neither can lose the guard; the
             Insight UI's ``run_comparison`` reports it as ``ok: False``.
     """
-    from trajviz.insight.loaders import load_trajectory
-    from trajviz.insight.parser import parse_steps
+    from agent_trajviz.insight.loaders import load_trajectory
+    from agent_trajviz.insight.parser import parse_steps
 
     ref_raw = load_trajectory(ref_file)
     cmp_raw = load_trajectory(cmp_file)
@@ -368,7 +368,7 @@ def build_comparison_report_from_steps(
     """Core comparison pipeline over already-loaded trajectories (R21).
 
     Single implementation shared by build_comparison_report (file paths) and
-    trajviz.insight.comparison.run_comparison (pre-loaded dicts).
+    agent_trajviz.insight.comparison.run_comparison (pre-loaded dicts).
     """
     from .milestones import (
         extract_milestones, compute_milestone_deltas,
@@ -413,7 +413,7 @@ def build_comparison_report_from_steps(
     metrics = compute_alignment_metrics(alignment, ref_actions, cmp_actions, token_rate)
 
     # Determine target files for milestone grounding
-    from trajviz.insight.diagnostics import identify_target_files
+    from agent_trajviz.insight.diagnostics import identify_target_files
     def _norm(p):
         return os.path.normpath(p) if p else p
     if anchor_files:

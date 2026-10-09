@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts import step_labeler_v2
-from trajviz.insight.labels import aggregate_labels
+from agent_trajviz.insight.labels import aggregate_labels
 
 
 class StepLabelerV2Tests(unittest.TestCase):
@@ -221,11 +221,11 @@ class StepLabelerV2Tests(unittest.TestCase):
             source_steps = [{"index": 0, "role": "user"}]
             with (
                 patch(
-                    "trajviz.insight.loaders.load_trajectory",
+                    "agent_trajviz.insight.loaders.load_trajectory",
                     return_value={},
                 ),
                 patch(
-                    "trajviz.insight.parser.parse_steps",
+                    "agent_trajviz.insight.parser.parse_steps",
                     return_value=source_steps,
                 ),
             ):

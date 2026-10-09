@@ -14,13 +14,13 @@ import shutil
 import tempfile
 import unittest
 
-from trajviz.insight.charts._layout import _empty_figure, _truncate_chart_labels
-from trajviz.insight.charts.swimlanes import build_tool_outcome_timeline
-from trajviz.insight.charts.usage import build_tool_chart, build_tool_duration_chart
-from trajviz.insight.formatting import _build_per_message_md, _metric_chip
-from trajviz.insight.report import _figure_is_empty, _mixed_md_to_html, build_report_html
-from trajviz.insight.session import LoadError, load_session
-from trajviz.insight.styles import APP_CSS
+from agent_trajviz.insight.charts._layout import _empty_figure, _truncate_chart_labels
+from agent_trajviz.insight.charts.swimlanes import build_tool_outcome_timeline
+from agent_trajviz.insight.charts.usage import build_tool_chart, build_tool_duration_chart
+from agent_trajviz.insight.formatting import _build_per_message_md, _metric_chip
+from agent_trajviz.insight.report import _figure_is_empty, _mixed_md_to_html, build_report_html
+from agent_trajviz.insight.session import LoadError, load_session
+from agent_trajviz.insight.styles import APP_CSS
 
 # Two MCP-style ids that share their first 27 characters: both truncate to the
 # same 30-char label, which Plotly then merges into a single y-axis category.

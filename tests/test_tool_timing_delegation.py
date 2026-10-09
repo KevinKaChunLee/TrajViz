@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.assistant import build_analysis_brief
-from trajviz.insight.formatting import format_behavioral_md
-from trajviz.insight.metrics import build_message_metrics, compute_metrics
+from agent_trajviz.insight.assistant import build_analysis_brief
+from agent_trajviz.insight.formatting import format_behavioral_md
+from agent_trajviz.insight.metrics import build_message_metrics, compute_metrics
 
 
 def _assistant_step(index, *, duration, tool_calls=None, is_sub_agent=False):

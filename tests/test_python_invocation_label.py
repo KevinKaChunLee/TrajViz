@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.shell_cmd import tool_chart_name
+from agent_trajviz.insight.shell_cmd import tool_chart_name
 
 
 def _bash(command: str) -> dict:

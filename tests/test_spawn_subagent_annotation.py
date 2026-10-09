@@ -6,10 +6,10 @@ import os
 import unittest
 from pathlib import Path
 
-from trajviz.insight.charts import build_run_group_agent_timeline
-from trajviz.insight.loaders import load_trajectory
-from trajviz.insight.parser import parse_steps, spawned_child_session_id
-from trajviz.insight.patterns import extract_subagent_sessions
+from agent_trajviz.insight.charts import build_run_group_agent_timeline
+from agent_trajviz.insight.loaders import load_trajectory
+from agent_trajviz.insight.parser import parse_steps, spawned_child_session_id
+from agent_trajviz.insight.patterns import extract_subagent_sessions
 
 # A real OpenCode export with Task-spawned "explore" sub-agents. None ships with
 # the repository, so this check runs only where one is available: point

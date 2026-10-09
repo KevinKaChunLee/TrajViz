@@ -22,8 +22,8 @@ import inspect
 import textwrap
 import unittest
 
-from trajviz.insight import metrics as metrics_mod
-from trajviz.insight.metrics import (
+from agent_trajviz.insight import metrics as metrics_mod
+from agent_trajviz.insight.metrics import (
     _compute_timing_metrics,
     build_message_metrics,
     compute_metrics,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from trajviz.tool_vocab import (
+from agent_trajviz.tool_vocab import (
     BASH_TOOL_NAMES,
     WRITE_TOOL_NAMES as _WRITE_TOOL_SET,
     parse_skill_name as _parse_skill_name,
@@ -404,7 +404,7 @@ def cluster_errors(steps: list[dict]) -> list[dict]:
     """Group error tool calls by (display tool, error_pattern).
 
     Bash/shell calls are labeled with the peeled base command (via
-    :func:`trajviz.insight.shell_cmd.tool_chart_name`) so ``npm test`` failures
+    :func:`agent_trajviz.insight.shell_cmd.tool_chart_name`) so ``npm test`` failures
     do not collapse into a generic ``Bash: exit code`` cluster.
 
     Returns sorted list of cluster dicts:

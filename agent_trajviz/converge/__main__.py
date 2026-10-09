@@ -1,8 +1,8 @@
-"""Launch the Converge Gradio app via `python -m trajviz.converge`.
+"""Launch the Converge Gradio app via `python -m agent_trajviz.converge`.
 
 The batch/report CLI is a separate entry point: the ``trajectory-converge``
-console script, or ``python -m trajviz.converge.cli``. This module intentionally
-launches the app (same precedent as ``trajviz.insight.__main__``), so do not
+console script, or ``python -m agent_trajviz.converge.cli``. This module intentionally
+launches the app (same precedent as ``agent_trajviz.insight.__main__``), so do not
 repoint it at the CLI — that would break every documented app invocation.
 """
 

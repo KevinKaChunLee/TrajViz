@@ -237,8 +237,8 @@ class CursorConsolidatorTests(unittest.TestCase):
         self.assertEqual(child_asst["info"]["tokens"]["context_window"], 500)
 
     def test_loader_detects_export_as_cursor_not_opencode(self) -> None:
-        from trajviz.insight.loaders import detect_format, load_trajectory
-        from trajviz.insight.parser import parse_steps
+        from agent_trajviz.insight.loaders import detect_format, load_trajectory
+        from agent_trajviz.insight.parser import parse_steps
 
         dest = self.root / "export.json"
         self._export(dest)

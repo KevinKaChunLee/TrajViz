@@ -22,8 +22,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from trajviz.insight import llm_config
-from trajviz.insight.llm_config import config_status_html, load_env_files
+from agent_trajviz.insight import llm_config
+from agent_trajviz.insight.llm_config import config_status_html, load_env_files
 
 
 class DotenvScopeTests(unittest.TestCase):

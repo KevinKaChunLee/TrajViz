@@ -8,18 +8,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trajviz.insight.charts import build_token_chart
-from trajviz.insight.context_usage import (
+from agent_trajviz.insight.charts import build_token_chart
+from agent_trajviz.insight.context_usage import (
     context_usage_breakdown,
     detect_compaction_events,
     step_context_occupancy,
 )
-from trajviz.insight.loaders import detect_format, load_trajectory
-from trajviz.insight.metrics import extract_agent_info
-from trajviz.insight.parser import parse_steps
-from trajviz.insight.patterns import extract_subagent_sessions
-from trajviz.insight.presenters import trajectory_format_label
-from trajviz.insight.tool_failure import tool_call_failed
+from agent_trajviz.insight.loaders import detect_format, load_trajectory
+from agent_trajviz.insight.metrics import extract_agent_info
+from agent_trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.patterns import extract_subagent_sessions
+from agent_trajviz.insight.presenters import trajectory_format_label
+from agent_trajviz.insight.tool_failure import tool_call_failed
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "icode_minimal.json"

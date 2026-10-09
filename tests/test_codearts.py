@@ -8,7 +8,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "codearts_minimal.json"
 
 class CodeArtsTests(unittest.TestCase):
     def test_format_is_detected_before_generic_opencode(self):
-        from trajviz.insight.loaders import detect_format
+        from agent_trajviz.insight.loaders import detect_format
 
         raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
         self.assertEqual(detect_format(raw), "codearts")
@@ -17,7 +17,7 @@ class CodeArtsTests(unittest.TestCase):
         self.assertEqual(detect_format(generic), "opencode")
 
     def test_loader_preserves_product_identity_hierarchy_and_token_totals(self):
-        from trajviz.insight.loaders import detect_format, load_trajectory
+        from agent_trajviz.insight.loaders import detect_format, load_trajectory
 
         loaded = load_trajectory(str(FIXTURE))
 
@@ -32,8 +32,8 @@ class CodeArtsTests(unittest.TestCase):
         self.assertEqual(loaded["token_usage"]["cache_read_tokens"], 35)
 
     def test_parser_preserves_message_part_and_session_fields(self):
-        from trajviz.insight.loaders import load_trajectory
-        from trajviz.insight.parser import parse_steps
+        from agent_trajviz.insight.loaders import load_trajectory
+        from agent_trajviz.insight.parser import parse_steps
 
         steps = parse_steps(load_trajectory(str(FIXTURE)))
 
@@ -49,7 +49,7 @@ class CodeArtsTests(unittest.TestCase):
         self.assertTrue(steps[2]["is_sub_agent"])
 
     def test_real_user_text_wins_over_an_earlier_synthetic_reminder(self):
-        from trajviz.insight.parser import _parse_parts
+        from agent_trajviz.insight.parser import _parse_parts
 
         _, _, _, _, preview = _parse_parts([
             {"type": "text", "text": "system reminder", "synthetic": True},
@@ -59,9 +59,9 @@ class CodeArtsTests(unittest.TestCase):
         self.assertEqual(preview, "actual user request")
 
     def test_codearts_keeps_all_five_token_legend_items(self):
-        from trajviz.insight.charts import build_token_chart
-        from trajviz.insight.loaders import load_trajectory
-        from trajviz.insight.parser import parse_steps
+        from agent_trajviz.insight.charts import build_token_chart
+        from agent_trajviz.insight.loaders import load_trajectory
+        from agent_trajviz.insight.parser import parse_steps
 
         steps = parse_steps(load_trajectory(str(FIXTURE)))
         figure = build_token_chart(steps, format="codearts")
@@ -74,7 +74,7 @@ class CodeArtsTests(unittest.TestCase):
         self.assertEqual(sum(trace.y[1] for trace in figure.data), 100)
 
     def test_human_readable_format_label(self):
-        from trajviz.insight.presenters import trajectory_format_label
+        from agent_trajviz.insight.presenters import trajectory_format_label
 
         self.assertEqual(trajectory_format_label("codearts"), "CodeArts")
 

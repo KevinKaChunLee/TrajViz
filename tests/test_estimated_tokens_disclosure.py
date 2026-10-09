@@ -14,8 +14,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from trajviz.insight.presenters.overview import build_overview_outputs, load_warnings_html
-from trajviz.insight.session import LoadedSession, load_session
+from agent_trajviz.insight.presenters.overview import build_overview_outputs, load_warnings_html
+from agent_trajviz.insight.session import LoadedSession, load_session
 
 _FIX = Path(__file__).resolve().parent / "fixtures"
 

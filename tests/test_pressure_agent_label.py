@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.context_usage import _agent_pressure_label
+from agent_trajviz.insight.context_usage import _agent_pressure_label
 
 
 def _step(session: str, *, agent=None, title=None) -> dict:

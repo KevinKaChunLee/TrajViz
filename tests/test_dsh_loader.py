@@ -8,24 +8,24 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from trajviz.converge.canonical import canonicalize_steps
-from trajviz.insight.charts import bind_timeline_agents, build_file_interaction_chart
-from trajviz.insight.charts.activity import (
+from agent_trajviz.converge.canonical import canonicalize_steps
+from agent_trajviz.insight.charts import bind_timeline_agents, build_file_interaction_chart
+from agent_trajviz.insight.charts.activity import (
     FILE_PATH_LABEL_LIMIT,
     file_interaction_chart_height,
     shorten_middle_path,
     unique_short_paths,
 )
-from trajviz.insight.diagnostics import extract_file_interactions
-from trajviz.insight.formatting import format_performance_md
-from trajviz.insight.loaders import (
+from agent_trajviz.insight.diagnostics import extract_file_interactions
+from agent_trajviz.insight.formatting import format_performance_md
+from agent_trajviz.insight.loaders import (
     _dsh_drop_seed_prefix,
     _zip_dsh_members,
     detect_format,
     load_trajectory,
 )
-from trajviz.insight.metrics import compute_agent_summary, compute_metrics, extract_agent_info
-from trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.metrics import compute_agent_summary, compute_metrics, extract_agent_info
+from agent_trajviz.insight.parser import parse_steps
 
 
 # No real DeepSeek Harness export can ship with this repository. This check

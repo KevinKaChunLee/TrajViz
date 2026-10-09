@@ -22,7 +22,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trajviz.insight.report import report_from_path
+from agent_trajviz.insight.report import report_from_path
 
 _CC = Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory" / "claude_code"
 

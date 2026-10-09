@@ -1,7 +1,7 @@
 """Smoke coverage for the Converge app, CLI, batch and intervention paths.
 
 Converge is the project's second shipping Gradio app (`python -m
-trajviz.converge`) plus a CLI. Its UI/CLI layer had no test coverage at all
+agent_trajviz.converge`) plus a CLI. Its UI/CLI layer had no test coverage at all
 (`app.py`, `cli.py`, `charts.py` were at 0%), so a refactor could break the
 whole entry point without a single test failing. These are deliberately
 shallow -- they assert the wiring holds and the reports carry real content,
@@ -51,7 +51,7 @@ def _manifest(path: Path, tasks: list[tuple[str, Path, Path]]) -> Path:
 
 class ConvergeAppConstructs(unittest.TestCase):
     def test_build_ui_constructs_without_error(self):
-        from trajviz.converge.app import build_ui
+        from agent_trajviz.converge.app import build_ui
 
         app = build_ui()
         self.assertIsNotNone(app)
@@ -60,7 +60,7 @@ class ConvergeAppConstructs(unittest.TestCase):
         """Gradio 6 deprecates css/theme on gr.Blocks; they belong to launch()."""
         import warnings
 
-        from trajviz.converge.app import LAUNCH_PRESENTATION, build_ui
+        from agent_trajviz.converge.app import LAUNCH_PRESENTATION, build_ui
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -72,7 +72,7 @@ class ConvergeAppConstructs(unittest.TestCase):
     def test_file_pickers_only_offer_types_the_loader_accepts(self):
         # The loader rejects .log outright (loaders.py), so offering it in the
         # picker invites a file that can only fail.
-        source = (REPO_ROOT / "trajviz" / "converge" / "app.py").read_text()
+        source = (REPO_ROOT / "agent_trajviz" / "converge" / "app.py").read_text()
         self.assertNotIn('".log"', source)
 
 
@@ -86,7 +86,7 @@ class ConvergeCliRuns(unittest.TestCase):
 
     def _run(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [sys.executable, "-m", "trajviz.converge.cli", *args],
+            [sys.executable, "-m", "agent_trajviz.converge.cli", *args],
             cwd=str(REPO_ROOT),
             env={"PYTHONPATH": str(REPO_ROOT), "PATH": "/usr/bin:/bin"},
             capture_output=True, text=True, timeout=300,
@@ -122,7 +122,7 @@ class ConvergeBatchAndIntervention(unittest.TestCase):
         self.c = _trajectory(self.tmp / "c.json", steps=5, tool="Read")
 
     def test_batch_aggregates_every_task(self):
-        from trajviz.converge.batch import aggregate_reports, parse_manifest, run_batch
+        from agent_trajviz.converge.batch import aggregate_reports, parse_manifest, run_batch
 
         path = _manifest(self.tmp / "m.json",
                          [("t1", self.a, self.b), ("t2", self.a, self.c)])
@@ -134,7 +134,7 @@ class ConvergeBatchAndIntervention(unittest.TestCase):
         self.assertEqual(agg["metrics"]["alignment_f1"]["count"], 2)
 
     def test_manifest_rejects_a_missing_reference_up_front(self):
-        from trajviz.converge.batch import parse_manifest
+        from agent_trajviz.converge.batch import parse_manifest
 
         path = _manifest(self.tmp / "bad.json",
                          [("t1", self.tmp / "nope.json", self.b)])
@@ -142,8 +142,8 @@ class ConvergeBatchAndIntervention(unittest.TestCase):
             parse_manifest(str(path))
 
     def test_intervention_pairs_tasks_and_reports_deltas(self):
-        from trajviz.converge.batch import parse_manifest, run_batch
-        from trajviz.converge.intervention import compute_metric_deltas, pair_tasks
+        from agent_trajviz.converge.batch import parse_manifest, run_batch
+        from agent_trajviz.converge.intervention import compute_metric_deltas, pair_tasks
 
         before = _manifest(self.tmp / "before.json", [("t1", self.a, self.b)])
         after = _manifest(self.tmp / "after.json", [("t1", self.a, self.c)])

@@ -53,14 +53,14 @@ Launch the dashboard:
 
 ```bash
 # uv
-uv run trajviz
+uv run agent-trajviz
 # or
-uv run python -m trajviz.insight
+uv run python -m agent_trajviz.insight
 
 # pip / activated venv
-python -m trajviz.insight
+python -m agent_trajviz.insight
 # or
-trajviz
+agent-trajviz
 ```
 
 Default: `http://localhost:7860`. Upload a trajectory JSON via the file picker at the top of the UI. After load, **Export HTML** downloads a standalone Overview + charts + Patterns snapshot (charts stay interactive via Plotly's CDN).
@@ -68,9 +68,9 @@ Default: `http://localhost:7860`. Upload a trajectory JSON via the file picker a
 Headless report, no dashboard:
 
 ```bash
-python -m trajviz.insight --report path/to/trajectory.json -o report.html
+python -m agent_trajviz.insight --report path/to/trajectory.json -o report.html
 # fully offline: embed plotly.js instead of loading it from the CDN (adds several MB)
-python -m trajviz.insight --report path/to/trajectory.json -o report.html --inline-plotly
+python -m agent_trajviz.insight --report path/to/trajectory.json -o report.html --inline-plotly
 ```
 
 With `-o` pointing at a directory, the file name comes from the trajectory's
@@ -106,14 +106,14 @@ Custom port or host (prefix any of these with `uv run` when using uv):
 
 ```bash
 # Different port
-python -m trajviz.insight --port 8080
+python -m agent_trajviz.insight --port 8080
 
 # Access from any IP on the network
-python -m trajviz.insight --host 0.0.0.0
+python -m agent_trajviz.insight --host 0.0.0.0
 # Then access it via your server's IP address: `http://YOUR_IP:7860`
 
 # Create a public share link
-python -m trajviz.insight --share
+python -m agent_trajviz.insight --share
 ```
 
 ---
@@ -140,14 +140,14 @@ set no_proxy=127.0.0.1,localhost;%no_proxy%
 If port 7860 is already in use, specify a different port:
 
 ```bash
-python -m trajviz.insight --port 8080
+python -m agent_trajviz.insight --port 8080
 ```
 
 ---
 
 ## Supported trajectory formats
 
-trajviz normalizes the following formats. **Auto-detect** is the default —
+TrajViz normalizes the following formats. **Auto-detect** is the default —
 upload a `.json` / `.jsonl` / `.zip` file and load it. Pick a specific format only to
 override detection or to load a Claude Code export that lacks the usual
 `format` marker. An explicit pick is a requirement, not a hint: a file that is
@@ -179,7 +179,7 @@ chain (observation → inference → conclusion, with verbatim trajectory quotes
 a tamper-evidence audit verdict) for each fault.
 
 The attribution is computed by DECAF (`awe`), imported as a library through
-`trajviz/insight/attribution.py`. The feature needs a DECAF checkout: point
+`agent_trajviz/insight/attribution.py`. The feature needs a DECAF checkout: point
 `AWE_DECAF_PATH` at it (default: a sibling `../DECAF` directory). Without DECAF,
 TrajViz runs fully standalone and the Attribution tab degrades to an informative
 notice. It is **gold-grounded** — it needs the task's reference patch and test
@@ -205,13 +205,13 @@ prompt and evidence schema) matches the current inputs. By default the tab reads
 the model whose cached verdicts carry DECAF's current evidence schema; set
 `AWE_JUDGE_MODEL` to choose one explicitly. DECAF is stdlib-only and located at
 runtime via `AWE_DECAF_PATH` (default: a sibling `../DECAF` checkout).
-`trajviz/insight/attribution.py` documents the integration.
+`agent_trajviz/insight/attribution.py` documents the integration.
 
 ---
 
 ## Collecting trajectories
 
-trajviz only **reads** trajectory files — producing them is the agent's responsibility. This section shows how to obtain a valid trajectory JSON for each supported agent.
+TrajViz only **reads** trajectory files — producing them is the agent's responsibility. This section shows how to obtain a valid trajectory JSON for each supported agent.
 
 ### Claude Code
 

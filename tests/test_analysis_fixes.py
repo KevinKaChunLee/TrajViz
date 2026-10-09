@@ -11,12 +11,12 @@ silently regress:
 
 import unittest
 
-from trajviz.insight.metrics import (
+from agent_trajviz.insight.metrics import (
     _compute_command_metrics,
     _percentile,
     compute_diagnostic_metrics,
 )
-from trajviz.insight.patterns import detect_tool_selection_antipatterns
+from agent_trajviz.insight.patterns import detect_tool_selection_antipatterns
 
 
 def _step(idx, tool_calls, role="assistant"):

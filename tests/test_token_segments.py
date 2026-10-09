@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.charts.usage import build_agent_token_chart, build_token_chart
-from trajviz.insight.context_usage import step_context_occupancy
-from trajviz.insight.parser import infer_non_cache_input, token_segments
+from agent_trajviz.insight.charts.usage import build_agent_token_chart, build_token_chart
+from agent_trajviz.insight.context_usage import step_context_occupancy
+from agent_trajviz.insight.parser import infer_non_cache_input, token_segments
 
 # (name, total, input, output, reasoning, cache_read, cache_write)
 SHAPES = [
@@ -101,7 +101,7 @@ class ChartTests(unittest.TestCase):
 class TokensTooltipTests(unittest.TestCase):
     def test_the_tooltip_does_not_promise_a_sum_that_omits_cache_write(self):
         """The card's total includes cache write; the tooltip must not say otherwise."""
-        from trajviz.insight.help import HELP_TEXT
+        from agent_trajviz.insight.help import HELP_TEXT
 
         text = HELP_TEXT["tokens"]
         self.assertIn("cache write", text)

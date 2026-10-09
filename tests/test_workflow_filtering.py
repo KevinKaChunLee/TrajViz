@@ -7,7 +7,7 @@ import unittest
 
 def _chip_state_source():
     """Extract the pure chip state machine JS embedded in the Workflow tab."""
-    from trajviz.insight.ui import workflow_tab
+    from agent_trajviz.insight.ui import workflow_tab
 
     source = inspect.getsource(workflow_tab)
     begin = source.index("__WF_CHIP_STATE_BEGIN__")
@@ -103,7 +103,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         ]
 
     def test_roles_are_combined_with_or(self):
-        from trajviz.insight.presenters import filter_workflow_steps
+        from agent_trajviz.insight.presenters import filter_workflow_steps
 
         self.assertEqual(
             filter_workflow_steps(self.steps, ["Assistant", "User", "All"]),
@@ -119,7 +119,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         )
 
     def test_errors_feature_includes_provider_abort(self):
-        from trajviz.insight.presenters import filter_workflow_steps
+        from agent_trajviz.insight.presenters import filter_workflow_steps
 
         steps = [
             _step(0, role="assistant", text="ok"),
@@ -132,7 +132,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         )
 
     def test_features_are_combined_with_or_inside_selected_roles(self):
-        from trajviz.insight.presenters import filter_workflow_steps
+        from agent_trajviz.insight.presenters import filter_workflow_steps
 
         self.assertEqual(
             filter_workflow_steps(
@@ -143,7 +143,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         )
 
     def test_role_and_feature_groups_are_combined_with_and(self):
-        from trajviz.insight.presenters import filter_workflow_steps
+        from agent_trajviz.insight.presenters import filter_workflow_steps
 
         self.assertEqual(
             filter_workflow_steps(self.steps, ["Assistant", "Tool Calls"]),
@@ -155,7 +155,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         )
 
     def test_all_or_an_omitted_feature_selection_has_no_feature_predicate(self):
-        from trajviz.insight.presenters import filter_workflow_steps
+        from agent_trajviz.insight.presenters import filter_workflow_steps
 
         expected = [1, 2, 3, 4]
         self.assertEqual(
@@ -168,7 +168,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         )
 
     def test_no_selected_role_is_empty(self):
-        from trajviz.insight.presenters import filter_workflow_steps
+        from agent_trajviz.insight.presenters import filter_workflow_steps
 
         self.assertEqual(
             filter_workflow_steps(self.steps, ["All", "Tool Calls"]),
@@ -176,7 +176,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         )
 
     def test_subagent_handoff_is_not_a_user_filter_match(self):
-        from trajviz.insight.presenters import filter_workflow_steps
+        from agent_trajviz.insight.presenters import filter_workflow_steps
 
         spawn = _step(5, role="user", agent="explore", text="Explore the repo")
         spawn["parts"] = [{"type": "text", "text": "Explore the repo"}]
@@ -189,8 +189,8 @@ class WorkflowFilteringTests(unittest.TestCase):
         self.assertIn(5, filter_workflow_steps(steps, ["Assistant", "All"]))
 
     def test_agent_tokens_filter_by_timeline_agent_id(self):
-        from trajviz.insight.presenters import filter_workflow_steps
-        from trajviz.insight.rendering import MAIN_AGENT_FILTER, agent_filter_token
+        from agent_trajviz.insight.presenters import filter_workflow_steps
+        from agent_trajviz.insight.rendering import MAIN_AGENT_FILTER, agent_filter_token
 
         self.assertEqual(
             filter_workflow_steps(
@@ -215,8 +215,8 @@ class WorkflowFilteringTests(unittest.TestCase):
         )
 
     def test_agent_and_feature_groups_are_combined_with_and(self):
-        from trajviz.insight.presenters import filter_workflow_steps
-        from trajviz.insight.rendering import agent_filter_token
+        from agent_trajviz.insight.presenters import filter_workflow_steps
+        from agent_trajviz.insight.rendering import agent_filter_token
 
         self.assertEqual(
             filter_workflow_steps(
@@ -227,7 +227,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         )
 
     def test_keyword_is_anded_with_role_and_features(self):
-        from trajviz.insight.presenters import filter_workflow_steps
+        from agent_trajviz.insight.presenters import filter_workflow_steps
 
         self.steps[3]["tool_calls"][0] = {
             "tool_name": "Bash",
@@ -239,7 +239,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         self.assertEqual(filter_workflow_steps(self.steps, filters, "inspect"), [1])
 
     def test_filtered_outputs_keep_cards_count_and_toc_in_sync(self):
-        from trajviz.insight.presenters import build_filtered_workflow_outputs
+        from agent_trajviz.insight.presenters import build_filtered_workflow_outputs
 
         workflow, count, toc = build_filtered_workflow_outputs(
             self.steps,
@@ -254,7 +254,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         self.assertNotIn("data-step-idx='1'", toc)
 
     def test_filter_chips_render_two_explicit_groups_without_agents(self):
-        from trajviz.insight.rendering import render_filter_chips
+        from agent_trajviz.insight.rendering import render_filter_chips
 
         chips = render_filter_chips()
 
@@ -270,7 +270,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         self.assertNotIn("onclick=", chips)
 
     def test_filter_chips_render_agent_group_for_multi_agent_steps(self):
-        from trajviz.insight.rendering import (
+        from agent_trajviz.insight.rendering import (
             AGENT_ALL_FILTER,
             MAIN_AGENT_FILTER,
             agent_filter_token,
@@ -289,7 +289,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         self.assertIn("Agent: All", chips)
 
     def test_default_chips_select_both_roles_and_all_only(self):
-        from trajviz.insight.rendering import render_filter_chips
+        from agent_trajviz.insight.rendering import render_filter_chips
 
         chips = render_filter_chips()
 
@@ -305,7 +305,7 @@ class WorkflowFilteringTests(unittest.TestCase):
     def test_chip_handler_routes_clicks_through_the_pure_state_machine(self):
         # Thin DOM-glue assertions; the state machine itself is executed
         # behaviorally in WorkflowChipStateMachineTests below.
-        from trajviz.insight.ui import workflow_tab
+        from agent_trajviz.insight.ui import workflow_tab
 
         source = inspect.getsource(workflow_tab)
 
@@ -317,7 +317,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         self.assertIn("window.__syncWorkflowFilters(bar)", source)
 
     def test_chip_handler_updates_the_real_hidden_input_and_all_outputs(self):
-        from trajviz.insight.ui import workflow_tab
+        from agent_trajviz.insight.ui import workflow_tab
 
         source = inspect.getsource(workflow_tab)
 
@@ -334,14 +334,14 @@ class WorkflowFilteringTests(unittest.TestCase):
     def test_hidden_filter_bridge_is_visually_hidden_with_css(self):
         from pathlib import Path
 
-        styles = Path(__file__).resolve().parents[1].joinpath("trajviz", "insight", "styles.py").read_text()
+        styles = Path(__file__).resolve().parents[1].joinpath("agent_trajviz", "insight", "styles.py").read_text()
 
         start = styles.index("#wf-filter-hidden")
         bridge_css = styles[start:styles.index(".filter-summary {", start)]
         self.assertIn("display: none !important", bridge_css)
 
     def test_filter_rerender_preserves_collapsed_toc(self):
-        from trajviz.insight.presenters import build_filtered_workflow_outputs
+        from agent_trajviz.insight.presenters import build_filtered_workflow_outputs
 
         collapsed_toc = "<nav class='wf-toc-sidebar toc-hidden' id='wf-toc-sidebar'></nav>"
         _, _, toc = build_filtered_workflow_outputs(
@@ -356,7 +356,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         self.assertNotIn("toc-hidden", toc)
 
     def test_filter_callbacks_read_and_write_the_toc(self):
-        from trajviz.insight.ui import workflow_tab
+        from agent_trajviz.insight.ui import workflow_tab
 
         source = inspect.getsource(workflow_tab)
 
@@ -371,7 +371,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         # still shows its placeholder, and must restore the step's detail
         # when its card reappears. A stale URL hash is dropped, not
         # explained away as "hidden by the current filters".
-        from trajviz.insight.ui import workflow_tab
+        from agent_trajviz.insight.ui import workflow_tab
 
         source = inspect.getsource(workflow_tab)
 

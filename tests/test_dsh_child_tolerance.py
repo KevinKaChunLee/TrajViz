@@ -17,10 +17,10 @@ import tempfile
 import unittest
 import zipfile
 
-from trajviz.insight.loaders import load_trajectory
-from trajviz.insight.parser import parse_steps
-from trajviz.insight.presenters.overview import load_warnings_html
-from trajviz.insight.session import LoadedSession, load_session
+from agent_trajviz.insight.loaders import load_trajectory
+from agent_trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.presenters.overview import load_warnings_html
+from agent_trajviz.insight.session import LoadedSession, load_session
 
 T0 = 1_787_623_647_000
 

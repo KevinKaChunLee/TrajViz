@@ -6,11 +6,11 @@ import re
 from bisect import bisect_right
 from collections import Counter
 
-from trajviz.insight.formats.common import as_text
-from trajviz.insight.parser import spawned_child_session_id
-from trajviz.insight.shell_cmd import shell_runs_search
-from trajviz.insight.tool_failure import step_has_success, tool_call_failed
-from trajviz.tool_vocab import (
+from agent_trajviz.insight.formats.common import as_text
+from agent_trajviz.insight.parser import spawned_child_session_id
+from agent_trajviz.insight.shell_cmd import shell_runs_search
+from agent_trajviz.insight.tool_failure import step_has_success, tool_call_failed
+from agent_trajviz.tool_vocab import (
     BASH_TOOL_NAMES,
     WRITE_TOOL_NAMES as _WRITE_TOOL_NAMES,
     write_target_path,

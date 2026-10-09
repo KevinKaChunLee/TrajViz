@@ -1,6 +1,6 @@
 """The pattern module's predicates must agree with each other and say what they mean.
 
-The first four defects below are all in `trajviz/insight/patterns.py` and were
+The first four defects below are all in `agent_trajviz/insight/patterns.py` and were
 verified against real exports as moving no reported metric. Two further classes
 at the end of this file cover fixes that DO move one — the
 recovery walk's failure definition and the validation-command vocabulary — and
@@ -31,9 +31,9 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight import patterns
-from trajviz.insight.metrics import build_message_metrics, compute_metrics
-from trajviz.insight.patterns import (
+from agent_trajviz.insight import patterns
+from agent_trajviz.insight.metrics import build_message_metrics, compute_metrics
+from agent_trajviz.insight.patterns import (
     _VALIDATION_COMMAND_PATTERNS,
     _is_validation_command,
     _step_has_success,
@@ -280,7 +280,7 @@ class StepCapsAgree(unittest.TestCase):
     """
 
     def test_patterns_cap_is_not_stricter_than_the_session_cap(self):
-        from trajviz.insight.session import MAX_STEPS
+        from agent_trajviz.insight.session import MAX_STEPS
 
         self.assertGreaterEqual(
             patterns._MAX_STEPS, MAX_STEPS,

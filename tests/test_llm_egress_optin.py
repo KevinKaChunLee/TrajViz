@@ -11,7 +11,7 @@ import unittest
 
 import gradio as gr
 
-from trajviz.insight.insight import build_ui
+from agent_trajviz.insight.insight import build_ui
 
 
 def _deps_for(demo, fn_name):
@@ -57,8 +57,8 @@ class SidebarAnalysisOptInTests(unittest.TestCase):
     """The AI analysis sidebar only calls out when the user opened the panel."""
 
     def test_load_with_closed_sidebar_does_not_call_the_provider(self):
-        from trajviz.insight import assistant
-        from trajviz.insight.ui import sidebar
+        from agent_trajviz.insight import assistant
+        from agent_trajviz.insight.ui import sidebar
 
         calls = []
 

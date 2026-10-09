@@ -24,7 +24,7 @@ import os
 import unittest
 from pathlib import Path
 
-from trajviz.insight.metrics import (
+from agent_trajviz.insight.metrics import (
     build_message_metrics,
     compute_metrics,
     generation_seconds,
@@ -308,8 +308,8 @@ class RealExportInvariantTests(_InvariantMixin, unittest.TestCase):
     """Same battery, real trajectories — the sampling keeps it under a second."""
 
     def test_sampled_exports_satisfy_every_invariant(self):
-        from trajviz.insight.loaders import load_trajectory
-        from trajviz.insight.parser import parse_steps
+        from agent_trajviz.insight.loaders import load_trajectory
+        from agent_trajviz.insight.parser import parse_steps
 
         files: list[Path] = []
         for sub in sorted(p for p in _REAL_EXPORTS.iterdir() if p.is_dir()):

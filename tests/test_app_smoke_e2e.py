@@ -58,7 +58,7 @@ class ServedDashboardTests(unittest.TestCase):
         # version-check thread and launch telemetry off the network.
         cls._analytics = os.environ.get("GRADIO_ANALYTICS_ENABLED")
         os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
-        from trajviz.insight.insight import build_ui
+        from agent_trajviz.insight.insight import build_ui
 
         cls.app = build_ui()
         cls.port = _free_port()
@@ -133,7 +133,7 @@ class ChartJumpWiringTests(unittest.TestCase):
         The binder's id list lives in a JS string and the ids live in the tab
         layouts, so nothing but this check couples them.
         """
-        from trajviz.insight import insight as insight_mod
+        from agent_trajviz.insight import insight as insight_mod
 
         source = inspect.getsource(insight_mod.build_ui)
         block = source.split("__TV_BIND_JUMPS_BEGIN__")[1].split("__TV_BIND_JUMPS_END__")[0]
@@ -154,7 +154,7 @@ class LoadButtonTests(unittest.TestCase):
     """One real load through the exact function the Load button is bound to."""
 
     def _load(self, dark):
-        from trajviz.insight.ui.load import do_load, load_slot_keys
+        from agent_trajviz.insight.ui.load import do_load, load_slot_keys
 
         packed = do_load(str(_FIXTURE), dark, "")
         self.assertEqual(frozenset(packed), load_slot_keys())
@@ -179,7 +179,7 @@ class LoadButtonTests(unittest.TestCase):
 
     def test_a_missing_file_reports_an_error_instead_of_raising(self):
         """The Load button must survive a bad path: the UI has no other recovery."""
-        from trajviz.insight.ui.load import do_load, load_slot_keys
+        from agent_trajviz.insight.ui.load import do_load, load_slot_keys
 
         packed = do_load(str(_FIXTURE.parent / "does-not-exist.json"), False, "")
         self.assertEqual(frozenset(packed), load_slot_keys())

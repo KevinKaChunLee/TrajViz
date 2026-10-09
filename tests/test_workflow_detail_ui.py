@@ -31,14 +31,14 @@ class WorkflowDetailUiTests(unittest.TestCase):
         return step
 
     def test_selecting_workflow_card_resets_detail_panel_scroll(self):
-        from trajviz.insight.ui import workflow_tab
+        from agent_trajviz.insight.ui import workflow_tab
 
         source = inspect.getsource(workflow_tab)
         self.assertIn("detailPanel.scrollTop = 0", source)
 
     def test_duration_chart_click_jumps_to_workflow(self):
-        from trajviz.insight import insight as insight_mod
-        from trajviz.insight.ui import overview_tab
+        from agent_trajviz.insight import insight as insight_mod
+        from agent_trajviz.insight.ui import overview_tab
 
         source = inspect.getsource(insight_mod.build_ui)
         self.assertIn("tvBindChartWorkflowJumps", source)
@@ -63,18 +63,18 @@ class WorkflowDetailUiTests(unittest.TestCase):
         self.assertIn("agent-swimlane-chart", source)
 
     def test_workflow_jump_flash_style_exists(self):
-        styles = Path(__file__).resolve().parents[1].joinpath("trajviz", "insight", "styles.py").read_text()
+        styles = Path(__file__).resolve().parents[1].joinpath("agent_trajviz", "insight", "styles.py").read_text()
         self.assertIn(".wf-card.wf-flash", styles)
         self.assertIn("@keyframes wf-flash-pulse", styles)
 
     def test_detail_tabs_stay_visible_inside_scrollable_detail_panel(self):
-        styles = Path(__file__).resolve().parents[1].joinpath("trajviz", "insight", "styles.py").read_text()
+        styles = Path(__file__).resolve().parents[1].joinpath("agent_trajviz", "insight", "styles.py").read_text()
 
         self.assertIn("position: sticky", styles[styles.index(".dp-tabs"):styles.index(".dp-tab {")])
         self.assertIn("top: 0", styles[styles.index(".dp-tabs"):styles.index(".dp-tab {")])
 
     def test_detail_tabs_do_not_use_fragile_inline_click_handler(self):
-        from trajviz.insight.rendering import format_step_detail
+        from agent_trajviz.insight.rendering import format_step_detail
 
         html = format_step_detail({
             "index": 1,
@@ -98,7 +98,7 @@ class WorkflowDetailUiTests(unittest.TestCase):
         self.assertNotIn("onclick=", html[html.index("class='dp-tabs'"):html.index("data-tab-content='content'")])
 
     def test_workflow_registers_delegated_detail_tab_handler(self):
-        from trajviz.insight.ui import workflow_tab
+        from agent_trajviz.insight.ui import workflow_tab
 
         source = inspect.getsource(workflow_tab)
 
@@ -107,7 +107,7 @@ class WorkflowDetailUiTests(unittest.TestCase):
         self.assertIn("e.target.closest('.dp-tab')", source)
 
     def test_missing_reasoning_keeps_table_with_na_row(self):
-        from trajviz.insight.rendering import _format_metrics_tab
+        from agent_trajviz.insight.rendering import _format_metrics_tab
 
         tokens = dict(self._metric_step()["tokens"])
         del tokens["reasoning"]
@@ -119,7 +119,7 @@ class WorkflowDetailUiTests(unittest.TestCase):
         self.assertIn("<td>Total Tokens</td><td>100</td>", html)
 
     def test_complete_metrics_render_the_whole_table_and_keep_real_zeroes(self):
-        from trajviz.insight.rendering import _format_metrics_tab
+        from agent_trajviz.insight.rendering import _format_metrics_tab
 
         html = _format_metrics_tab(self._metric_step())
 
@@ -130,7 +130,7 @@ class WorkflowDetailUiTests(unittest.TestCase):
         self.assertNotIn("Metrics unavailable", html)
 
     def test_one_missing_metric_replaces_the_entire_table_with_a_message(self):
-        from trajviz.insight.rendering import _format_metrics_tab
+        from agent_trajviz.insight.rendering import _format_metrics_tab
 
         tokens = dict(self._metric_step()["tokens"])
         del tokens["cache_write"]
@@ -143,7 +143,7 @@ class WorkflowDetailUiTests(unittest.TestCase):
     def test_missing_duration_keeps_token_table_with_na_derived_rows(self):
         # The final step of a Claude Code trajectory has genuine token data
         # but no recorded duration; the table must not be hidden for it.
-        from trajviz.insight.rendering import _format_metrics_tab
+        from agent_trajviz.insight.rendering import _format_metrics_tab
 
         html = _format_metrics_tab(self._metric_step(duration=None))
 
@@ -155,7 +155,7 @@ class WorkflowDetailUiTests(unittest.TestCase):
         self.assertIn("<td>Cache Ratio</td><td>0.0%</td>", html)
 
     def test_real_zero_duration_renders_as_zero_not_missing(self):
-        from trajviz.insight.rendering import _format_metrics_tab
+        from agent_trajviz.insight.rendering import _format_metrics_tab
 
         html = _format_metrics_tab(self._metric_step(duration=0.0))
 
@@ -165,7 +165,7 @@ class WorkflowDetailUiTests(unittest.TestCase):
         self.assertIn("<td>Throughput</td><td>n/a</td>", html)
 
     def test_zero_total_tokens_shows_na_derived_rows_without_dividing(self):
-        from trajviz.insight.rendering import _format_metrics_tab
+        from agent_trajviz.insight.rendering import _format_metrics_tab
 
         tokens = {
             "total": 0, "input": 0, "output": 0,
@@ -181,7 +181,7 @@ class WorkflowDetailUiTests(unittest.TestCase):
         self.assertIn("<td>Cache Ratio</td><td>n/a</td>", html)
 
     def test_subagent_task_prompt_is_not_badged_as_user(self):
-        from trajviz.insight.rendering import (
+        from agent_trajviz.insight.rendering import (
             format_step_detail,
             render_toc_sidebar,
             render_workflow_html,
@@ -252,7 +252,7 @@ class WorkflowDetailUiTests(unittest.TestCase):
         self.assertNotIn(">User</span>", detail)
 
     def test_system_error_cards_use_amber_not_red(self):
-        from trajviz.insight.rendering import _card_style, render_workflow_html
+        from agent_trajviz.insight.rendering import _card_style, render_workflow_html
 
         system = self._metric_step(
             index=5,
@@ -292,7 +292,7 @@ class WorkflowDetailUiTests(unittest.TestCase):
 
 
 def _bind_jumps_source():
-    from trajviz.insight import insight as insight_mod
+    from agent_trajviz.insight import insight as insight_mod
 
     source = inspect.getsource(insight_mod.build_ui)
     begin = source.index("__TV_BIND_JUMPS_BEGIN__")

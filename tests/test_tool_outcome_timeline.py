@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.charts.swimlanes import build_tool_outcome_timeline
-from trajviz.insight.palette import SESSION_COLORS, TOOL_OUTCOME_COLORS
-from trajviz.insight.tool_failure import tool_call_failed
+from agent_trajviz.insight.charts.swimlanes import build_tool_outcome_timeline
+from agent_trajviz.insight.palette import SESSION_COLORS, TOOL_OUTCOME_COLORS
+from agent_trajviz.insight.tool_failure import tool_call_failed
 
 
 def _step(

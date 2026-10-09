@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.metrics import (
+from agent_trajviz.insight.metrics import (
     compute_metrics,
     tool_call_duration_ms,
     tool_call_stats_duration_ms,
 )
-from trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.parser import parse_steps
 
 
 def _assistant_step(

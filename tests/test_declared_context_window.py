@@ -17,9 +17,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trajviz.insight.context_usage import resolve_context_window_limit
-from trajviz.insight.formats.codex import _codex_declared_context_window
-from trajviz.insight.loaders import load_trajectory
+from agent_trajviz.insight.context_usage import resolve_context_window_limit
+from agent_trajviz.insight.formats.codex import _codex_declared_context_window
+from agent_trajviz.insight.loaders import load_trajectory
 
 DECLARED = 258_400
 

@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from trajviz.tool_vocab import BASH_TOOL_NAMES as _BASH_TOOLS, WRITE_TOOL_NAMES as _WRITE_TOOLS
+from agent_trajviz.tool_vocab import BASH_TOOL_NAMES as _BASH_TOOLS, WRITE_TOOL_NAMES as _WRITE_TOOLS
 # Shared single-source helpers (C8/C9): validation-command detection lives in
 # insight/patterns.py and bash path extraction in insight/diagnostics.py (the
 # quoted + Windows-drive-aware implementation). Both modules import only
 # stdlib/tool_vocab at module level, so there is no import cycle.
-from trajviz.insight.diagnostics import _extract_bash_paths
-from trajviz.insight.patterns import _is_validation_command
+from agent_trajviz.insight.diagnostics import _extract_bash_paths
+from agent_trajviz.insight.patterns import _is_validation_command
 # D3: failure detection is tool_failure.py's job. These two call sites hold a
 # bare status *string* rather than a whole tool-call dict, so they use
 # status_failed rather than tool_call_failed.
-from trajviz.insight.tool_failure import status_failed
+from agent_trajviz.insight.tool_failure import status_failed
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +201,7 @@ def canonicalize_steps(
                     inp.get("file_path", "") or inp.get("filePath", ""))
             elif tool_name in _WRITE_TOOLS:
                 action_type = "FILE_WRITE"
-                from trajviz.tool_vocab import write_target_path
+                from agent_trajviz.tool_vocab import write_target_path
                 target = _normalize_target(write_target_path(inp))
             elif tool_name in _SEARCH_TOOLS:
                 action_type = "SEARCH"
@@ -347,7 +347,7 @@ def assign_effect_labels(
     if anchor_files:
         target_files = {_normalize_target(f) for f in anchor_files}
     else:
-        from trajviz.insight.diagnostics import identify_target_files
+        from agent_trajviz.insight.diagnostics import identify_target_files
         target_files = {_normalize_target(f) for f in identify_target_files(steps)}
 
     # Collect test/interface files for justification

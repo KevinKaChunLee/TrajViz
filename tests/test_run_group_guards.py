@@ -20,8 +20,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from trajviz.insight import run_group
-from trajviz.insight.run_group import build_run_group_scorecard
+from agent_trajviz.insight import run_group
+from agent_trajviz.insight.run_group import build_run_group_scorecard
 
 _CC = Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory" / "claude_code"
 
@@ -46,7 +46,7 @@ class RunGroupGuardTests(unittest.TestCase):
         self.assertIsNone(bogus["steps"])
 
     def test_a_missing_success_rate_stays_missing(self):
-        from trajviz.insight.parser import parse_steps
+        from agent_trajviz.insight.parser import parse_steps
 
         raw = {"messages": [{"info": {"role": "assistant", "time": {"created": 1_000, "completed": 2_000},
                                       "tokens": {"total": 10, "input": 5, "output": 5}},

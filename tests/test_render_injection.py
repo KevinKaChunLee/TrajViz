@@ -25,26 +25,26 @@ import shutil
 import tempfile
 import unittest
 
-from trajviz.insight.presenters import __all__ as PRESENTER_EXPORTS
-from trajviz.insight.presenters.issues import build_overview_issues_html
-from trajviz.insight.presenters.overview import (
+from agent_trajviz.insight.presenters import __all__ as PRESENTER_EXPORTS
+from agent_trajviz.insight.presenters.issues import build_overview_issues_html
+from agent_trajviz.insight.presenters.overview import (
     build_diagnostics_outputs,
     build_overview_kpi_html,
     build_summary_outputs,
 )
-from trajviz.insight.presenters.patterns import (
+from agent_trajviz.insight.presenters.patterns import (
     build_antipattern_html,
     render_failure_patterns_html,
     render_tool_sequences_html,
 )
-from trajviz.insight.presenters.workflow import (
+from agent_trajviz.insight.presenters.workflow import (
     build_filtered_workflow_outputs,
     build_workflow_outputs,
 )
-from trajviz.insight.rendering import format_step_detail
-from trajviz.insight.report import build_report_html
-from trajviz.insight.session import LoadError, load_session
-from trajviz.insight.ui.load import load_slot_keys, pack_load_outputs
+from agent_trajviz.insight.rendering import format_step_detail
+from agent_trajviz.insight.report import build_report_html
+from agent_trajviz.insight.session import LoadError, load_session
+from agent_trajviz.insight.ui.load import load_slot_keys, pack_load_outputs
 
 # Distinct payload shapes, one per HTML context. Each must be inert wherever it
 # lands: as element content, inside a single- or double-quoted attribute, and
@@ -379,7 +379,7 @@ class InjectionSweepTests(unittest.TestCase):
         on the default-visible tab of every load — so this sink needs a payload
         that fits.
         """
-        from trajviz.insight.presenters.overview import _agent_steps_breakdown
+        from agent_trajviz.insight.presenters.overview import _agent_steps_breakdown
 
         short = "<svg onload=x()>"          # 16 chars: under the 20-char cap
         self.assertLess(len(short), 20)
@@ -540,30 +540,30 @@ class StepIndexJsInjectionTests(unittest.TestCase):
         return dict(self.steps[0], index=self.BAD_INDEX)
 
     def test_toc_sidebar_coerces_the_index(self):
-        from trajviz.insight.rendering import render_toc_sidebar
+        from agent_trajviz.insight.rendering import render_toc_sidebar
 
         out = render_toc_sidebar([self._step()])
         self.assertNotIn(self.INDEX_MARKER, out)
         self.assertIn("wf-card-0", out)
 
     def test_diag_jump_onclick_coerces_the_index(self):
-        from trajviz.insight.rendering import _diag_jump_onclick
+        from agent_trajviz.insight.rendering import _diag_jump_onclick
 
         self.assertNotIn(self.INDEX_MARKER, _diag_jump_onclick(self.BAD_INDEX))
 
     def test_workflow_cards_coerce_the_index(self):
-        from trajviz.insight.rendering import render_workflow_html
+        from agent_trajviz.insight.rendering import render_workflow_html
 
         self.assertNotIn(self.INDEX_MARKER, render_workflow_html([self._step()]))
 
     def test_step_link_chip_coerces_the_index(self):
-        from trajviz.insight.rendering import _step_link_chip, _step_link_chips
+        from agent_trajviz.insight.rendering import _step_link_chip, _step_link_chips
 
         self.assertNotIn(self.INDEX_MARKER, _step_link_chip(self.BAD_INDEX))
         self.assertNotIn(self.INDEX_MARKER, _step_link_chips([self.BAD_INDEX]))
 
     def test_agent_card_coerces_the_spawning_step(self):
-        from trajviz.insight.rendering import _render_one_agent_card
+        from agent_trajviz.insight.rendering import _render_one_agent_card
 
         card = _render_one_agent_card(
             {

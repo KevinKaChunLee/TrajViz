@@ -16,27 +16,27 @@ from collections import Counter
 from collections.abc import Sequence
 from typing import Any
 
-from trajviz.converge.alignment import (
+from agent_trajviz.converge.alignment import (
     _detect_success,
     align_trajectories,
     compute_alignment_metrics,
 )
-from trajviz.converge.canonical import (
+from agent_trajviz.converge.canonical import (
     CanonicalAction,
     _normalize_target,
     assign_effect_labels,
     canonicalize_steps,
 )
-from trajviz.converge.divergence import classify_divergences
-from trajviz.insight.context_usage import (
+from agent_trajviz.converge.divergence import classify_divergences
+from agent_trajviz.insight.context_usage import (
     context_pressure_series,
     context_pressure_stats,
 )
-from trajviz.insight.formatting import wall_clock_fmt
-from trajviz.insight.loaders import FORMAT_LABELS, detect_format, load_trajectory
-from trajviz.insight.metrics import build_message_metrics, compute_metrics
-from trajviz.insight.parser import parse_steps
-from trajviz.tool_vocab import parse_skill_name as _parse_skill_name
+from agent_trajviz.insight.formatting import wall_clock_fmt
+from agent_trajviz.insight.loaders import FORMAT_LABELS, detect_format, load_trajectory
+from agent_trajviz.insight.metrics import build_message_metrics, compute_metrics
+from agent_trajviz.insight.parser import parse_steps
+from agent_trajviz.tool_vocab import parse_skill_name as _parse_skill_name
 
 # Pattern labels shown in the UI (omit low-signal names when empty).
 _PATTERN_LABELS = {

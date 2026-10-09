@@ -3,7 +3,7 @@
 import unittest
 from types import SimpleNamespace
 
-from trajviz.insight.presenters.issues import (
+from agent_trajviz.insight.presenters.issues import (
     OverviewIssue,
     build_overview_issues_html,
     collect_overview_issues,

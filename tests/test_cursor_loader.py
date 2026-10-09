@@ -4,9 +4,9 @@ import json
 import unittest
 from pathlib import Path
 
-from trajviz.insight.loaders import detect_format, load_trajectory
-from trajviz.insight.parser import parse_steps
-from trajviz.insight.presenters import trajectory_format_label
+from agent_trajviz.insight.loaders import detect_format, load_trajectory
+from agent_trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.presenters import trajectory_format_label
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "cursor_minimal.json"
@@ -59,7 +59,7 @@ class CursorLoaderTests(unittest.TestCase):
         self.assertEqual(steps[1]["tool_calls"][0]["duration_ms"], 200)
 
     def test_strreplace_and_shell_map_to_shared_vocab(self) -> None:
-        from trajviz.insight.formats.cursor import _convert_cursor_to_internal
+        from agent_trajviz.insight.formats.cursor import _convert_cursor_to_internal
 
         raw = {
             "info": {"id": "c1", "time": {"created": 1, "updated": 2}},
@@ -109,7 +109,7 @@ class CursorLoaderTests(unittest.TestCase):
         self.assertEqual(trajectory_format_label("cursor"), "Cursor")
 
     def test_occupancy_chart_skips_estimated_tokens_until_snapshot(self) -> None:
-        from trajviz.insight.context_usage import context_pressure_series
+        from agent_trajviz.insight.context_usage import context_pressure_series
 
         loaded = load_trajectory(str(FIXTURE))
         steps = parse_steps(loaded)
@@ -121,7 +121,7 @@ class CursorLoaderTests(unittest.TestCase):
         self.assertNotEqual(main_points[0]["occupancy"], steps[1]["tokens"]["input"])
 
     def test_cursor_steps_without_snapshot_are_omitted_from_pressure(self) -> None:
-        from trajviz.insight.context_usage import context_pressure_series
+        from agent_trajviz.insight.context_usage import context_pressure_series
 
         steps = parse_steps(load_trajectory(str(FIXTURE)))
         steps[1]["tokens"] = {
@@ -145,7 +145,7 @@ class CursorLoaderTests(unittest.TestCase):
         self.assertEqual([p["occupancy"] for p in main_points], [800])
 
     def test_subagent_without_snapshots_still_has_pressure_points(self) -> None:
-        from trajviz.insight.context_usage import context_pressure_series
+        from agent_trajviz.insight.context_usage import context_pressure_series
 
         loaded = load_trajectory(str(FIXTURE))
         steps = parse_steps(loaded)
@@ -162,7 +162,7 @@ class CursorLoaderTests(unittest.TestCase):
         self.assertEqual([p["occupancy"] for p in child["points"]], [100])
 
     def test_a_subagent_that_reports_no_usage_draws_no_line(self) -> None:
-        from trajviz.insight.context_usage import context_pressure_series
+        from agent_trajviz.insight.context_usage import context_pressure_series
 
         loaded = load_trajectory(str(FIXTURE))
         series = context_pressure_series(parse_steps(loaded), raw=loaded)

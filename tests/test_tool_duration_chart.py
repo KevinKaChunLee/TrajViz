@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.charts.usage import build_tool_duration_chart
-from trajviz.insight.palette import SESSION_COLORS
+from agent_trajviz.insight.charts.usage import build_tool_duration_chart
+from agent_trajviz.insight.palette import SESSION_COLORS
 
 
 def _step(

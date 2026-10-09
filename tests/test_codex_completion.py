@@ -18,8 +18,8 @@ import os
 import tempfile
 import unittest
 
-from trajviz.converge.alignment import _detect_success
-from trajviz.insight.session import LoadedSession, load_session
+from agent_trajviz.converge.alignment import _detect_success
+from agent_trajviz.insight.session import LoadedSession, load_session
 
 
 def _ev(ts: int, etype: str, payload: dict) -> dict:

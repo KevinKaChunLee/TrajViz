@@ -1,7 +1,7 @@
 """Centralized CSS constants for the Insight UI."""
 
 from pygments.formatters import HtmlFormatter as _HtmlFormatter
-from trajviz.converge.styles import CONVERGE_CSS as _CONVERGE_CSS
+from agent_trajviz.converge.styles import CONVERGE_CSS as _CONVERGE_CSS
 
 _pygments_css = _HtmlFormatter(style="github-dark").get_style_defs(".wf-code-hl")
 

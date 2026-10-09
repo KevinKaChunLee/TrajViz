@@ -13,15 +13,15 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.analytics import compute_step_analytics
-from trajviz.insight.formatting import format_behavioral_md, format_performance_md, wall_clock_fmt
-from trajviz.insight.metrics import (
+from agent_trajviz.insight.analytics import compute_step_analytics
+from agent_trajviz.insight.formatting import format_behavioral_md, format_performance_md, wall_clock_fmt
+from agent_trajviz.insight.metrics import (
     build_message_metrics,
     compute_agent_summary,
     compute_health_verdict,
     compute_metrics,
 )
-from trajviz.insight.parser import cache_read_share, usable_token_count
+from agent_trajviz.insight.parser import cache_read_share, usable_token_count
 
 
 def _step(index, *, total, inp, output=0, cache_read=0, cache_write=0, agent=""):

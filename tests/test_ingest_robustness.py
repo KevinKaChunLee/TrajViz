@@ -31,10 +31,10 @@ import zipfile
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from trajviz.insight.formats.parse import _parse_jsonl_events
-from trajviz.insight.loaders import load_trajectory
-from trajviz.insight.metrics import build_message_metrics, compute_metrics
-from trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.formats.parse import _parse_jsonl_events
+from agent_trajviz.insight.loaders import load_trajectory
+from agent_trajviz.insight.metrics import build_message_metrics, compute_metrics
+from agent_trajviz.insight.parser import parse_steps
 
 # Metric keys whose name promises a non-negative quantity.
 _NONNEG_NAME_HINTS = ("count", "total", "duration", "tokens", "seconds", "calls", "steps")

@@ -19,7 +19,7 @@ import os
 import tempfile
 import unittest
 
-from trajviz.insight.loaders import (
+from agent_trajviz.insight.loaders import (
     FORMAT_DROPDOWN_CHOICES,
     FORMAT_LABELS,
     check_format_selection,
@@ -27,7 +27,7 @@ from trajviz.insight.loaders import (
     detect_format,
     load_trajectory,
 )
-from trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.parser import parse_steps
 
 
 def _codex_event(t, ts, payload):
@@ -517,8 +517,8 @@ class FacadeDispatchTests(unittest.TestCase):
     """Sniff, converters, and FORMAT_LABELS must stay aligned; unknown keys fail closed."""
 
     def test_event_converters_match_sniff_formats(self):
-        from trajviz.insight.formats.sniff import _EVENT_FORMATS, _OBJECT_FORMATS
-        from trajviz.insight.loaders import FORMAT_LABELS, _EVENT_CONVERTERS
+        from agent_trajviz.insight.formats.sniff import _EVENT_FORMATS, _OBJECT_FORMATS
+        from agent_trajviz.insight.loaders import FORMAT_LABELS, _EVENT_CONVERTERS
 
         self.assertEqual(set(_EVENT_CONVERTERS), set(_EVENT_FORMATS))
         self.assertEqual(set(FORMAT_LABELS), set(_OBJECT_FORMATS | _EVENT_FORMATS))
@@ -526,18 +526,18 @@ class FacadeDispatchTests(unittest.TestCase):
     def test_apply_format_unknown_event_member_does_not_default_to_pi(self):
         from unittest.mock import patch
 
-        from trajviz.insight.loaders import _apply_format
+        from agent_trajviz.insight.loaders import _apply_format
 
         events = [{"type": "session", "id": "s1"}]
         extra = frozenset({"codex", "pi", "dsh", "newfmt"})
-        with patch("trajviz.insight.loaders._EVENT_FORMATS", extra):
+        with patch("agent_trajviz.insight.loaders._EVENT_FORMATS", extra):
             result = _apply_format(events, "newfmt")
         self.assertIn("_error", result)
         self.assertIn("newfmt", result["_error"])
         self.assertNotIn("_pi_format", result)
 
     def test_apply_format_unknown_object_key_fails_closed(self):
-        from trajviz.insight.loaders import _apply_format
+        from agent_trajviz.insight.loaders import _apply_format
 
         result = _apply_format({"info": {}, "messages": []}, "not-a-format")
         self.assertIn("_error", result)

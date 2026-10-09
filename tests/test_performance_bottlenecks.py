@@ -2,7 +2,7 @@
 
 import unittest
 
-from trajviz.insight.diagnostics import detect_performance_bottlenecks
+from agent_trajviz.insight.diagnostics import detect_performance_bottlenecks
 
 
 def _asst(idx: int, duration: float, *, tools=None, tokens=None) -> dict:

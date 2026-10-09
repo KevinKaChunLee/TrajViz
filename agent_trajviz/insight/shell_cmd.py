@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import shlex
 
-from trajviz.tool_vocab import BASH_TOOL_NAMES
+from agent_trajviz.tool_vocab import BASH_TOOL_NAMES
 
 _SEARCH_BASH_PREFIXES = ("grep", "rg", "ag", "find", "locate", "fgrep", "egrep", "ripgrep")
 _SHELL_PUNCTUATION = ";&|()\n"

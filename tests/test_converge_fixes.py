@@ -23,21 +23,21 @@ import os
 import tempfile
 import unittest
 
-from trajviz.converge.alignment import (
+from agent_trajviz.converge.alignment import (
     _parse_anchor_files,
     align_trajectories,
     compute_alignment_metrics,
 )
-from trajviz.converge.batch import _percentile
-from trajviz.converge.canonical import (
+from agent_trajviz.converge.batch import _percentile
+from agent_trajviz.converge.canonical import (
     ActionCost,
     CanonicalAction,
     assign_effect_labels,
     canonicalize_steps,
     semantic_equivalent,
 )
-from trajviz.converge.rendering import build_comparison_report_html
-from trajviz.insight.comparison import run_comparison
+from agent_trajviz.converge.rendering import build_comparison_report_html
+from agent_trajviz.insight.comparison import run_comparison
 
 
 def _step(idx: int, tool_calls: list[dict], tokens: int = 100) -> dict:

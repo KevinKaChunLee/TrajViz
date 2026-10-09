@@ -3,7 +3,7 @@
 PR #13 rewrote the loader read path that feeds attribution's content-identity
 gate — ``data.decode("utf-8-sig")``, ``resolve_dsh_session_path`` rewriting
 ``file_path`` before the hash, and a zip branch that hashes the archive —
-without touching ``trajviz/insight/attribution.py``. The pre-merge review
+without touching ``agent_trajviz/insight/attribution.py``. The pre-merge review
 verified that wiring by READING it; these tests verify it by RUNNING a
 diagnosis, because a silent sha mismatch is exactly what the gate exists to
 catch and a gate that refuses everything looks identical to a gate that works
@@ -45,11 +45,11 @@ import zipfile
 from dataclasses import asdict
 from pathlib import Path
 
-from trajviz.insight import attribution
-from trajviz.insight.loaders import load_trajectory
-from trajviz.insight.parser import parse_steps
-from trajviz.insight.rendering import build_attribution_html
-from trajviz.insight.session import LoadedSession, load_session
+from agent_trajviz.insight import attribution
+from agent_trajviz.insight.loaders import load_trajectory
+from agent_trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.rendering import build_attribution_html
+from agent_trajviz.insight.session import LoadedSession, load_session
 
 GOLD_AGENT = "claude_code"
 GOLD_INST = "astropy__astropy-13033"          # deductive-only case
@@ -523,7 +523,7 @@ class AttributionTabTests(_RootRestoringTest):
 
     @staticmethod
     def _handler(name: str):
-        from trajviz.insight.insight import build_ui
+        from agent_trajviz.insight.insight import build_ui
         app = build_ui()
         for block_fn in app.fns.values():
             fn = getattr(block_fn, "fn", None)

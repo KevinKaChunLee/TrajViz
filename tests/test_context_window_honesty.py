@@ -23,14 +23,14 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.context_usage import (
+from agent_trajviz.insight.context_usage import (
     DEFAULT_CONTEXT_WINDOW_LIMIT,
     context_pressure_series,
     context_pressure_stats,
     detect_premature_compactions,
     resolve_context_window,
 )
-from trajviz.insight.formatting import format_context_pressure_html
+from agent_trajviz.insight.formatting import format_context_pressure_html
 
 
 def _step(i: int, occupancy: int, *, model: str = "glm-5", agent: str = "") -> dict:

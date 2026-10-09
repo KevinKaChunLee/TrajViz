@@ -2,9 +2,9 @@
 
 import unittest
 
-from trajviz.insight import patterns
-from trajviz.insight.shell_cmd import primary_shell_command
-from trajviz.insight.metrics import compute_health_verdict, compute_metrics
+from agent_trajviz.insight import patterns
+from agent_trajviz.insight.shell_cmd import primary_shell_command
+from agent_trajviz.insight.metrics import compute_health_verdict, compute_metrics
 
 
 def _assistant_step(index: int, output_tokens: int, duration: float | None) -> dict:
@@ -111,8 +111,8 @@ class OutputThroughputTests(unittest.TestCase):
 
     def test_overview_labels_generation_rate_as_output_throughput(self):
         # Import here because this UI module loads optional Gradio dependencies.
-        from trajviz.insight.presenters import build_overview_kpi_html
-        from trajviz.insight.formatting import (
+        from agent_trajviz.insight.presenters import build_overview_kpi_html
+        from agent_trajviz.insight.formatting import (
             format_banner_html,
             format_performance_md,
         )
@@ -156,8 +156,8 @@ class OutputThroughputTests(unittest.TestCase):
         self.assertIn("Median processed tok/sec", performance)
 
     def test_issues_kpi_card_after_tokens(self):
-        from trajviz.insight.presenters import build_overview_kpi_html
-        from trajviz.insight.presenters.issues import OverviewIssue
+        from agent_trajviz.insight.presenters import build_overview_kpi_html
+        from agent_trajviz.insight.presenters.issues import OverviewIssue
 
         metrics = {
             "total_steps": 3,
@@ -200,7 +200,7 @@ class OutputThroughputTests(unittest.TestCase):
         self.assertNotIn("margin-top:2px;'>3 issues — review Overview Issues", html)
 
     def test_steps_kpi_shows_agent_breakdown_not_error_verdict(self):
-        from trajviz.insight.presenters import build_overview_kpi_html
+        from agent_trajviz.insight.presenters import build_overview_kpi_html
 
         metrics = {
             "total_steps": 10,
@@ -358,8 +358,8 @@ class WrappedShellSearchTests(unittest.TestCase):
 
 class ReasoningTokensNaTests(unittest.TestCase):
     def test_unreported_reasoning_shows_na_not_fake_zero(self):
-        from trajviz.insight.formats.claude_code import _cc_extract_usage, _cc_build_step
-        from trajviz.insight.formatting import format_performance_md
+        from agent_trajviz.insight.formats.claude_code import _cc_extract_usage, _cc_build_step
+        from agent_trajviz.insight.formatting import format_performance_md
 
         usage = _cc_extract_usage({"input_tokens": 10, "output_tokens": 5})
         self.assertNotIn("reasoning", usage)
@@ -378,7 +378,7 @@ class ReasoningTokensNaTests(unittest.TestCase):
         )
 
     def test_reported_zero_reasoning_still_shows_zero(self):
-        from trajviz.insight.formatting import format_performance_md
+        from agent_trajviz.insight.formatting import format_performance_md
 
         step = _assistant_step(0, output_tokens=50, duration=1.0)
         metrics = compute_metrics([step], {})

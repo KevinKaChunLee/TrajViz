@@ -33,21 +33,21 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from trajviz.converge import charts, milestones
-from trajviz.converge.alignment import (
+from agent_trajviz.converge import charts, milestones
+from agent_trajviz.converge.alignment import (
     build_comparison_report,
     compute_harmful_divergence,
 )
-from trajviz.converge.anchor import classify_file, compute_anchor_analysis
-from trajviz.converge.canonical import (
+from agent_trajviz.converge.anchor import classify_file, compute_anchor_analysis
+from agent_trajviz.converge.canonical import (
     ActionCost,
     CanonicalAction,
     assign_effect_labels,
 )
-from trajviz.converge.divergence import count_patterns
-from trajviz.converge.eval_layers import _extract_layer_metric
-from trajviz.converge.intervention import PATTERN_DIRECTIONS, _count_pattern
-from trajviz.converge.milestones import (
+from agent_trajviz.converge.divergence import count_patterns
+from agent_trajviz.converge.eval_layers import _extract_layer_metric
+from agent_trajviz.converge.intervention import PATTERN_DIRECTIONS, _count_pattern
+from agent_trajviz.converge.milestones import (
     extract_milestones,
     segment_by_milestones,
 )
@@ -169,8 +169,8 @@ class PatternDeltasReachTheUmbrellaTests(unittest.TestCase):
     """C4 leg 2: compute_pattern_deltas never considered parent_type as a key."""
 
     def _paired(self):
-        from trajviz.converge.batch import BatchResult
-        from trajviz.converge.intervention import compute_pattern_deltas
+        from agent_trajviz.converge.batch import BatchResult
+        from agent_trajviz.converge.intervention import compute_pattern_deltas
         before = BatchResult(task_id="t1", report={"patterns": list(_WRITE_RETRY_PATTERNS)})
         after = BatchResult(task_id="t1", report={"patterns": [_WRITE_RETRY_PATTERNS[0]]})
         return compute_pattern_deltas([(before, after)])
@@ -198,7 +198,7 @@ class MilestoneLabelsAreSingleSourcedTests(unittest.TestCase):
         self.assertIs(charts._MILESTONE_NAMES, milestones.MILESTONE_NAMES)
 
     def test_rendering_imports_the_shared_map(self):
-        from trajviz.converge import rendering
+        from agent_trajviz.converge import rendering
         self.assertIs(rendering.MILESTONE_LABELS, milestones.MILESTONE_LABELS)
 
     def test_maps_cover_exactly_the_keys_extract_milestones_produces(self):
@@ -207,7 +207,7 @@ class MilestoneLabelsAreSingleSourcedTests(unittest.TestCase):
         self.assertEqual(set(milestones.MILESTONE_LABELS), produced)
 
     def test_every_label_appears_in_the_rendered_milestone_table(self):
-        from trajviz.converge.rendering import build_comparison_report_html
+        from agent_trajviz.converge.rendering import build_comparison_report_html
         full = {name: i for i, name in enumerate(milestones.MILESTONE_NAMES)}
         html = build_comparison_report_html(
             {"outcome": {}, "patterns": [], "ref_milestones": full, "cmp_milestones": full})
@@ -251,7 +251,7 @@ def _cli_prog() -> str | None:
     stays fast and needs no install. ``main()`` with no mode selected calls
     ``parser.error``, which raises SystemExit after the parser is built.
     """
-    from trajviz.converge import cli
+    from agent_trajviz.converge import cli
 
     captured: dict[str, str | None] = {}
     real_init = argparse.ArgumentParser.__init__
@@ -277,11 +277,11 @@ class ConvergeConsoleScriptTests(unittest.TestCase):
 
     def test_console_script_is_declared(self):
         self.assertEqual(self._scripts().get("trajectory-converge"),
-                         "trajviz.converge.cli:main")
+                         "agent_trajviz.converge.cli:main")
 
     def test_declared_target_is_importable_and_callable(self):
         import importlib
-        self.assertTrue(callable(importlib.import_module("trajviz.converge.cli").main))
+        self.assertTrue(callable(importlib.import_module("agent_trajviz.converge.cli").main))
 
     def test_advertised_prog_is_a_declared_script(self):
         self.assertIn(_cli_prog(), self._scripts())

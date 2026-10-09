@@ -1,4 +1,4 @@
-"""Tests for the DECAF attribution seam (trajviz/insight/attribution.py).
+"""Tests for the DECAF attribution seam (agent_trajviz/insight/attribution.py).
 
 Run hermetically against the vendored fixture (tests/fixtures/reference +
 tests/fixtures/decaf_cache — wired by conftest.py), so they need no developer
@@ -25,7 +25,7 @@ import shutil
 
 import pytest
 
-from trajviz.insight import attribution
+from agent_trajviz.insight import attribution
 
 GOLD_AGENT = "claude_code"
 GOLD_INST = "astropy__astropy-13033"            # deductive-only case

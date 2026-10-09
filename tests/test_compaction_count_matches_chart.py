@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.context_usage import context_pressure_stats
+from agent_trajviz.insight.context_usage import context_pressure_stats
 
 
 def _event(step: int, agent: str = "", before: int = 100_000, after: int = 20_000) -> dict:

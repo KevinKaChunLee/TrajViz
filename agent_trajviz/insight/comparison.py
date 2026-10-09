@@ -10,15 +10,15 @@ HTML report.
 import html
 import traceback
 
-from trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.parser import parse_steps
 
-from trajviz.converge.alignment import (
+from agent_trajviz.converge.alignment import (
     DEFAULT_TOKEN_RATE,
     _parse_anchor_files,
     build_comparison_report_from_steps,
     empty_steps_reason,
 )
-from trajviz.converge.rendering import build_comparison_report_html
+from agent_trajviz.converge.rendering import build_comparison_report_html
 
 
 def run_comparison(

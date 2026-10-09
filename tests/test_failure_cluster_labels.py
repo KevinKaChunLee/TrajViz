@@ -2,8 +2,8 @@
 
 import unittest
 
-from trajviz.insight.diagnostics import cluster_errors
-from trajviz.insight.patterns import detect_failure_patterns
+from agent_trajviz.insight.diagnostics import cluster_errors
+from agent_trajviz.insight.patterns import detect_failure_patterns
 
 
 def _bash(idx: int, command: str, *, exit_code: int = 1) -> dict:

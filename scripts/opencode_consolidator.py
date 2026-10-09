@@ -311,7 +311,7 @@ def export_session_and_collect_children(
         else:
             subagent_type = session_info.get("agent", "")
 
-    # Restructure messages to have "info" and "parts" fields for trajviz compatibility
+    # Restructure messages to have "info" and "parts" fields for TrajViz compatibility
     restructured_messages = []
     for msg in messages:
         # Move message-level fields into "info" if they're at top level

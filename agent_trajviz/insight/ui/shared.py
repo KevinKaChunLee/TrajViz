@@ -17,7 +17,7 @@ class SharedState:
     # Write-once: `insight.build_ui` pins the dashboard to light (its app.load
     # handler is the only writer, and APP_CSS declares `color-scheme: light`),
     # so every `dark=` this package threads through is False. The parameter
-    # itself is live for `python -m trajviz.insight --report --dark`; this State
+    # itself is live for `python -m agent_trajviz.insight --report --dark`; this State
     # is the single switch point should the dashboard ever offer a toggle.
     state_dark: gr.State
     state_analysis_brief: gr.State

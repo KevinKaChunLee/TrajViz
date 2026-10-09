@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from trajviz.insight.context_usage import (
+from agent_trajviz.insight.context_usage import (
     PRESSURE_ALL_AGENTS,
     PRESSURE_MAIN_AGENT,
     SNAPSHOT_CURRENT,
@@ -14,8 +14,8 @@ from trajviz.insight.context_usage import (
     parse_usage_snapshot,
     usage_snapshot_choices,
 )
-from trajviz.insight.formatting import format_context_pressure_html
-from trajviz.tool_vocab import SPAWN_TOOL_NAMES
+from agent_trajviz.insight.formatting import format_context_pressure_html
+from agent_trajviz.tool_vocab import SPAWN_TOOL_NAMES
 
 
 def _tokens(*, inp, out=0, reasoning=0, cache_read=0):
@@ -294,7 +294,7 @@ class WindowAndCompactionTests(unittest.TestCase):
         result = context_usage_breakdown(steps)
         self.assertEqual(result["window_limit"], 200_000)
         self.assertEqual(result["loaded_pct"], 10.0)
-        from trajviz.insight.context_usage import usage_segments
+        from agent_trajviz.insight.context_usage import usage_segments
         conv = next(r for r in usage_segments(result) if r["key"] == "conversation")
         self.assertEqual(conv["window_pct"], 10.0)
         self.assertEqual(conv["loaded_pct"], 100.0)

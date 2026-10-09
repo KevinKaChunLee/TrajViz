@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "trajviz"
+name = "agent-trajviz"
 version = "1.0.0"
 description = "Offline analytics & visualization for LLM agent trajectories (Claude Code, Cursor, OpenCode, CodeArts, ICode, Codex CLI, Pi, DeepSeek Harness)"
 readme = "README.md"
@@ -47,12 +47,12 @@ dev = [
 # "Failure attribution (DECAF)" and docs/decaf-integration-plan.md.
 
 [project.scripts]
-trajviz = "trajviz.insight.__main__:main"
+agent-trajviz = "agent_trajviz.insight.__main__:main"
 # cli.py already advertises prog="trajectory-converge" in its --help/usage text;
 # without this entry that name existed nowhere and the CLI was reachable only as
-# `python -m trajviz.converge.cli` (C8). `python -m trajviz.converge` launches
+# `python -m agent_trajviz.converge.cli` (C8). `python -m agent_trajviz.converge` launches
 # the Gradio app and must keep doing so.
-trajectory-converge = "trajviz.converge.cli:main"
+trajectory-converge = "agent_trajviz.converge.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/rshu/TrajectoryVisualizer"
@@ -60,7 +60,7 @@ Repository = "https://github.com/rshu/TrajectoryVisualizer"
 Issues = "https://github.com/rshu/TrajectoryVisualizer/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["trajviz"]
+packages = ["agent_trajviz"]
 
 [tool.ruff]
 line-length = 120

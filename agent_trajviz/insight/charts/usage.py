@@ -17,7 +17,7 @@ from ..palette import (
     SESSION_COLORS,
     TOKEN_COLORS,
 )
-from trajviz.tool_vocab import parse_skill_name
+from agent_trajviz.tool_vocab import parse_skill_name
 from ._timeline import _legend_label, bind_timeline_agents
 from ..metrics import (
     spawn_wait_seconds,

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.charts.usage import build_duration_chart
-from trajviz.insight.palette import DURATION_ERROR_COLORS
-from trajviz.insight.step_errors import step_error_kind
+from agent_trajviz.insight.charts.usage import build_duration_chart
+from agent_trajviz.insight.palette import DURATION_ERROR_COLORS
+from agent_trajviz.insight.step_errors import step_error_kind
 
 
 def _tc(name: str, *, status: str = "error", exit_code: int | None = None) -> dict:

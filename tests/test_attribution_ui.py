@@ -10,8 +10,8 @@ from dataclasses import asdict
 
 import pytest
 
-from trajviz.insight import attribution
-from trajviz.insight.rendering import build_attribution_html
+from agent_trajviz.insight import attribution
+from agent_trajviz.insight.rendering import build_attribution_html
 
 GOLD_AGENT = "claude_code"
 GOLD_INST = "astropy__astropy-13033"
@@ -51,6 +51,6 @@ def test_render_full_attribution():
 def test_build_ui_constructs_with_attribution_tab():
     # Constructing the Blocks exercises the Attribution tab declaration + the
     # attr_run_btn.click wiring; a mismatch (bad component ref, arity) raises here.
-    from trajviz.insight.insight import build_ui
+    from agent_trajviz.insight.insight import build_ui
     app = build_ui()
     assert app is not None

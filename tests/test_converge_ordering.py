@@ -2,9 +2,9 @@
 
 import unittest
 
-from trajviz.converge.alignment import align_trajectories
-from trajviz.converge.canonical import CanonicalAction
-from trajviz.converge.divergence import classify_divergences
+from agent_trajviz.converge.alignment import align_trajectories
+from agent_trajviz.converge.canonical import CanonicalAction
+from agent_trajviz.converge.divergence import classify_divergences
 
 
 def _actions(*targets: str) -> list[CanonicalAction]:

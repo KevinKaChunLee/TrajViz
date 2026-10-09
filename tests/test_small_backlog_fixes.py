@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.converge.batch import BatchResult, build_batch_report
-from trajviz.insight.charts.usage import build_tool_duration_chart
-from trajviz.insight.formats.sniff import _looks_like_icode_object
+from agent_trajviz.converge.batch import BatchResult, build_batch_report
+from agent_trajviz.insight.charts.usage import build_tool_duration_chart
+from agent_trajviz.insight.formats.sniff import _looks_like_icode_object
 
 
 class DurationAxisTests(unittest.TestCase):

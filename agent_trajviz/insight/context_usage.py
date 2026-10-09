@@ -15,7 +15,7 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
-from trajviz.tool_vocab import SPAWN_TOOL_NAMES, is_mcp_tool, parse_skill_name
+from agent_trajviz.tool_vocab import SPAWN_TOOL_NAMES, is_mcp_tool, parse_skill_name
 
 from .formats.common import as_text
 from .metrics import effective_agent, tagged_subagent_display_label
@@ -202,7 +202,7 @@ def step_context_occupancy(step: dict) -> dict:
     """Schema-normalized prompt occupancy for one step.
 
     ``occupancy = fresh input + cache read``. Fresh input is inferred by
-    :func:`trajviz.insight.parser.infer_non_cache_input` so Claude Code
+    :func:`agent_trajviz.insight.parser.infer_non_cache_input` so Claude Code
     (cache-exclusive input) and OpenCode (cache-excluded input) agree.
 
     Formats whose per-step totals are the step's own tokens rather than the

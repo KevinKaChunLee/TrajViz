@@ -1,6 +1,6 @@
 """Classify step failures as scaffold (system) vs agentic (tool) errors.
 
-Predicates live in :mod:`trajviz.insight.tool_failure`; this module re-exports
+Predicates live in :mod:`agent_trajviz.insight.tool_failure`; this module re-exports
 them for existing imports.
 """
 

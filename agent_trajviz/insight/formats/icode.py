@@ -568,7 +568,7 @@ def _fill_completed_times(messages: list[dict]) -> None:
 
 
 def _convert_icode_to_internal(raw: dict) -> dict:
-    """Convert an ICode / Chrys expanded session into the trajviz internal format.
+    """Convert an ICode / Chrys expanded session into the TrajViz internal format.
 
     ICode exports a JSON object with ``meta`` + ``state.messages`` (user /
     assistant / tool roles, ``function_call`` / ``function_result`` contents)

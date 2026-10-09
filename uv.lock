@@ -17,6 +17,38 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "agent-trajviz"
+version = "1.0.0"
+source = { editable = "." }
+dependencies = [
+    { name = "gradio" },
+    { name = "pandas" },
+    { name = "plotly" },
+    { name = "pygments" },
+    { name = "requests" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "hypothesis" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "gradio", specifier = ">=6.14.0" },
+    { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.0" },
+    { name = "pandas", specifier = ">=2.0" },
+    { name = "plotly", specifier = ">=5.0" },
+    { name = "pygments", specifier = ">=2.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "requests", specifier = ">=2.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.16" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1431,38 +1463,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/ae/5f/57ff8b434839e70da
 wheels = [
     { url = "https://files.pythonhosted.org/packages/22/2a/5e5e750890ada51017d18d0d4c30da696e5b5bd3180947729927628fc3cb/tqdm-4.68.4-py3-none-any.whl", hash = "sha256:5168118b2368f48c561afda8020fd79195b1bdb0bdf8086b88442c267a315dc2", size = 676612, upload-time = "2026-07-07T09:58:16.256Z" },
 ]
-
-[[package]]
-name = "trajviz"
-version = "1.0.0"
-source = { editable = "." }
-dependencies = [
-    { name = "gradio" },
-    { name = "pandas" },
-    { name = "plotly" },
-    { name = "pygments" },
-    { name = "requests" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "hypothesis" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "gradio", specifier = ">=6.14.0" },
-    { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.0" },
-    { name = "pandas", specifier = ">=2.0" },
-    { name = "plotly", specifier = ">=5.0" },
-    { name = "pygments", specifier = ">=2.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
-    { name = "requests", specifier = ">=2.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.16" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "typer"

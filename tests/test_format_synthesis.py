@@ -23,15 +23,15 @@ import tempfile
 import unittest
 import zipfile
 
-from trajviz.insight.formats.sniff import _EVENT_FORMATS, _OBJECT_FORMATS
-from trajviz.insight.loaders import (
+from agent_trajviz.insight.formats.sniff import _EVENT_FORMATS, _OBJECT_FORMATS
+from agent_trajviz.insight.loaders import (
     FORMAT_LABELS,
     check_format_selection,
     detect_format,
     load_trajectory,
 )
-from trajviz.insight.metrics import compute_metrics
-from trajviz.insight.parser import parse_steps
+from agent_trajviz.insight.metrics import compute_metrics
+from agent_trajviz.insight.parser import parse_steps
 
 # --------------------------------------------------------------------------
 # Shared helpers
@@ -673,7 +673,7 @@ class IcodeSyntheticExportTests(unittest.TestCase):
         group's timestamp instead (or not at all). The window is authoritative
         when present: here 500 ms between started_at and finished_at.
         """
-        from trajviz.insight.metrics import tool_call_duration_ms
+        from agent_trajviz.insight.metrics import tool_call_duration_ms
 
         by_id = {tc["tool_id"]: tc for tc in _tool_calls(self.steps)}
         self.assertEqual(tool_call_duration_ms(by_id["call_00_read"]), 500)

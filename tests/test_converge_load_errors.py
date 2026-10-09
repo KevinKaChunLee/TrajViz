@@ -19,8 +19,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trajviz.converge.alignment import build_comparison_report
-from trajviz.converge.batch import ManifestEntry, aggregate_reports, run_batch
+from agent_trajviz.converge.alignment import build_comparison_report
+from agent_trajviz.converge.batch import ManifestEntry, aggregate_reports, run_batch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -150,7 +150,7 @@ class ConvergeCliExitsNonZeroOnBadInput(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             good = _min_trajectory(Path(td) / "g.json")
             proc = subprocess.run(
-                [sys.executable, "-m", "trajviz.converge.cli",
+                [sys.executable, "-m", "agent_trajviz.converge.cli",
                  str(Path(td) / "missing.json"), str(good), "--output", "summary"],
                 cwd=str(REPO_ROOT),
                 env={"PYTHONPATH": str(REPO_ROOT), "PATH": "/usr/bin:/bin"},

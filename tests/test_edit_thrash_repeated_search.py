@@ -2,7 +2,7 @@
 
 import unittest
 
-from trajviz.insight.patterns import detect_edit_thrash, detect_repeated_searches
+from agent_trajviz.insight.patterns import detect_edit_thrash, detect_repeated_searches
 
 
 def _write(idx: int, path: str, *, status: str = "success") -> dict:

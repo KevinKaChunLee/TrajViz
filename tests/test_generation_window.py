@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.metrics import (
+from agent_trajviz.insight.metrics import (
     build_message_metrics,
     compute_metrics,
     generation_seconds,

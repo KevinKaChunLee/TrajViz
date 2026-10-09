@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from trajviz.insight.session import LoadError, LoadedSession, load_session
+from agent_trajviz.insight.session import LoadError, LoadedSession, load_session
 
 FIXTURE = Path(__file__).parent / "fixtures" / "codearts_minimal.json"
 
@@ -36,7 +36,7 @@ class LoadSessionTests(unittest.TestCase):
         self.assertEqual(result.detected, "codearts")
 
     def test_truncation_when_max_steps_is_low(self):
-        with patch("trajviz.insight.session.MAX_STEPS", 1):
+        with patch("agent_trajviz.insight.session.MAX_STEPS", 1):
             result = load_session(str(FIXTURE))
         self.assertIsInstance(result, LoadedSession)
         self.assertTrue(result.truncated)
@@ -57,7 +57,7 @@ class LoadSessionTests(unittest.TestCase):
         self.assertEqual(result.code, "unknown")
 
     def test_packer_uses_named_slots(self):
-        from trajviz.insight.ui.load import empty_load_outputs, load_slot_keys, pack_load_outputs
+        from agent_trajviz.insight.ui.load import empty_load_outputs, load_slot_keys, pack_load_outputs
 
         result = load_session(str(FIXTURE))
         self.assertIsInstance(result, LoadedSession)
@@ -74,14 +74,14 @@ class LoadSessionTests(unittest.TestCase):
         self.assertTrue(packed["raw_json"])
 
     def test_duplicate_packer_keys_are_rejected(self):
-        from trajviz.insight.ui.load import merge_packer_dicts
+        from agent_trajviz.insight.ui.load import merge_packer_dicts
 
         with self.assertRaises(ValueError) as ctx:
             merge_packer_dicts([{"token_chart": None}, {"token_chart": None}])
         self.assertIn("token_chart", str(ctx.exception))
 
     def test_load_units_bind_pack_and_slots_to_the_same_module(self):
-        from trajviz.insight.ui.load import LOAD_UNITS
+        from agent_trajviz.insight.ui.load import LOAD_UNITS
 
         self.assertEqual(LOAD_UNITS[0].name, "shell")
         self.assertIsNone(LOAD_UNITS[0].module)
@@ -96,8 +96,8 @@ class LoadSessionTests(unittest.TestCase):
             self.assertIs(unit.pack, unit.module.pack_load)
 
     def test_merge_load_slots_rejects_missing_and_extra_tabs(self):
-        from trajviz.insight.ui.load import LOAD_UNITS, merge_load_slots
-        from trajviz.insight.ui.shared import SharedState
+        from agent_trajviz.insight.ui.load import LOAD_UNITS, merge_load_slots
+        from agent_trajviz.insight.ui.shared import SharedState
 
         shared = SharedState(
             state_steps=object(),

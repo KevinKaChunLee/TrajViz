@@ -1,4 +1,4 @@
-# Runtime dependencies for trajviz (dashboard + scripts).
+# Runtime dependencies for TrajViz (dashboard + scripts).
 # Mirrors [project.dependencies] in pyproject.toml.
 # Equivalent to `pip install -e .`.
 

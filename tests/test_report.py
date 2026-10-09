@@ -5,8 +5,8 @@ import os
 import tempfile
 import unittest
 
-from trajviz.insight.loaders import load_trajectory
-from trajviz.insight.report import (
+from agent_trajviz.insight.loaders import load_trajectory
+from agent_trajviz.insight.report import (
     ReportError,
     _mixed_md_to_html,
     build_report_html,
@@ -62,7 +62,7 @@ class MixedMarkdownTests(unittest.TestCase):
 class ReportBuildTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        import trajviz.insight.ui.upload as upload_mod
+        import agent_trajviz.insight.ui.upload as upload_mod
 
         # Per-session now, not a single global: setting the old name would be a
         # silent no-op and this reset would stop isolating the test.
@@ -137,7 +137,7 @@ class ReportBuildTests(unittest.TestCase):
         self.assertIn("Skill calls by agent", doc)
 
     def test_context_utilization_section_owns_usage_breakdown(self):
-        from trajviz.insight.ui.overview_tab import OVERVIEW_SECTION_NAMES
+        from agent_trajviz.insight.ui.overview_tab import OVERVIEW_SECTION_NAMES
 
         self.assertIn("Context Utilization", OVERVIEW_SECTION_NAMES)
         self.assertNotIn("Efficiency", OVERVIEW_SECTION_NAMES)
@@ -154,7 +154,7 @@ class ReportBuildTests(unittest.TestCase):
         self.assertNotIn("Context growth", doc[ctx_start:diag_start])
 
     def test_skill_chart_included_when_skills_present(self):
-        from trajviz.insight.session import build_loaded_session
+        from agent_trajviz.insight.session import build_loaded_session
 
         raw = self._loaded()
         session = build_loaded_session(raw.get("_source_path") or "oc.json", raw)
@@ -174,7 +174,7 @@ class ReportBuildTests(unittest.TestCase):
         self.assertNotIn("class='tv-theme-light'", doc)
 
     def test_truncation_warning_appears_in_header(self):
-        from trajviz.insight.session import build_loaded_session
+        from agent_trajviz.insight.session import build_loaded_session
 
         raw = self._loaded()
         session = build_loaded_session(raw.get("_source_path") or "oc.json", raw)
@@ -200,13 +200,13 @@ class ReportBuildTests(unittest.TestCase):
     def test_cli_flag_writes_output(self):
         import sys
 
-        from trajviz.insight.__main__ import main
+        from agent_trajviz.insight.__main__ import main
 
         src = _write(self.tmp, "cli.json", self.oc)
         dest = os.path.join(self.tmp, "out.html")
         old = sys.argv
         try:
-            sys.argv = ["trajviz", "--report", src, "-o", dest]
+            sys.argv = ["agent-trajviz", "--report", src, "-o", dest]
             main()
         finally:
             sys.argv = old
@@ -218,8 +218,8 @@ class ReportBuildTests(unittest.TestCase):
         """DownloadButton(value=fn) runs on Blocks load and toasted an error."""
         import inspect
 
-        from trajviz.insight.insight import build_ui
-        from trajviz.insight.ui.upload import prepare_html_export
+        from agent_trajviz.insight.insight import build_ui
+        from agent_trajviz.insight.ui.upload import prepare_html_export
 
         src = inspect.getsource(build_ui)
         self.assertNotIn("value=prepare_html_export", src)
@@ -237,15 +237,15 @@ class ReportBuildTests(unittest.TestCase):
             self.assertNotIn("load", triggers)
 
     def test_prepare_export_empty_disables_button(self):
-        from trajviz.insight.ui.upload import prepare_html_export
+        from agent_trajviz.insight.ui.upload import prepare_html_export
 
         upd = prepare_html_export({}, [], False)
         self.assertFalse(upd.get("interactive", True))
         self.assertIsNone(upd.get("value"))
 
     def test_pack_load_disables_export_on_empty_and_loaded(self):
-        from trajviz.insight.session import LoadedSession, load_session
-        from trajviz.insight.ui.upload import pack_load
+        from agent_trajviz.insight.session import LoadedSession, load_session
+        from agent_trajviz.insight.ui.upload import pack_load
 
         empty = pack_load()
         self.assertFalse(empty["export_btn"].get("interactive", True))
@@ -260,15 +260,15 @@ class ReportBuildTests(unittest.TestCase):
     def test_prepare_export_swallows_unexpected_errors(self):
         from unittest.mock import patch
 
-        from trajviz.insight.ui.upload import prepare_html_export
+        from agent_trajviz.insight.ui.upload import prepare_html_export
 
-        with patch("trajviz.insight.ui.upload.write_report_file", side_effect=OSError("disk")):
+        with patch("agent_trajviz.insight.ui.upload.write_report_file", side_effect=OSError("disk")):
             upd = prepare_html_export(self._loaded(), None, False)
         self.assertFalse(upd.get("interactive", True))
         self.assertIsNone(upd.get("value"))
 
     def test_prepare_export_writes_file(self):
-        from trajviz.insight.ui.upload import prepare_html_export
+        from agent_trajviz.insight.ui.upload import prepare_html_export
 
         raw = self._loaded()
         upd = prepare_html_export(raw, None, False)
@@ -280,7 +280,7 @@ class ReportBuildTests(unittest.TestCase):
             self.assertIn("TrajViz HTML report", f.read())
 
     def test_prepare_export_replaces_previous_temp_dir(self):
-        from trajviz.insight.ui.upload import prepare_html_export
+        from agent_trajviz.insight.ui.upload import prepare_html_export
 
         raw = self._loaded()
         first = prepare_html_export(raw, None, False)

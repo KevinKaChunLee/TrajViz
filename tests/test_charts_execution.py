@@ -17,7 +17,7 @@ import math
 import re
 import unittest
 
-from trajviz.insight.charts import (
+from agent_trajviz.insight.charts import (
     build_agent_swimlane_chart,
     build_agent_token_chart,
     build_context_pressure_chart,
@@ -34,12 +34,12 @@ from trajviz.insight.charts import (
     build_tool_duration_chart,
     build_tool_outcome_timeline,
 )
-from trajviz.insight.metrics import (
+from agent_trajviz.insight.metrics import (
     build_message_metrics,
     compute_metrics,
     step_duration_excluding_spawn,
 )
-from trajviz.insight.palette import (
+from agent_trajviz.insight.palette import (
     LABEL_PHASE_COLORS,
     SESSION_COLORS,
     TOKEN_COLORS,

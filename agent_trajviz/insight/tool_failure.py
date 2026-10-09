@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from trajviz.tool_vocab import SYSTEM_TOOL_NAMES
+from agent_trajviz.tool_vocab import SYSTEM_TOOL_NAMES
 
 # Union of former metrics/diagnostics/patterns status sets (lowercased).
 FAILURE_STATUSES: frozenset[str] = frozenset({

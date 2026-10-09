@@ -27,9 +27,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trajviz.insight.loaders import load_trajectory
-from trajviz.insight.session import LoadedSession, LoadError, load_session
-from trajviz.insight.ui.load import pack_load_outputs
+from agent_trajviz.insight.loaders import load_trajectory
+from agent_trajviz.insight.session import LoadedSession, LoadError, load_session
+from agent_trajviz.insight.ui.load import pack_load_outputs
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 

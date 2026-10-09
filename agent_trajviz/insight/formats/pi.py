@@ -117,7 +117,7 @@ def _pi_normalize_tool(name: str, arguments: Any) -> tuple[str, dict]:
 
 
 def _convert_pi_to_internal(events: list[dict]) -> dict:
-    """Convert Pi coding-agent JSONL events into the trajviz internal format.
+    """Convert Pi coding-agent JSONL events into the TrajViz internal format.
 
     Pi emits newline-delimited JSON with event types:
     - session: session ID, cwd, version

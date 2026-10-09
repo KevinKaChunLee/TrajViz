@@ -1,7 +1,7 @@
 """DECAF failure-attribution seam for TrajViz.
 
 The single, one-directional bridge between TrajViz and DECAF's ``awe`` package:
-this module imports ``awe``; ``awe`` never imports ``trajviz``. Every DECAF call
+this module imports ``awe``; ``awe`` never imports ``agent_trajviz``. Every DECAF call
 the UI makes goes through :func:`diagnose`, which returns a plain
 :class:`AttributionResult` (no Gradio types) so it is unit-testable headless.
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from trajviz.insight.tool_failure import (
+from agent_trajviz.insight.tool_failure import (
     status_failed,
     step_has_success,
     tool_call_error_kind,

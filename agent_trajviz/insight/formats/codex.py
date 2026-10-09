@@ -33,7 +33,7 @@ def _codex_declared_context_window(events: list[dict]) -> int | None:
 
 
 def _convert_codex_to_internal(events: list[dict]) -> dict:
-    """Convert Codex CLI JSONL events into the trajviz internal format.
+    """Convert Codex CLI JSONL events into the TrajViz internal format.
 
     Codex emits newline-delimited JSON with event types:
     - session_meta: session ID, cwd, model, version
@@ -413,7 +413,7 @@ def _extract_codex_exec_commands(source: str) -> list[str]:
 
 
 def _classify_codex_command(func_name: str, cmd: str) -> str:
-    """Map a Codex exec_command to a trajviz tool name.
+    """Map a Codex exec_command to a TrajViz tool name.
 
     Codex uses exec_command for everything; we infer the intent from the command.
     """
