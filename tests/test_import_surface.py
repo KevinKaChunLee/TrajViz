@@ -145,7 +145,7 @@ class ModuleImportTests(unittest.TestCase):
             "agent_trajviz.insight.formats.dsh",
             "agent_trajviz.converge.cli",
             "agent_trajviz.collect.cursor",
-            "agent_trajviz.labeling.step_labeler_v2",
+            "agent_trajviz.labeling.labeler",
         ):
             self.assertIn(expected, names)
 

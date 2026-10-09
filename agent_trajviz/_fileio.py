@@ -1,10 +1,8 @@
 """Shared output-safety helpers for the collect and labeling command-line tools.
 
-Consolidates the previously triplicated "output must not overwrite a source
-file" guard (opencode_consolidator, codearts_consolidator, step_labeler_v2)
-and the duplicated atomic-JSON-write implementation (codearts_consolidator,
-step_labeler_v2) into a single module.  Each caller keeps its own exception
-type and message wording by passing them in, so CLI behavior is unchanged.
+One "output must not overwrite a source file" guard and one atomic JSON write,
+shared by the collection tools (``collect.opencode``, ``collect.codearts``) and
+the labeler. Each caller passes its own exception type and message wording.
 """
 
 from __future__ import annotations

@@ -169,7 +169,7 @@ class CompactionDetectionTests(unittest.TestCase):
         # Explicit summary suppresses a duplicate occupancy_drop on the same step
         self.assertFalse(any(e["kind"] == "occupancy_drop" and e["step"] == 1 for e in events))
 
-    def test_v2_compaction_checkpoint(self):
+    def test_compaction_message_step_is_a_checkpoint(self):
         steps = [
             _step(0, tokens=_tokens(total=80, inp=80)),
             _step(1, role="compaction", is_compaction_checkpoint=True, message_type="compaction"),

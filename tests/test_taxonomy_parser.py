@@ -1,17 +1,13 @@
-"""Parser-level guards for ``step_labeler.load_taxonomy``.
+"""Parser-level guards for ``taxonomy.load_taxonomy``.
 
-``tests/test_scripts_fixes.py::TaxonomyVersionTests`` pins what the *shipped*
-taxonomy.md parses to today (C15).  This file pins the *parser* against
-inputs the shipped file does not yet contain, because the taxonomy is a prose
-document that anyone may edit: it is the single source for the LLM system prompt,
-for ``_build_valid_sets``' validation of model output, and (through
-``step_labeler_v2``) for every label sidecar it writes.  A parser
-that attributes prose to a phase does not fail loudly — it silently widens the
-valid-action set, so an invalid model label passes validation and lands in a
-sidecar as if it were taxonomy.
-
-Both labelers share this one function (``step_labeler_v2`` calls
-``v1.load_taxonomy``), so these tests cover v1 and v2 at once.
+``tests/test_cli_tool_fixes.py::TaxonomyVersionTests`` pins what the *shipped*
+taxonomy.md parses to today (C15). This file pins the *parser* against inputs
+the shipped file does not yet contain, because the taxonomy is a prose document
+that anyone may edit: it is the single source for the LLM system prompt, for
+``build_valid_sets``' validation of model output, and so for every label
+sidecar the labeler writes. A parser that attributes prose to a phase does not
+fail loudly: it silently widens the valid-action set, so an invalid model label
+passes validation and lands in a sidecar as if it were taxonomy.
 """
 
 from __future__ import annotations
@@ -20,7 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_trajviz.labeling import step_labeler
+from agent_trajviz.labeling import taxonomy
 
 # The pinned inventory of the shipped taxonomy: 6 phases, 40 actions.  Kept here
 # as per-phase counts rather than a total so that a bullet moving between phases
@@ -35,7 +31,7 @@ SHIPPED_PHASE_COUNTS = {
     "report": 5,
 }
 
-TAXONOMY = Path(step_labeler.__file__).resolve().parent / "taxonomy.md"
+TAXONOMY = taxonomy.DEFAULT_TAXONOMY
 
 
 def _write_taxonomy(tmpdir: str, body: str) -> str:
@@ -70,11 +66,11 @@ class PhaseScopeTests(unittest.TestCase):
                 "## Notes\n"
                 "- `reserved_user`: not a taxonomy action, only documentation.\n",
             )
-            mapping, version = step_labeler.load_taxonomy(path)
+            mapping, version = taxonomy.load_taxonomy(path)
 
         self.assertEqual(version, "v1")
         self.assertEqual(mapping, {"report": ["final_reporting"]})
-        _, valid_actions, action_to_phase = step_labeler._build_valid_sets(mapping)
+        _, valid_actions, action_to_phase = taxonomy.build_valid_sets(mapping)
         self.assertNotIn("reserved_user", valid_actions)
         self.assertNotIn("reserved_user", action_to_phase)
 
@@ -91,7 +87,7 @@ class PhaseScopeTests(unittest.TestCase):
                 "# Appendix\n"
                 "- `deprecated_action`: removed in v1, kept for historical notes.\n",
             )
-            mapping, _ = step_labeler.load_taxonomy(path)
+            mapping, _ = taxonomy.load_taxonomy(path)
 
         self.assertEqual(mapping, {"validate": ["run_tests"]})
 
@@ -114,7 +110,7 @@ class PhaseScopeTests(unittest.TestCase):
                 "#### Rarely used\n"
                 "- `bisect`: bisect to the offending change.\n",
             )
-            mapping, _ = step_labeler.load_taxonomy(path)
+            mapping, _ = taxonomy.load_taxonomy(path)
 
         self.assertEqual(mapping, {"debug": ["reproduce", "bisect"]})
 
@@ -129,15 +125,15 @@ class ShippedInventoryTests(unittest.TestCase):
         re-labels nothing.  Every reported phase/action distribution rests on
         these exact 6 phases and 40 actions.
         """
-        mapping, version = step_labeler.load_taxonomy(str(TAXONOMY))
+        mapping, version = taxonomy.load_taxonomy(str(TAXONOMY))
         self.assertEqual(version, "v1")
         self.assertEqual({k: len(v) for k, v in mapping.items()}, SHIPPED_PHASE_COUNTS)
-        _, valid_actions, _ = step_labeler._build_valid_sets(mapping)
+        _, valid_actions, _ = taxonomy.build_valid_sets(mapping)
         self.assertEqual(len(valid_actions), sum(SHIPPED_PHASE_COUNTS.values()))
 
     def test_no_action_is_declared_twice(self) -> None:
         """``action_to_phase`` is a dict: a duplicated action silently reassigns."""
-        mapping, _ = step_labeler.load_taxonomy(str(TAXONOMY))
+        mapping, _ = taxonomy.load_taxonomy(str(TAXONOMY))
         flat = [a for actions in mapping.values() for a in actions]
         self.assertEqual(len(flat), len(set(flat)), f"duplicate actions: {sorted(flat)}")
 

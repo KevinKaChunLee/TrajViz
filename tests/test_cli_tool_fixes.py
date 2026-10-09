@@ -1,4 +1,4 @@
-"""Regression tests for the 2026-08 review fixes to the command-line tools.
+"""Regression tests for fixes to the collection tools and the labeler.
 
 Covers:
 * B29 — opencode_consolidator exports diamond-reachable sessions exactly once.
@@ -7,8 +7,8 @@ Covers:
 * C15 — the reserved-label documentation note does not leak into the parsed
   taxonomy (load_taxonomy's line format is load-bearing).
 * R27/R28 — the shared no-overwrite guard and atomic JSON write (_fileio).
-* R29 — the v1 step_labeler CLI routes through v2 and emits assistant-only
-  records of a single uniform shape (and inherits the overwrite guard).
+* R29 — the labeler's ``--assistant-only`` mode emits assistant records of a
+  single uniform shape, and the command refuses to overwrite its input.
 """
 
 from __future__ import annotations
@@ -25,8 +25,7 @@ from unittest.mock import patch
 
 from agent_trajviz import _fileio as _common
 from agent_trajviz.collect import opencode as opencode_consolidator
-from agent_trajviz.labeling import step_labeler
-from agent_trajviz.labeling import step_labeler_v2
+from agent_trajviz.labeling import labeler, llm, taxonomy
 
 
 SCHEMA = """
@@ -179,10 +178,10 @@ class OpencodePersistedTimingTests(unittest.TestCase):
 class TaxonomyVersionTests(unittest.TestCase):
     """B32/C15: version extraction works and reserved labels stay out."""
 
-    TAXONOMY = Path(step_labeler.__file__).resolve().parent / "taxonomy.md"
+    TAXONOMY = taxonomy.DEFAULT_TAXONOMY
 
     def test_version_regex_matches_shipped_taxonomy_file(self) -> None:
-        mapping, version = step_labeler.load_taxonomy(str(self.TAXONOMY))
+        mapping, version = taxonomy.load_taxonomy(self.TAXONOMY)
         self.assertNotEqual(version, "unknown")
         self.assertEqual(version, "v1")
         self.assertEqual(
@@ -191,7 +190,7 @@ class TaxonomyVersionTests(unittest.TestCase):
         )
 
     def test_reserved_label_note_does_not_leak_into_taxonomy(self) -> None:
-        mapping, _ = step_labeler.load_taxonomy(str(self.TAXONOMY))
+        mapping, _ = taxonomy.load_taxonomy(self.TAXONOMY)
         all_actions = {a for actions in mapping.values() for a in actions}
         self.assertNotIn("user", mapping)
         self.assertNotIn("unknown", mapping)
@@ -267,8 +266,8 @@ class CommonOverwriteGuardTests(unittest.TestCase):
             )
 
 
-class StepLabelerV1CliTests(unittest.TestCase):
-    """R29/B31: v1 CLI delegates to v2 — assistant-only, uniform, guarded."""
+class AssistantOnlyCliTests(unittest.TestCase):
+    """R29/B31: the assistant-only mode is uniform, and the command is guarded."""
 
     STEPS = [
         {
@@ -311,26 +310,26 @@ class StepLabelerV1CliTests(unittest.TestCase):
 
     def _run_cli(self, argv: list[str]) -> None:
         with (
-            patch.object(step_labeler, "_load_dotenv", lambda *a, **k: None),
-            patch.object(step_labeler_v2, "load_all_steps", return_value=self.STEPS),
+            patch.object(llm, "_load_dotenv", lambda *a, **k: None),
+            patch.object(labeler, "load_all_steps", return_value=self.STEPS),
             patch.object(
-                step_labeler,
+                llm,
                 "call_llm",
                 return_value='{"phase":"understand","action":"code_reading"}',
             ),
             patch.object(sys, "argv", argv),
             contextlib.redirect_stderr(io.StringIO()),
         ):
-            step_labeler.main()
+            labeler.main()
 
-    def test_v1_cli_emits_assistant_only_records_of_uniform_shape(self) -> None:
+    def test_assistant_only_mode_emits_assistant_records_of_uniform_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             trajectory = Path(tmp) / "trajectory.json"
             trajectory.write_text('{"messages": []}\n', encoding="utf-8")
             output = Path(tmp) / "trajectory_labeled.json"
             self._run_cli(
                 [
-                    "step_labeler.py", str(trajectory), "-o", str(output),
+                    "agent-trajviz-label", str(trajectory), "-o", str(output), "--assistant-only",
                     "--base-url", "https://example.invalid/v1",
                     "--api-key", "test", "--model", "test-model",
                 ]
@@ -354,7 +353,7 @@ class StepLabelerV1CliTests(unittest.TestCase):
             ("unknown", "unknown", "fallback"),
         )
 
-    def test_v1_cli_refuses_to_overwrite_input(self) -> None:
+    def test_the_command_refuses_to_overwrite_its_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             trajectory = Path(tmp) / "trajectory.json"
             original = '{"messages": []}\n'
@@ -362,12 +361,12 @@ class StepLabelerV1CliTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as raised:
                 self._run_cli(
                     [
-                        "step_labeler.py", str(trajectory), "-o", str(trajectory),
+                        "agent-trajviz-label", str(trajectory), "-o", str(trajectory),
                         "--base-url", "https://example.invalid/v1",
                         "--api-key", "test", "--model", "test-model",
                     ]
                 )
-            self.assertEqual(raised.exception.code, 1)
+            self.assertEqual(raised.exception.code, 2)  # argparse usage error
             self.assertEqual(trajectory.read_text(encoding="utf-8"), original)
 
 

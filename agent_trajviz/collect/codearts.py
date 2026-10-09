@@ -817,9 +817,9 @@ def _batch_legacy(
             session_id = data["metadata"]["session_id"]
             safe_session_id = _safe_filename_component(session_id)
             destination = (
-                output_dir / f"{safe_session_id}_trajectory_v2.json"
+                output_dir / f"{safe_session_id}_trajectory.json"
                 if output_dir is not None
-                else subdir / f"{safe_session_id}_trajectory_v2.json"
+                else subdir / f"{safe_session_id}_trajectory.json"
             )
             resolved_destination = destination.resolve()
             if resolved_destination in used_destinations:
@@ -913,7 +913,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise ConsolidationError("--session-id is only valid for database input")
             data = consolidate_legacy_session(source)
             safe_session_id = _safe_filename_component(data["metadata"]["session_id"])
-            default_output = source / f"{safe_session_id}_trajectory_v2.json"
+            default_output = source / f"{safe_session_id}_trajectory.json"
             protected_sources: list[Path] = [
                 path
                 for path in [
@@ -932,7 +932,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_depth=args.max_depth,
             )
             safe_session_id = _safe_filename_component(session_id)
-            default_output = Path.cwd() / f"trajectory_{safe_session_id}_v2.json"
+            default_output = Path.cwd() / f"trajectory_{safe_session_id}.json"
             protected_sources = [
                 source,
                 Path(f"{source}-wal"),

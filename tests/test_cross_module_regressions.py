@@ -1,4 +1,4 @@
-"""Regression tests for the 2026-08-03 project-review fixes.
+"""Regression tests for defects across the loaders, metrics, patterns, rendering and converge.
 
 Each test pins a specific defect found during the multi-round review so it does
 not silently regress. Grouped by the module that was fixed.

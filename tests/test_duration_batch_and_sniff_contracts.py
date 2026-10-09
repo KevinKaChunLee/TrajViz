@@ -1,4 +1,4 @@
-"""Three small contracts from the review backlog.
+"""Three small contracts: duration-axis labelling, batch trust fields, ICode sniffing.
 
 * The Tool Call Duration axis says it sums per-call time. Parallel calls each
   count there, while the "Tool time" chip is wall-clock (the union of the call

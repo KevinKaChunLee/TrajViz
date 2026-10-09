@@ -431,14 +431,12 @@ Installed with the package (each takes `--help`):
 | `agent-trajviz-collect cursor` | Read-only export of a Cursor Agent chat: JSONL transcripts + Composer `state.vscdb`, including subagent sessions. See the **Cursor** collection section above. |
 | `agent-trajviz-collect codearts` | Read-only export from a CodeArts `opencode.db` with recursive child sessions, or lossless archival merge of legacy `messages_<n>.json` shards. See the **CodeArts** collection section above. |
 | `agent-trajviz-collect opencode` | Recursively merge an OpenCode parent session and child sub-agent sessions into a single JSON. See the **OpenCode** collection section above. |
-| `agent-trajviz-label` | **Preferred** LLM step classifier (`agent_trajviz.labeling.step_labeler_v2`). Emits one label record for **every** parsed step: assistant steps via the LLM, user steps as deterministic `user/user_prompt`, with `index`/`raw_index` preserved for exact source mapping. |
-| `python -m agent_trajviz.labeling.step_labeler` | Shared taxonomy/LLM helpers used by v2, plus a **compat CLI** that routes to v2 in assistant-only mode (`*_labeled.json`). Prefer `agent-trajviz-label` for new work. |
+| `agent-trajviz-label` | LLM step classifier. Emits one label record for **every** parsed step: assistant steps via the LLM, user steps as deterministic `user/user_prompt`, with `index`/`raw_index` preserved for exact source mapping; `--assistant-only` keeps just the assistant records. |
 | `agent_trajviz/labeling/taxonomy.md` | Authoritative list of phase and action tags the labeler emits. Bundled with the package and loaded by default; `--taxonomy` overrides it. |
 
 ### Labeling a trajectory
 
-Use **`agent-trajviz-label`** for new sidecars. It makes live LLM calls via
-`requests`.
+`agent-trajviz-label` makes live LLM calls via `requests` (the `llm` extra).
 
 The labeler needs three config values — provide them via a `.env` file (in
 the repo root or CWD) or as CLI flags. A sample
@@ -464,15 +462,15 @@ Optional: `LABEL_PROVIDER` (`openai` | `anthropic`, default `openai`),
 Example invocations:
 
 ```bash
-# Preferred: full-index v2 sidecar
-agent-trajviz-label cc_trajectory.json --output cc_trajectory_labeled_v2.json
+# One record per step (default output: cc_trajectory_labeled.json)
+agent-trajviz-label cc_trajectory.json
 
-# Compat CLI: assistant-only sidecar (still routes through v2)
-python -m agent_trajviz.labeling.step_labeler cc_trajectory.json --output cc_trajectory_labeled.json
+# Assistant steps only
+agent-trajviz-label cc_trajectory.json --assistant-only --output cc_trajectory_assistant_labels.json
 
 # Overriding config on the command line
 agent-trajviz-label cc_trajectory.json \
-    --output cc_trajectory_labeled_v2.json \
+    --output cc_trajectory_labeled.json \
     --base-url https://api.openai.com/v1 \
     --api-key sk-... \
     --model gpt-4o-mini

@@ -62,7 +62,7 @@ agent-trajviz = "agent_trajviz.insight.__main__:main"
 # the Gradio app and must keep doing so.
 trajectory-converge = "agent_trajviz.converge.cli:main"
 agent-trajviz-collect = "agent_trajviz.collect.__main__:main"
-agent-trajviz-label = "agent_trajviz.labeling.step_labeler_v2:main"
+agent-trajviz-label = "agent_trajviz.labeling.labeler:main"
 
 [project.urls]
 Homepage = "https://github.com/rshu/TrajViz"

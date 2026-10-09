@@ -32,5 +32,11 @@ First release as the `agent-trajviz` package.
 - The import package is `agent_trajviz` (was `trajviz`) and the dashboard
   command is `agent-trajviz` (was `trajviz`).
 - The collection and labeling tools moved from `scripts/` into the package.
+- The step labeler is one command, `agent-trajviz-label`: `--assistant-only`
+  replaces the separate compatibility command, the default output is
+  `<input>_labeled.json`, and progress goes through `logging`. Module and
+  file names no longer carry version labels (`step_labeler_v2` is
+  `agent_trajviz.labeling.labeler`); the CodeArts tool writes
+  `<session>_trajectory.json`.
 - `requirements.txt` is gone; `pyproject.toml` is the single source of
   dependencies.

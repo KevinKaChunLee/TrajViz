@@ -4,11 +4,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_trajviz.labeling import step_labeler_v2
+from agent_trajviz import _fileio
+from agent_trajviz.labeling import labeler, llm
+from agent_trajviz.labeling.taxonomy import DEFAULT_TAXONOMY
 from agent_trajviz.insight.labels import aggregate_labels
 
 
-class StepLabelerV2Tests(unittest.TestCase):
+class LabelerTests(unittest.TestCase):
     def test_refuses_to_overwrite_input_trajectory(self):
         with tempfile.TemporaryDirectory() as tmp:
             trajectory_path = Path(tmp) / "trajectory.json"
@@ -16,10 +18,10 @@ class StepLabelerV2Tests(unittest.TestCase):
             trajectory_path.write_text(original, encoding="utf-8")
 
             with (
-                patch.object(step_labeler_v2, "load_all_steps") as load_steps,
-                self.assertRaises(step_labeler_v2.OutputSafetyError),
+                patch.object(labeler, "load_all_steps") as load_steps,
+                self.assertRaises(labeler.OutputSafetyError),
             ):
-                step_labeler_v2.label_trajectory(
+                labeler.label_trajectory(
                     str(trajectory_path),
                     str(trajectory_path),
                     base_url="https://example.invalid/v1",
@@ -54,21 +56,18 @@ class StepLabelerV2Tests(unittest.TestCase):
             output_path = Path(tmp) / "labeled.json"
             original_output = '{"existing": true}\n'
             output_path.write_text(original_output, encoding="utf-8")
-            taxonomy_path = (
-                Path(step_labeler_v2.__file__).resolve().parent
-                / "taxonomy.md"
-            )
+            taxonomy_path = str(DEFAULT_TAXONOMY)
 
             with (
-                patch.object(step_labeler_v2, "load_all_steps", return_value=steps),
+                patch.object(labeler, "load_all_steps", return_value=steps),
                 patch.object(
-                    step_labeler_v2.json,
+                    _fileio.json,
                     "dump",
                     side_effect=fail_after_partial_write,
                 ),
                 self.assertRaisesRegex(RuntimeError, "serialization failed"),
             ):
-                step_labeler_v2.label_trajectory(
+                labeler.label_trajectory(
                     str(trajectory_path),
                     str(output_path),
                     base_url="https://example.invalid/v1",
@@ -115,19 +114,16 @@ class StepLabelerV2Tests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             output_path = Path(tmp) / "labeled.json"
-            taxonomy_path = (
-                Path(step_labeler_v2.__file__).resolve().parent
-                / "taxonomy.md"
-            )
+            taxonomy_path = str(DEFAULT_TAXONOMY)
             with (
-                patch.object(step_labeler_v2, "load_all_steps", return_value=steps),
+                patch.object(labeler, "load_all_steps", return_value=steps),
                 patch.object(
-                    step_labeler_v2.v1,
+                    llm,
                     "call_llm",
                     return_value='{"phase":"understand","action":"code_reading"}',
                 ) as call_llm,
             ):
-                step_labeler_v2.label_trajectory(
+                labeler.label_trajectory(
                     "input.json",
                     str(output_path),
                     base_url="https://example.invalid/v1",
@@ -171,15 +167,12 @@ class StepLabelerV2Tests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             output_path = Path(tmp) / "labeled.json"
-            taxonomy_path = (
-                Path(step_labeler_v2.__file__).resolve().parent
-                / "taxonomy.md"
-            )
+            taxonomy_path = str(DEFAULT_TAXONOMY)
             with (
-                patch.object(step_labeler_v2, "load_all_steps", return_value=steps),
-                patch.object(step_labeler_v2.v1, "call_llm") as call_llm,
+                patch.object(labeler, "load_all_steps", return_value=steps),
+                patch.object(llm, "call_llm") as call_llm,
             ):
-                step_labeler_v2.label_trajectory(
+                labeler.label_trajectory(
                     "input.json",
                     str(output_path),
                     base_url="https://example.invalid/v1",
@@ -194,7 +187,7 @@ class StepLabelerV2Tests(unittest.TestCase):
         self.assertEqual(data["steps"][0]["label_source"], "fallback")
         call_llm.assert_not_called()
 
-    def test_v2_user_steps_do_not_distort_assistant_metrics_or_duplicate_timeline(self):
+    def test_user_steps_do_not_distort_assistant_metrics_or_duplicate_timeline(self):
         with tempfile.NamedTemporaryFile(suffix=".json") as trajectory:
             data = {
                 "schema_version": "trajectory_labels.v2",

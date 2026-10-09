@@ -162,7 +162,7 @@ def insert_part(
     )
 
 
-class CodeArtsConsolidatorV2Tests(unittest.TestCase):
+class CodeArtsCollectorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
@@ -405,7 +405,7 @@ class CodeArtsConsolidatorV2Tests(unittest.TestCase):
 
         self.assertEqual((processed, ignored, failed, partial), (1, 0, 1, 0))
         output = json.loads(
-            (output_dir / "duplicate_trajectory_v2.json").read_text(encoding="utf-8")
+            (output_dir / "duplicate_trajectory.json").read_text(encoding="utf-8")
         )
         self.assertEqual(output["messages"][0]["content"], "first")
         with contextlib.redirect_stderr(io.StringIO()):
@@ -606,7 +606,7 @@ class CodeArtsConsolidatorV2Tests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             return_code = consolidator.main([str(session)])
         self.assertEqual(return_code, 0)
-        outputs = list(session.glob("*_trajectory_v2.json"))
+        outputs = list(session.glob("*_trajectory.json"))
         self.assertEqual(len(outputs), 1)
         self.assertEqual(outputs[0].parent, session)
 

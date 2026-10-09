@@ -8,11 +8,16 @@ The names below are the public API. The ``insight`` (dashboard) and
 ``converge`` (comparison) subpackages are internal and may change.
 """
 
+import logging
+
 from .api import FORMATS, SCHEMA_VERSION, Trajectory, compare, load, write_report
 from .errors import LoadError, MissingExtraError, ReportError, TrajVizError
 from .model import Step, TokenUsage, ToolCall
 
 __version__ = "0.1.0"
+
+# A library never configures logging for its host application.
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
     "FORMATS",

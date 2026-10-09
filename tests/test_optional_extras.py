@@ -121,7 +121,7 @@ class MissingExtraHintTests(unittest.TestCase):
     def test_the_labeler_names_the_llm_extra(self):
         self._assert_hint(_run(f"""
             import sys
-            from agent_trajviz.labeling.step_labeler_v2 import main
+            from agent_trajviz.labeling.labeler import main
             sys.argv = ["agent-trajviz-label", {str(FIXTURE)!r}]
             main()
         """, blocked=("requests",)), "llm")
@@ -129,7 +129,7 @@ class MissingExtraHintTests(unittest.TestCase):
     def test_the_labeler_help_needs_no_extra(self):
         proc = _run("""
             import sys
-            from agent_trajviz.labeling.step_labeler_v2 import main
+            from agent_trajviz.labeling.labeler import main
             sys.argv = ["agent-trajviz-label", "--help"]
             main()
         """, blocked=("requests",))

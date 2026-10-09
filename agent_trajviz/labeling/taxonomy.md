@@ -77,5 +77,5 @@ Stage for communicating status and handoff.
 - Not all actions must appear in every trajectory; zero-count actions are still valid taxonomy members.
 - If a step could fit multiple actions, choose the dominant intent of that step.
 - Reserved system labels are emitted outside this classification hierarchy and must be accepted by any sidecar consumer. They are not part of the LLM-assignable taxonomy above.
-- Reserved: the phase/action pair `user`/`user_prompt` is emitted by step_labeler_v2 for user steps, and is also synthesized by the dashboard's label loader.
-- Reserved: the phase/action pair `unknown`/`unknown` is the fallback both labelers emit for unparseable, invalid, or failed LLM output; step_labeler_v2 also assigns it to any non-user, non-assistant role.
+- Reserved: the phase/action pair `user`/`user_prompt` is emitted by the labeler for user steps, and is also synthesized by the dashboard's label loader.
+- Reserved: the phase/action pair `unknown`/`unknown` is the fallback the labeler emits for unparseable, invalid, or failed LLM output; it also assigns it to any non-user, non-assistant role.
