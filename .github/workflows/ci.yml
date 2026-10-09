@@ -135,7 +135,8 @@ jobs:
   #
   # This measures the STANDALONE figure: the DECAF-gated attribution tests skip
   # here, so it is a floor on the real number. `fail-under` is a collapse
-  # detector set deliberately below the measured value.
+  # detector set just below the measured value (81.7% standalone at 0.1.0);
+  # raise it when the measured figure rises.
   coverage:
     runs-on: ubuntu-latest
     steps:
@@ -157,7 +158,7 @@ jobs:
           --branch --source=agent_trajviz -m pytest tests -q
       - name: Report coverage
         run: |
-          uv run --locked --with "coverage>=7.16" coverage report --precision=1 --show-missing --fail-under=70
+          uv run --locked --with "coverage>=7.16" coverage report --precision=1 --show-missing --fail-under=80
           uv run --locked --with "coverage>=7.16" coverage html
       - name: Upload HTML report
         if: always()
