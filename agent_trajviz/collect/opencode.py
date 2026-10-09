@@ -7,7 +7,7 @@ with a flat structure. It finds child sessions by looking for completed tool cal
 sessionId in their metadata.
 
 Usage:
-    python scripts/opencode_consolidator.py <session-id> [output-file]
+    agent-trajviz-collect opencode <session-id> [output-file]
 
     If output-file is "-", output is written to stdout.
 
@@ -25,17 +25,17 @@ Usage:
 
 Example:
     # Export to file
-    python scripts/opencode_consolidator.py ses_123abc456 export.json
+    agent-trajviz-collect opencode ses_123abc456 export.json
 
     # Export to stdout
-    python scripts/opencode_consolidator.py ses_123abc456 -
+    agent-trajviz-collect opencode ses_123abc456 -
 
     # Use custom database path (POSIX)
-    OPENCODE_DATABASE=/custom/path/opencode.db python scripts/opencode_consolidator.py ses_123abc456 output.json
+    OPENCODE_DATABASE=/custom/path/opencode.db agent-trajviz-collect opencode ses_123abc456 output.json
 
     # Use custom database path (Windows PowerShell)
     $env:OPENCODE_DATABASE = "$env:USERPROFILE\\.local\\share\\opencode\\opencode.db"
-    python scripts/opencode_consolidator.py ses_123abc456 output.json
+    agent-trajviz-collect opencode ses_123abc456 output.json
 
 Output structure:
     {
@@ -55,12 +55,9 @@ import sqlite3
 import os
 from pathlib import Path
 from typing import Any
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
-try:
-    from scripts import _common
-except ImportError:  # Direct execution from scripts/.
-    import _common  # type: ignore[no-redef]
+from .. import _fileio as _common
 
 
 def _on_windows() -> bool:
@@ -385,7 +382,7 @@ def export_session_and_collect_children(
 
 def print_usage():
     """Print usage information."""
-    print(f"Usage: {sys.argv[0]} <session-id> [output-file]", file=sys.stderr)
+    print("Usage: agent-trajviz-collect opencode <session-id> [output-file]", file=sys.stderr)
     print("\nArguments:", file=sys.stderr)
     print("  session-id    The session ID to export (e.g., ses_123abc456)", file=sys.stderr)
     print("  output-file   Optional output path. Use '-' for stdout.", file=sys.stderr)
@@ -423,16 +420,17 @@ def ensure_output_is_not_source(
     )
 
 
-def main():
-    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+def main(argv: Sequence[str] | None = None) -> None:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args or args[0] in ("-h", "--help", "help"):
         print_usage()
-        sys.exit(0 if len(sys.argv) > 1 else 1)
+        sys.exit(0 if args else 1)
 
-    session_id = sys.argv[1]
+    session_id = args[0]
 
     # Handle output file argument
-    if len(sys.argv) > 2:
-        output_file = sys.argv[2]
+    if len(args) > 1:
+        output_file = args[1]
     else:
         output_file = f"export-{session_id}.json"
 

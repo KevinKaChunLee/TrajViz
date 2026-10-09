@@ -1,7 +1,7 @@
 """Parser-level guards for ``step_labeler.load_taxonomy``.
 
 ``tests/test_scripts_fixes.py::TaxonomyVersionTests`` pins what the *shipped*
-TAXONOMY_REFERENCE.md parses to today (C15).  This file pins the *parser* against
+taxonomy.md parses to today (C15).  This file pins the *parser* against
 inputs the shipped file does not yet contain, because the taxonomy is a prose
 document that anyone may edit: it is the single source for the LLM system prompt,
 for ``_build_valid_sets``' validation of model output, and (through
@@ -20,7 +20,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts import step_labeler
+from agent_trajviz.labeling import step_labeler
 
 # The pinned inventory of the shipped taxonomy: 6 phases, 40 actions.  Kept here
 # as per-phase counts rather than a total so that a bullet moving between phases
@@ -35,11 +35,11 @@ SHIPPED_PHASE_COUNTS = {
     "report": 5,
 }
 
-TAXONOMY = Path(step_labeler.__file__).resolve().parent / "TAXONOMY_REFERENCE.md"
+TAXONOMY = Path(step_labeler.__file__).resolve().parent / "taxonomy.md"
 
 
 def _write_taxonomy(tmpdir: str, body: str) -> str:
-    path = Path(tmpdir) / "TAXONOMY_REFERENCE.md"
+    path = Path(tmpdir) / "taxonomy.md"
     path.write_text(body, encoding="utf-8")
     return str(path)
 

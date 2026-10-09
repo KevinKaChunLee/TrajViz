@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts import opencode_consolidator as consolidator
+from agent_trajviz.collect import opencode as consolidator
 
 
 SCHEMA = """

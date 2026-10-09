@@ -18,9 +18,9 @@ text and tools. Tool clocks come from Composer ``startedAtMs`` /
 ``completedAtMs``. Semantics are stamped on ``export_metadata.token_semantics``.
 
 Usage:
-    python scripts/cursor_consolidator.py <chat-id> [output-file]
-    python scripts/cursor_consolidator.py <chat-id> -o trajectory.json
-    python scripts/cursor_consolidator.py --list
+    agent-trajviz-collect cursor <chat-id> [output-file]
+    agent-trajviz-collect cursor <chat-id> -o trajectory.json
+    agent-trajviz-collect cursor --list
 
     If output-file is "-", JSON is written to stdout.
 
@@ -45,10 +45,7 @@ from pathlib import Path
 from typing import Any
 from collections.abc import Iterable, Iterator, Sequence
 
-try:
-    from scripts import _common
-except ImportError:  # Direct execution from scripts/.
-    import _common  # type: ignore[no-redef]
+from .. import _fileio as _common
 
 
 SCHEMA_VERSION = 1
@@ -1359,6 +1356,7 @@ def _print_summary(data: dict[str, Any], output: str | Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        prog="agent-trajviz-collect cursor",
         description="Export a Cursor IDE agent chat (JSONL + Composer DB) to TrajViz JSON.",
     )
     parser.add_argument(

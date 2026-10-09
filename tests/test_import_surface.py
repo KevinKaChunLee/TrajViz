@@ -10,7 +10,7 @@ refactor of this size is exactly the change that leaves such a module behind.
 
 Two invariants are pinned here:
 
-1. *Every* module under ``agent_trajviz/`` and ``scripts/`` imports cleanly, whether
+1. *Every* module under ``agent_trajviz/`` imports cleanly, whether
    or not any other test happens to reach it.
 2. Importing them is inert.  Importing a library must not ingest configuration
    from the process launch directory (``llm_config.load_env_files`` documents
@@ -26,8 +26,7 @@ from, and what the package claims to need:
 3. The suite's ``sys.path`` and ``rootdir`` come from a declaration in this
    repository's ``pyproject.toml``, not from a parent directory and not from an
    install-mode accident.  TrajViz may be checked out inside a larger tree that
-   has its own ``[tool.pytest.ini_options]``, and ``scripts`` is an implicit
-   namespace package that neighbouring checkouts may also provide.
+   has its own ``[tool.pytest.ini_options]``.
 4. Every declared runtime dependency is either imported by shipped code or
    carries a comment saying why it is declared anyway.  An unimported,
    unexplained requirement is indistinguishable from a leftover.
@@ -67,7 +66,7 @@ _DOTENV_KEYS = {
 # through environment variables, so there is nothing to allow here.
 
 _PROBE = '''
-"""Import every agent_trajviz/scripts module and report what the imports did."""
+"""Import every agent_trajviz module and report what the imports did."""
 import json
 import os
 import pathlib
@@ -95,7 +94,7 @@ socket.create_connection = _blocked
 socket.getaddrinfo = _blocked
 
 modules = []
-for py in sorted(repo.glob("agent_trajviz/**/*.py")) + sorted(repo.glob("scripts/*.py")):
+for py in sorted(repo.glob("agent_trajviz/**/*.py")):
     parts = list(py.relative_to(repo).parts)
     parts = parts[:-1] if parts[-1] == "__init__.py" else parts[:-1] + [parts[-1][:-3]]
     if parts:
@@ -121,9 +120,9 @@ print(json.dumps({
 
 
 def _discover_modules() -> list[str]:
-    """Dotted names for every module under ``agent_trajviz/`` and ``scripts/``."""
+    """Dotted names for every module under ``agent_trajviz/``."""
     names: list[str] = []
-    for py in sorted(_REPO_ROOT.glob("agent_trajviz/**/*.py")) + sorted(_REPO_ROOT.glob("scripts/*.py")):
+    for py in sorted(_REPO_ROOT.glob("agent_trajviz/**/*.py")):
         parts = list(py.relative_to(_REPO_ROOT).parts)
         parts = parts[:-1] if parts[-1] == "__init__.py" else parts[:-1] + [parts[-1][:-3]]
         if parts:
@@ -145,7 +144,8 @@ class ModuleImportTests(unittest.TestCase):
             "agent_trajviz.insight.charts.label_charts",
             "agent_trajviz.insight.formats.dsh",
             "agent_trajviz.converge.cli",
-            "scripts.cursor_consolidator",
+            "agent_trajviz.collect.cursor",
+            "agent_trajviz.labeling.step_labeler_v2",
         ):
             self.assertIn(expected, names)
 
@@ -287,7 +287,7 @@ class DeclaredDependencyTests(unittest.TestCase):
     REQUIREMENTS = _REPO_ROOT / "requirements.txt"
 
     def _sources(self) -> list[Path]:
-        return sorted(_REPO_ROOT.glob("agent_trajviz/**/*.py")) + sorted(_REPO_ROOT.glob("scripts/*.py"))
+        return sorted(_REPO_ROOT.glob("agent_trajviz/**/*.py"))
 
     def test_requirements_txt_mirrors_project_dependencies(self):
         """requirements.txt claims to mirror ``[project.dependencies]``; hold it to that.
@@ -331,7 +331,7 @@ def test_pytest_rootdir_and_path_come_from_this_repository(pytestconfig):
 
     Asserts the three consequences of this repo owning its own
     ``[tool.pytest.ini_options]``: rootdir is here, nothing is inherited from a
-    parent directory's pytest config, and the ``scripts`` import path is declared rather
+    parent directory's pytest config, and the repository import path is declared rather
     than supplied by an editable-install ``.pth``, by ``python -m``'s CWD
     insertion, or by a ``PYTHONPATH`` env var in CI.
     """
@@ -348,27 +348,6 @@ def test_pytest_rootdir_and_path_come_from_this_repository(pytestconfig):
     assert "asyncio_mode" not in ini_table, f"inherited pytest config from {pytestconfig.inipath}"
     # getini resolves `pythonpath` entries against rootdir, so "." arrives as a Path.
     assert _REPO_ROOT in pytestconfig.getini("pythonpath"), 'pyproject.toml must declare pythonpath = ["."]'
-
-
-def test_the_scripts_modules_resolve_inside_this_repository():
-    """``scripts`` is a namespace package that sibling trees also define.
-
-    This is not hypothetical: ``agent_trajviz.insight.attribution`` puts the DECAF
-    checkout's parent on ``sys.path`` to import ``awe``, and if that checkout also
-    has a ``scripts/`` directory then ``scripts.__path__`` really does contain it
-    ahead of ours.
-    No module name collides today, so resolution is still correct — which is
-    exactly why this needs a test rather than a comment: the first colliding
-    filename would redirect ``from scripts import X`` into another project with no
-    error at all.  Assert on resolution, not on ``__path__``, because the portion
-    list depends on whether attribution has been imported yet.
-    """
-    import importlib
-
-    for name in ("_common", "cursor_consolidator", "opencode_consolidator", "step_labeler", "step_labeler_v2"):
-        module = importlib.import_module(f"scripts.{name}")
-        resolved = Path(module.__file__).resolve()
-        assert resolved == _REPO_ROOT / "scripts" / f"{name}.py", f"scripts.{name} resolved to {resolved}"
 
 
 if __name__ == "__main__":

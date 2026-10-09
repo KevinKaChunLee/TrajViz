@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts import cursor_consolidator as consolidator
+from agent_trajviz.collect import cursor as consolidator
 
 
 PARENT_ID = "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"

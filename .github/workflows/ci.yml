@@ -26,7 +26,7 @@ jobs:
       - name: Install (locked)
         run: uv sync --locked --extra dev
       - name: Lint (ruff)
-        run: uv run ruff check agent_trajviz scripts tests
+        run: uv run ruff check agent_trajviz tests
       # No PYTHONPATH: the repo root now reaches sys.path through
       # `pythonpath = ["."]` in [tool.pytest.ini_options], which is declared,
       # rootdir-relative and identical locally and in CI (it also pins rootdir to
@@ -60,7 +60,7 @@ jobs:
       - name: Measure coverage (standalone — DECAF absent)
         run: >
           uv run --with "coverage>=7.16" coverage run
-          --branch --source=agent_trajviz,scripts -m pytest tests -q
+          --branch --source=agent_trajviz -m pytest tests -q
       - name: Report coverage
         run: |
           uv run --with "coverage>=7.16" coverage report --precision=1 --show-missing --fail-under=70

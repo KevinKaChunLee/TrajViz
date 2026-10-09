@@ -1,4 +1,4 @@
-"""Shared safety helpers for the scripts/ CLI tools.
+"""Shared output-safety helpers for the collect and labeling command-line tools.
 
 Consolidates the previously triplicated "output must not overwrite a source
 file" guard (opencode_consolidator, codearts_consolidator, step_labeler_v2)

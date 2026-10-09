@@ -1,28 +1,15 @@
 from __future__ import annotations
 
-import importlib.util
 import contextlib
 import io
 import json
 import sqlite3
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
-TEST_FILE = Path(__file__).resolve()
-PROJECT_ROOT = TEST_FILE.parents[1]
-MODULE_PATH = PROJECT_ROOT / "scripts" / "codearts_consolidator.py"
-if not MODULE_PATH.is_file():
-    # Allows this test to run from an isolated staging directory as well as
-    # from the repository's tests/ directory.
-    MODULE_PATH = TEST_FILE.with_name("codearts_consolidator.py")
-SPEC = importlib.util.spec_from_file_location("codearts_consolidator", MODULE_PATH)
-assert SPEC is not None and SPEC.loader is not None
-consolidator = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = consolidator
-SPEC.loader.exec_module(consolidator)
+from agent_trajviz.collect import codearts as consolidator
 
 
 SESSION_SCHEMA = """
@@ -647,36 +634,30 @@ class CodeArtsConsolidatorV2Tests(unittest.TestCase):
         output = self.root / "trajectory.json"
         consolidator.write_output(result, output)
 
-        if not (PROJECT_ROOT / "agent_trajviz").is_dir():
-            self.skipTest("agent_trajviz package is not beside this staged test")
-        sys.path.insert(0, str(PROJECT_ROOT))
-        try:
-            from agent_trajviz.insight.loaders import detect_format, load_trajectory
-            from agent_trajviz.insight.parser import parse_steps
-            from agent_trajviz.insight.patterns import extract_subagent_sessions
+        from agent_trajviz.insight.loaders import detect_format, load_trajectory
+        from agent_trajviz.insight.parser import parse_steps
+        from agent_trajviz.insight.patterns import extract_subagent_sessions
 
-            self.assertEqual(detect_format(result), "codearts")
-            loaded = load_trajectory(str(output))
-            self.assertNotIn("_error", loaded)
-            self.assertEqual(loaded["metadata"]["sub_agent_count"], 3)
-            self.assertEqual(loaded["metadata"]["event_count"], 1)
-            steps = parse_steps(loaded)
-            self.assertEqual(len(steps), 6)
-            self.assertEqual([step["raw_index"] for step in steps], list(range(6)))
-            self.assertEqual(sum(1 for step in steps if step["is_sub_agent"]), 3)
-            subagent_sessions = extract_subagent_sessions(steps, loaded["messages"])
-            self.assertEqual(
-                {session["session_id"] for session in subagent_sessions},
-                {"child_parent", "grandchild", "child_tool"},
-            )
-            sessions_by_id = {
-                session["session_id"]: session for session in subagent_sessions
-            }
-            self.assertEqual(sessions_by_id["child_tool"]["spawn_step"], 1)
-            self.assertEqual(sessions_by_id["child_parent"]["spawn_step"], 2)
-            self.assertIsNone(sessions_by_id["grandchild"]["spawn_step"])
-        finally:
-            sys.path.remove(str(PROJECT_ROOT))
+        self.assertEqual(detect_format(result), "codearts")
+        loaded = load_trajectory(str(output))
+        self.assertNotIn("_error", loaded)
+        self.assertEqual(loaded["metadata"]["sub_agent_count"], 3)
+        self.assertEqual(loaded["metadata"]["event_count"], 1)
+        steps = parse_steps(loaded)
+        self.assertEqual(len(steps), 6)
+        self.assertEqual([step["raw_index"] for step in steps], list(range(6)))
+        self.assertEqual(sum(1 for step in steps if step["is_sub_agent"]), 3)
+        subagent_sessions = extract_subagent_sessions(steps, loaded["messages"])
+        self.assertEqual(
+            {session["session_id"] for session in subagent_sessions},
+            {"child_parent", "grandchild", "child_tool"},
+        )
+        sessions_by_id = {
+            session["session_id"]: session for session in subagent_sessions
+        }
+        self.assertEqual(sessions_by_id["child_tool"]["spawn_step"], 1)
+        self.assertEqual(sessions_by_id["child_parent"]["spawn_step"], 2)
+        self.assertIsNone(sessions_by_id["grandchild"]["spawn_step"])
 
 
 if __name__ == "__main__":

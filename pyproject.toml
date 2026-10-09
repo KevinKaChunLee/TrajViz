@@ -53,6 +53,8 @@ agent-trajviz = "agent_trajviz.insight.__main__:main"
 # `python -m agent_trajviz.converge.cli` (C8). `python -m agent_trajviz.converge` launches
 # the Gradio app and must keep doing so.
 trajectory-converge = "agent_trajviz.converge.cli:main"
+agent-trajviz-collect = "agent_trajviz.collect.__main__:main"
+agent-trajviz-label = "agent_trajviz.labeling.step_labeler_v2:main"
 
 [project.urls]
 Homepage = "https://github.com/rshu/TrajectoryVisualizer"
@@ -78,8 +80,6 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Scripts keep their import-after-sys.path-dance layout.
-"scripts/*" = ["E402"]
 "tests/*" = ["E402"]
 
 # The presence of this table is load-bearing, independent of its contents: it
@@ -90,13 +90,8 @@ ignore = [
 # warnings, and a bare `pytest` collects the parent's `testpaths` instead of
 # ours).
 #
-# `pythonpath` declares the one thing the suite has always needed and never
-# stated: the repo root on sys.path, because four test modules import `scripts`
-# (`from scripts import step_labeler`, ...) and `scripts` is NOT part of the wheel
-# (see [tool.hatch.build.targets.wheel]). Until now that path arrived by accident
-# from three undeclared sources — hatchling's editable .pth, `python -m pytest`
-# inserting the CWD, and a PYTHONPATH env var in both workflows (since removed).
-# Entries resolve against rootdir, so this works from any CWD and any install mode.
+# `pythonpath` puts the repository root on sys.path, so the suite imports the
+# package from this checkout whether or not it is installed, from any CWD.
 # No `addopts`: it would change CI log shape for no gain.
 [tool.pytest.ini_options]
 minversion = "7.0"

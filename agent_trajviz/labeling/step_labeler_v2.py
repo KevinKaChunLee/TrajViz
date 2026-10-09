@@ -14,8 +14,8 @@ in the source trajectory, when available) are written to make the mapping back
 to the original trajectory explicit.
 
 Usage:
-    python scripts/step_labeler_v2.py trajectory.json
-    python scripts/step_labeler_v2.py trajectory.json -o trajectory_labeled_v2.json
+    agent-trajviz-label trajectory.json
+    agent-trajviz-label trajectory.json -o trajectory_labeled_v2.json
 """
 
 from __future__ import annotations
@@ -29,12 +29,8 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
-try:
-    from scripts import _common
-    from scripts import step_labeler as v1
-except ImportError:  # Direct execution from scripts/.
-    import _common  # type: ignore[no-redef]
-    import step_labeler as v1  # type: ignore[no-redef]
+from .. import _fileio as _common
+from . import step_labeler as v1
 
 
 USER_DEFAULT_LABEL = {"phase": "user", "action": "user_prompt"}
@@ -63,12 +59,8 @@ def _write_json_atomic(output_path: str | Path, data: dict[str, Any]) -> None:
 
 def load_all_steps(trajectory_path: str) -> list[dict]:
     """Load and normalize every trajectory step, preserving parser indices."""
-    project_root = str(Path(__file__).resolve().parent.parent)
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-
-    from agent_trajviz.insight.loaders import load_trajectory
-    from agent_trajviz.insight.parser import parse_steps
+    from ..insight.loaders import load_trajectory
+    from ..insight.parser import parse_steps
 
     raw = load_trajectory(trajectory_path)
     if "_error" in raw:
@@ -155,7 +147,7 @@ def label_trajectory(
     """
     _ensure_output_is_not_input(trajectory_path, output_path)
     if taxonomy_path is None:
-        taxonomy_path = str(Path(__file__).resolve().parent / "TAXONOMY_REFERENCE.md")
+        taxonomy_path = str(Path(__file__).with_name("taxonomy.md"))
     taxonomy_mapping, taxonomy_version = v1.load_taxonomy(taxonomy_path)
     valid_phases, valid_actions, action_to_phase = v1._build_valid_sets(taxonomy_mapping)
     with open(taxonomy_path, encoding="utf-8") as f:
@@ -320,6 +312,7 @@ def main() -> None:
     # Resolve .env config at CLI entry, not at module import (see step_labeler).
     v1.load_env_files()
     parser = argparse.ArgumentParser(
+        prog="agent-trajviz-label",
         description=(
             "Label assistant trajectory steps with an LLM and emit a label "
             "record for every original index."

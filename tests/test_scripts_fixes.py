@@ -1,12 +1,12 @@
-"""Regression tests for the 2026-08 scripts/ review fixes.
+"""Regression tests for the 2026-08 review fixes to the command-line tools.
 
 Covers:
 * B29 — opencode_consolidator exports diamond-reachable sessions exactly once.
 * B30 — opencode_consolidator preserves persisted message timing (fill-only).
-* B32 — the taxonomy version regex actually matches TAXONOMY_REFERENCE.md.
+* B32 — the taxonomy version regex actually matches taxonomy.md.
 * C15 — the reserved-label documentation note does not leak into the parsed
   taxonomy (load_taxonomy's line format is load-bearing).
-* R27/R28 — scripts/_common.py no-overwrite guard and atomic JSON write.
+* R27/R28 — the shared no-overwrite guard and atomic JSON write (_fileio).
 * R29 — the v1 step_labeler CLI routes through v2 and emits assistant-only
   records of a single uniform shape (and inherits the overwrite guard).
 """
@@ -23,10 +23,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts import _common
-from scripts import opencode_consolidator
-from scripts import step_labeler
-from scripts import step_labeler_v2
+from agent_trajviz import _fileio as _common
+from agent_trajviz.collect import opencode as opencode_consolidator
+from agent_trajviz.labeling import step_labeler
+from agent_trajviz.labeling import step_labeler_v2
 
 
 SCHEMA = """
@@ -179,7 +179,7 @@ class OpencodePersistedTimingTests(unittest.TestCase):
 class TaxonomyVersionTests(unittest.TestCase):
     """B32/C15: version extraction works and reserved labels stay out."""
 
-    TAXONOMY = Path(step_labeler.__file__).resolve().parent / "TAXONOMY_REFERENCE.md"
+    TAXONOMY = Path(step_labeler.__file__).resolve().parent / "taxonomy.md"
 
     def test_version_regex_matches_shipped_taxonomy_file(self) -> None:
         mapping, version = step_labeler.load_taxonomy(str(self.TAXONOMY))

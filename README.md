@@ -237,7 +237,7 @@ with the consolidator:
    ID). It is also the transcript folder name.
 2. Export that chat (parent + subagents, joined with Composer metadata):
    ```bash
-   python scripts/cursor_consolidator.py <chat-id> cursor_trajectory.json
+   agent-trajviz-collect cursor <chat-id> cursor_trajectory.json
    ```
    The consolidator finds Cursor's `state.vscdb` on its own, trying in order:
    `CURSOR_STATE_VSCDB`, `CURSOR_USER_DATA_DIR`, then
@@ -248,7 +248,7 @@ with the consolidator:
    point at a specific file. `CURSOR_PROJECTS_DIR` overrides `~/.cursor/projects`.
 3. List known chats:
    ```bash
-   python scripts/cursor_consolidator.py --list
+   agent-trajviz-collect cursor --list
    ```
 4. Upload `cursor_trajectory.json` in the Insight dashboard. The loader
    detects `export_metadata.source_format: cursor_composer`. Context occupancy
@@ -283,10 +283,10 @@ exposes an `export` command that writes trajectory JSON to stdout.
 
    **Customized case — session has special sub-agents.** Sub-agent invocations live
    under their own session IDs, so `opencode export` on the parent only gives
-   you the parent's messages. Use the consolidator helper in `scripts/` to
+   you the parent's messages. Use `agent-trajviz-collect opencode` to
    recursively pull the parent and every child session into one JSON:
    ```bash
-   python scripts/opencode_consolidator.py <session-id> op_trajectory.json
+   agent-trajviz-collect opencode <session-id> op_trajectory.json
    ```
    The consolidator follows tool-call metadata to discover child session IDs
    and emits a flat `{"sessions": [...]}` structure that the loader threads
@@ -295,7 +295,7 @@ exposes an `export` command that writes trajectory JSON to stdout.
    and `%APPDATA%\opencode\`). Override with `OPENCODE_DATABASE` if needed:
    ```powershell
    $env:OPENCODE_DATABASE = "$env:USERPROFILE\.local\share\opencode\opencode.db"
-   python scripts/opencode_consolidator.py <session-id> op_trajectory.json
+   agent-trajviz-collect opencode <session-id> op_trajectory.json
    ```
 4. Upload `op_trajectory.json` in the Insight dashboard. The loader detects the
    `info` + `messages` shape automatically; sub-agent sessions are threaded in.
@@ -307,7 +307,7 @@ SQLite store. Export a root session together with all child/sub-agent
 sessions using the read-only consolidator:
 
 ```bash
-python scripts/codearts_consolidator.py path/to/opencode.db \
+agent-trajviz-collect codearts path/to/opencode.db \
   --session-id <session-id> --output ca_trajectory.json
 ```
 
@@ -392,23 +392,23 @@ folder (or zip) named `dsh-session-<session-id>/` containing the parent
 
 ---
 
-## Scripts
+## Command-line tools
 
-Helper utilities that live in `scripts/` (run from the repo root):
+Installed with the package (each takes `--help`):
 
-| File | Purpose |
+| Command | Purpose |
 |---|---|
-| `cursor_consolidator.py` | Read-only export of a Cursor Agent chat: JSONL transcripts + Composer `state.vscdb`, including subagent sessions. See the **Cursor** collection section above. |
-| `codearts_consolidator.py` | Read-only export from a CodeArts `opencode.db` with recursive child sessions, or lossless archival merge of legacy `messages_<n>.json` shards. See the **CodeArts** collection section above. |
-| `opencode_consolidator.py` | Recursively merge an OpenCode parent session and child sub-agent sessions into a single JSON. See the **OpenCode** collection section above. |
-| `step_labeler_v2.py` | **Preferred** LLM step classifier. Emits one label record for **every** parsed step: assistant steps via the LLM, user steps as deterministic `user/user_prompt`, with `index`/`raw_index` preserved for exact source mapping. |
-| `step_labeler.py` | Shared taxonomy/LLM helpers used by v2, plus a **compat CLI** that routes to v2 in assistant-only mode (`*_labeled.json`). Prefer `step_labeler_v2.py` for new work. |
-| `TAXONOMY_REFERENCE.md` | Authoritative list of phase and action tags the labeler emits. Auto-loaded by the labeler from its own directory. |
+| `agent-trajviz-collect cursor` | Read-only export of a Cursor Agent chat: JSONL transcripts + Composer `state.vscdb`, including subagent sessions. See the **Cursor** collection section above. |
+| `agent-trajviz-collect codearts` | Read-only export from a CodeArts `opencode.db` with recursive child sessions, or lossless archival merge of legacy `messages_<n>.json` shards. See the **CodeArts** collection section above. |
+| `agent-trajviz-collect opencode` | Recursively merge an OpenCode parent session and child sub-agent sessions into a single JSON. See the **OpenCode** collection section above. |
+| `agent-trajviz-label` | **Preferred** LLM step classifier (`agent_trajviz.labeling.step_labeler_v2`). Emits one label record for **every** parsed step: assistant steps via the LLM, user steps as deterministic `user/user_prompt`, with `index`/`raw_index` preserved for exact source mapping. |
+| `python -m agent_trajviz.labeling.step_labeler` | Shared taxonomy/LLM helpers used by v2, plus a **compat CLI** that routes to v2 in assistant-only mode (`*_labeled.json`). Prefer `agent-trajviz-label` for new work. |
+| `agent_trajviz/labeling/taxonomy.md` | Authoritative list of phase and action tags the labeler emits. Bundled with the package and loaded by default; `--taxonomy` overrides it. |
 
 ### Labeling a trajectory
 
-Use **`step_labeler_v2.py`** for new sidecars. It makes live LLM calls via
-`requests`, which is installed by default with the rest of the project.
+Use **`agent-trajviz-label`** for new sidecars. It makes live LLM calls via
+`requests`.
 
 The labeler needs three config values — provide them via a `.env` file (in
 the repo root or CWD) or as CLI flags. A sample
@@ -435,13 +435,13 @@ Example invocations:
 
 ```bash
 # Preferred: full-index v2 sidecar
-python scripts/step_labeler_v2.py cc_trajectory.json --output cc_trajectory_labeled_v2.json
+agent-trajviz-label cc_trajectory.json --output cc_trajectory_labeled_v2.json
 
 # Compat CLI: assistant-only sidecar (still routes through v2)
-python scripts/step_labeler.py cc_trajectory.json --output cc_trajectory_labeled.json
+python -m agent_trajviz.labeling.step_labeler cc_trajectory.json --output cc_trajectory_labeled.json
 
 # Overriding config on the command line
-python scripts/step_labeler_v2.py cc_trajectory.json \
+agent-trajviz-label cc_trajectory.json \
     --output cc_trajectory_labeled_v2.json \
     --base-url https://api.openai.com/v1 \
     --api-key sk-... \

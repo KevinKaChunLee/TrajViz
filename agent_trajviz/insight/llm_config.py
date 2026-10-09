@@ -2,7 +2,7 @@
 
 Reads ``ANALYZE_*`` from ``.env`` (fill-only, never overwrites a real
 environment variable). Missing ``ANALYZE_*`` values fall back to the
-``LABEL_*`` keys used by ``scripts/step_labeler.py`` so one file can
+``LABEL_*`` keys used by the step labeler (``agent-trajviz-label``) so one file can
 drive both the labeler and the analysis chat.
 """
 

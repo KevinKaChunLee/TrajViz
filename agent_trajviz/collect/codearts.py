@@ -16,16 +16,16 @@ the exporter never converts token totals to deltas and never replaces
 Examples:
 
     # Current CodeArts database
-    python scripts/codearts_consolidator.py \
+    agent-trajviz-collect codearts \
         C:/Users/me/.codeartsdoer/codearts-data/opencode.db \
         --session-id ses_abc -o trajectory.json
 
     # Session ID shorthand (uses CODEARTS_DATABASE/OPENCODE_DATABASE or the
     # standard ~/.codeartsdoer/codearts-data/opencode.db location)
-    python scripts/codearts_consolidator.py ses_abc -o trajectory.json
+    agent-trajviz-collect codearts ses_abc -o trajectory.json
 
     # Legacy CodeArts session folder
-    python scripts/codearts_consolidator.py path/to/session-folder
+    agent-trajviz-collect codearts path/to/session-folder
 """
 
 from __future__ import annotations
@@ -41,10 +41,7 @@ from pathlib import Path
 from typing import Any
 from collections.abc import Iterable, Sequence
 
-try:
-    from scripts import _common
-except ImportError:  # Direct execution from scripts/.
-    import _common  # type: ignore[no-redef]
+from .. import _fileio as _common
 
 
 SCHEMA_VERSION = 2
@@ -854,6 +851,7 @@ def _batch_legacy(
 
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        prog="agent-trajviz-collect codearts",
         description=(
             "Export a complete CodeArts trajectory from legacy JSON shards or the "
             "current opencode.db database."

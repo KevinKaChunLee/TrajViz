@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts import step_labeler_v2
+from agent_trajviz.labeling import step_labeler_v2
 from agent_trajviz.insight.labels import aggregate_labels
 
 
@@ -56,7 +56,7 @@ class StepLabelerV2Tests(unittest.TestCase):
             output_path.write_text(original_output, encoding="utf-8")
             taxonomy_path = (
                 Path(step_labeler_v2.__file__).resolve().parent
-                / "TAXONOMY_REFERENCE.md"
+                / "taxonomy.md"
             )
 
             with (
@@ -117,7 +117,7 @@ class StepLabelerV2Tests(unittest.TestCase):
             output_path = Path(tmp) / "labeled.json"
             taxonomy_path = (
                 Path(step_labeler_v2.__file__).resolve().parent
-                / "TAXONOMY_REFERENCE.md"
+                / "taxonomy.md"
             )
             with (
                 patch.object(step_labeler_v2, "load_all_steps", return_value=steps),
@@ -173,7 +173,7 @@ class StepLabelerV2Tests(unittest.TestCase):
             output_path = Path(tmp) / "labeled.json"
             taxonomy_path = (
                 Path(step_labeler_v2.__file__).resolve().parent
-                / "TAXONOMY_REFERENCE.md"
+                / "taxonomy.md"
             )
             with (
                 patch.object(step_labeler_v2, "load_all_steps", return_value=steps),

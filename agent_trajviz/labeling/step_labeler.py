@@ -3,7 +3,7 @@ Step labeler — LLM-based classification of trajectory steps.
 
 Reads a trajectory file (Claude Code JSON, OpenCode JSON, CodeArts JSON,
 or Lingxi .log), extracts assistant steps, and labels each with a phase
-tag and action tag from the taxonomy defined in TAXONOMY_REFERENCE.md.
+tag and action tag from the taxonomy defined in taxonomy.md.
 
 For Lingxi trajectories, each TokenUsageEvent is one step, belonging to
 its executor sub-agent (Decoder_1, Planner, Solver, etc.).
@@ -18,16 +18,16 @@ LABEL_MODEL, LABEL_TEMPERATURE, LABEL_MAX_TOKENS).  CLI flags override
     ``step_labeler_v2.label_trajectory(assistant_only=True)``, which adds an
     output-overwrite guard and atomic sidecar writes while keeping the
     assistant-only output and the ``<stem>_labeled.json`` default name.
-    Prefer ``scripts/step_labeler_v2.py`` for new work — it emits a label
+    Prefer ``agent-trajviz-label`` (``step_labeler_v2``) for new work — it emits a label
     record for every parsed step.  The prompt/taxonomy/LLM helpers defined
     here remain the shared implementation used by v2.
 
 Usage:
-    python scripts/step_labeler.py samples/op_trajectory.json
+    python -m agent_trajviz.labeling.step_labeler samples/op_trajectory.json
 
-    python scripts/step_labeler.py samples/simple_proposal_lingxi.log
+    python -m agent_trajviz.labeling.step_labeler samples/simple_proposal_lingxi.log
 
-    python scripts/step_labeler.py trajectory.json \
+    python -m agent_trajviz.labeling.step_labeler trajectory.json \
         --output labeled.json \
         --model glm-5 \
         --base-url https://api.example.com \
@@ -78,8 +78,12 @@ def load_env_files() -> None:
     collection — never mutates the process environment.
     """
     _load_dotenv()
-    # Also try project root .env (one level up from scripts/)
-    _load_dotenv(str(Path(__file__).resolve().parent.parent / ".env"))
+    # A source checkout's root .env too. An installed wheel has none: there,
+    # parents[2] of this module is site-packages, so require the checkout's
+    # pyproject.toml before reading anything from it.
+    repo_root = Path(__file__).resolve().parents[2]
+    if (repo_root / "pyproject.toml").is_file():
+        _load_dotenv(str(repo_root / ".env"))
 
 
 def _env_float(name: str, default: float) -> float:
@@ -114,7 +118,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def load_taxonomy(taxonomy_path: str) -> tuple[dict[str, list[str]], str]:
-    """Read TAXONOMY_REFERENCE.md and extract phase→action mapping.
+    """Read a taxonomy file (the bundled taxonomy.md) and extract phase→action mapping.
 
     Returns (mapping, raw_text) where mapping is {phase: [action, ...]}.
     """
@@ -134,7 +138,7 @@ def load_taxonomy(taxonomy_path: str) -> tuple[dict[str, list[str]], str]:
                 mapping.setdefault(current_phase, [])
         # A level-1/2 heading (`# Title`, `## Notes`) CLOSES the current phase.
         # Without this, every later bullet keeps the last `### <phase>` — and
-        # `## Notes` is the last heading in TAXONOMY_REFERENCE.md, so a Notes
+        # `## Notes` is the last heading in taxonomy.md, so a Notes
         # bullet written in the file's own `- `name`: ...` style would silently
         # become a valid action of the `report` phase. `#### ` is deliberately
         # excluded: the carve-out above already decided sub-subsections refine
@@ -455,7 +459,7 @@ def main() -> None:
     parser.add_argument("--delay", type=float, default=0.0,
                         help="Delay in seconds between LLM calls (default: 0)")
     parser.add_argument("--taxonomy", default=None,
-                        help="Path to TAXONOMY_REFERENCE.md (default: auto-detect)")
+                        help="Path to a taxonomy file (default: the bundled taxonomy.md)")
 
     args = parser.parse_args()
 
@@ -490,10 +494,7 @@ def main() -> None:
     # The v1 CLI delegates to v2's labeling loop (assistant-only output).
     # v2 supplies the output-overwrite guard and the atomic sidecar write.
     # Imported lazily: step_labeler_v2 imports this module at its top level.
-    try:
-        from scripts import step_labeler_v2 as v2
-    except ImportError:  # Direct execution from scripts/.
-        import step_labeler_v2 as v2  # type: ignore[no-redef]
+    from . import step_labeler_v2 as v2
 
     try:
         v2.label_trajectory(
