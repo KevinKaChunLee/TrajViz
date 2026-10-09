@@ -380,9 +380,12 @@ def export_session_and_collect_children(
     }
 
 
+PROG = "agent-trajviz-collect opencode"
+
+
 def print_usage():
     """Print usage information."""
-    print("Usage: agent-trajviz-collect opencode <session-id> [output-file]", file=sys.stderr)
+    print(f"Usage: {PROG} <session-id> [output-file]", file=sys.stderr)
     print("\nArguments:", file=sys.stderr)
     print("  session-id    The session ID to export (e.g., ses_123abc456)", file=sys.stderr)
     print("  output-file   Optional output path. Use '-' for stdout.", file=sys.stderr)
@@ -396,16 +399,16 @@ def print_usage():
     print("                     Windows also checks %LOCALAPPDATA%\\opencode and", file=sys.stderr)
     print("                     %APPDATA%\\opencode when the default file is missing.", file=sys.stderr)
     print("\nExamples:", file=sys.stderr)
-    print(f"  {sys.argv[0]} ses_123abc456", file=sys.stderr)
-    print(f"  {sys.argv[0]} ses_123abc456 export.json", file=sys.stderr)
-    print(f"  {sys.argv[0]} ses_123abc456 - > output.json", file=sys.stderr)
-    print(f"  OPENCODE_DATABASE=/custom/opencode.db {sys.argv[0]} ses_123abc456", file=sys.stderr)
+    print(f"  {PROG} ses_123abc456", file=sys.stderr)
+    print(f"  {PROG} ses_123abc456 export.json", file=sys.stderr)
+    print(f"  {PROG} ses_123abc456 - > output.json", file=sys.stderr)
+    print(f"  OPENCODE_DATABASE=/custom/opencode.db {PROG} ses_123abc456", file=sys.stderr)
     print("  # Windows PowerShell:", file=sys.stderr)
     print(
         '  $env:OPENCODE_DATABASE = "$env:USERPROFILE\\.local\\share\\opencode\\opencode.db"',
         file=sys.stderr,
     )
-    print(f"  python {sys.argv[0]} ses_123abc456 export.json", file=sys.stderr)
+    print(f"  {PROG} ses_123abc456 export.json", file=sys.stderr)
 
 
 def ensure_output_is_not_source(
@@ -420,11 +423,11 @@ def ensure_output_is_not_source(
     )
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0] in ("-h", "--help", "help"):
         print_usage()
-        sys.exit(0 if args else 1)
+        return 0 if args else 2
 
     session_id = args[0]
 
@@ -443,7 +446,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "(on Windows, typically %USERPROFILE%\\.local\\share\\opencode\\opencode.db).",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     try:
         ensure_output_is_not_source(
@@ -452,7 +455,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     print(f"Reading from database: {db_path}", file=sys.stderr)
 
@@ -467,7 +470,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         # Export session with all children
         result = export_session_and_collect_children(conn, session_id, set())
 
-# Sort messages by creation time
+        # Sort messages by creation time
         if result.get("messages"):
             result["messages"].sort(key=lambda m: m.get("info", {}).get("time", {}).get("created", 0))
 
@@ -482,17 +485,15 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     except sqlite3.Error as e:
         print(f"Database error: {e}", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
+        return 1
+    except (OSError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
+        return 1
     finally:
         if conn is not None:
             conn.close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

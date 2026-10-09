@@ -5,7 +5,6 @@ import io
 import json
 import os
 import sqlite3
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -112,23 +111,18 @@ class OpenCodeConsolidatorTests(unittest.TestCase):
         connection.close()
         return database, token_objects
 
-    def _run_main(self, database: Path, output: Path) -> None:
+    def _run_main(self, database: Path, output: Path) -> int:
         with (
             patch.dict(os.environ, {"OPENCODE_DATABASE": str(database)}),
-            patch.object(
-                sys,
-                "argv",
-                ["opencode_consolidator.py", "ses_root", str(output)],
-            ),
             contextlib.redirect_stderr(io.StringIO()),
         ):
-            consolidator.main()
+            return consolidator.main(["ses_root", str(output)])
 
     def test_preserves_per_message_token_objects(self) -> None:
         database, expected_tokens = self._make_database()
         output = self.root / "trajectory.json"
 
-        self._run_main(database, output)
+        self.assertEqual(self._run_main(database, output), 0)
 
         result = json.loads(output.read_text(encoding="utf-8"))
         actual_tokens = [
@@ -140,10 +134,7 @@ class OpenCodeConsolidatorTests(unittest.TestCase):
         database, _ = self._make_database()
         original_header = database.read_bytes()[:16]
 
-        with self.assertRaises(SystemExit) as raised:
-            self._run_main(database, database)
-
-        self.assertEqual(raised.exception.code, 1)
+        self.assertEqual(self._run_main(database, database), 1)
         self.assertEqual(database.read_bytes()[:16], original_header)
         check = sqlite3.connect(database)
         try:

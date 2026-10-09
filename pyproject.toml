@@ -55,12 +55,10 @@ dev = [
 # set AWE_DECAF_PATH (default: a sibling ../DECAF checkout).
 
 [project.scripts]
+# Every command carries the distribution's prefix. The Converge dashboard has
+# no script of its own: `python -m agent_trajviz.converge` launches it.
 agent-trajviz = "agent_trajviz.insight.__main__:main"
-# cli.py already advertises prog="trajectory-converge" in its --help/usage text;
-# without this entry that name existed nowhere and the CLI was reachable only as
-# `python -m agent_trajviz.converge.cli` (C8). `python -m agent_trajviz.converge` launches
-# the Gradio app and must keep doing so.
-trajectory-converge = "agent_trajviz.converge.cli:main"
+agent-trajviz-converge = "agent_trajviz.converge.cli:main"
 agent-trajviz-collect = "agent_trajviz.collect.__main__:main"
 agent-trajviz-label = "agent_trajviz.labeling.labeler:main"
 

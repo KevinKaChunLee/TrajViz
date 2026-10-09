@@ -137,7 +137,7 @@ def compare(reference: Trajectory | PathLike, compared: Trajectory | PathLike, *
 
     Accepts loaded trajectories or file paths. The report includes the step
     alignment, divergence points, outcome and a confidence label; see the
-    ``trajectory-converge`` command for the same report from the shell.
+    ``agent-trajviz-converge`` command for the same report from the shell.
     """
     from .converge.alignment import build_comparison_report_from_steps
 

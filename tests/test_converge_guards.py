@@ -11,8 +11,7 @@ Covers:
 - C5: the milestone name/label maps are single-sourced in milestones.py.
 - C6: compute_anchor_analysis no longer advertises a custom_rules hook that no
       entry point can reach (classify_file keeps the real one).
-- C8: the 'trajectory-converge' name cli.py advertises as its prog is a
-      declared console script.
+- C8: the name cli.py advertises as its prog is a declared console script.
 - C9: compare_segments' per-segment action lists are disjoint by step_index —
       the property that keeps re-entrant alignment sub-quadratic.
 - D3 (converge half): effect labeling routes bare status strings through the
@@ -269,14 +268,14 @@ def _cli_prog() -> str | None:
 
 
 class ConvergeConsoleScriptTests(unittest.TestCase):
-    """C8: cli.py advertised prog='trajectory-converge' with no such script."""
+    """C8: cli.py once advertised a prog that no console script declared."""
 
     def _scripts(self) -> dict[str, str]:
         with open(REPO_ROOT / "pyproject.toml", "rb") as f:
             return tomllib.load(f).get("project", {}).get("scripts", {})
 
     def test_console_script_is_declared(self):
-        self.assertEqual(self._scripts().get("trajectory-converge"),
+        self.assertEqual(self._scripts().get("agent-trajviz-converge"),
                          "agent_trajviz.converge.cli:main")
 
     def test_declared_target_is_importable_and_callable(self):

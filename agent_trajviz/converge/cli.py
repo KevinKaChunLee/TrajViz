@@ -4,11 +4,28 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
+from collections.abc import Sequence
 
 from .. import __version__
 from .._cli import configure_logging
+from ..errors import TrajVizError
 from .alignment import build_comparison_report
+
+# Failures that describe the input (a missing file, a bad manifest, a file
+# that is not a trajectory). Anything else is a bug and keeps its traceback.
+_INPUT_ERRORS = (ValueError, OSError, TrajVizError)
+
+
+def _positive_float(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        value = math.nan
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive number, got {text!r}")
+    return value
 
 
 def _print_summary(report: dict) -> None:
@@ -238,10 +255,9 @@ def _print_intervention_summary(report: dict) -> None:
     print()
 
 
-def main() -> None:
-    """Parse arguments and run the comparison."""
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="trajectory-converge",
+        prog="agent-trajviz-converge",
         description="Compare two agent trajectories and produce alignment metrics.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -265,7 +281,7 @@ def main() -> None:
     # Common options
     parser.add_argument("--anchor-patch", default=None,
                         help="Path to an external anchor patch file for grounded comparison")
-    parser.add_argument("--token-rate", type=float, default=50.0,
+    parser.add_argument("--token-rate", type=_positive_float, default=50.0,
                         help="Token-equivalent rate for latency normalization (default: 50)")
     parser.add_argument("--fuzzy-commands", action="store_true",
                         help="Enable fuzzy matching of composite bash commands to tool actions")
@@ -274,7 +290,13 @@ def main() -> None:
     parser.add_argument("--task-id", default="",
                         help="Optional task identifier included in the report")
 
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Parse arguments and run the comparison; return the exit status."""
+    parser = _build_parser()
+    args = parser.parse_args(argv)
     configure_logging()
 
     # Validate mutual exclusivity
@@ -311,9 +333,9 @@ def main() -> None:
             report = build_intervention_report(
                 args.before, args.after, paired, before_only, after_only,
                 metric_deltas, pattern_deltas, guardrails)
-        except Exception as exc:
+        except _INPUT_ERRORS as exc:
             print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
+            return 1
 
         if args.output == "summary":
             _print_intervention_summary(report)
@@ -342,9 +364,9 @@ def main() -> None:
             consistency = compute_consistency(aggregate)
             batch_report = build_batch_report(
                 args.batch, results, aggregate, frequency, promoted, consistency)
-        except Exception as exc:
+        except _INPUT_ERRORS as exc:
             print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
+            return 1
 
         if args.output == "summary":
             _print_batch_summary(batch_report)
@@ -361,15 +383,16 @@ def main() -> None:
                 anchor_patch=args.anchor_patch,
                 task_id=args.task_id,
             )
-        except Exception as exc:
+        except _INPUT_ERRORS as exc:
             print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
+            return 1
 
         if args.output == "summary":
             _print_summary(report)
         else:
             print(json.dumps(report, indent=2, default=str))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
