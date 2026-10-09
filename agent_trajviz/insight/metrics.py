@@ -443,6 +443,73 @@ def _compute_command_metrics(steps: list[dict]) -> dict:
     }
 
 
+def output_throughput(steps: list[dict]) -> dict:
+    """Output tokens over generation time, measured on one set of assistant steps.
+
+    Tokens and seconds come from exactly the same steps, so untimed output
+    (common for some sub-agent final messages) cannot inflate the rate. The
+    denominator is :func:`generation_seconds` -- step duration minus spawn wait
+    and timed non-spawn tool time -- so blocked Bash/script waits are not
+    counted as generation. When tool stamps are missing those waits stay in the
+    denominator, which under-states the rate rather than inflating it.
+
+    Every surface that reports a generation rate -- the session metrics, each
+    agent's row, the health verdict -- goes through this function, so a
+    single-agent run shows one number everywhere.
+
+    Returns ``rate`` (``None`` when nothing is measurable), the ``tokens`` and
+    ``seconds`` it divides, ``tool_wait_seconds`` taken out of the window,
+    ``timed_steps`` it covered and ``total_steps`` (all assistant steps).
+    """
+    total_steps = 0
+    timed_steps = 0
+    tokens = 0.0
+    seconds = 0.0
+    tool_wait = 0.0
+    for s in steps:
+        if s.get("role") != "assistant":
+            continue
+        total_steps += 1
+        duration = s.get("duration")
+        output_tokens = (s.get("tokens") or {}).get("output")
+        has_duration = (
+            isinstance(duration, (int, float))
+            and not isinstance(duration, bool)
+            and math.isfinite(duration)
+            and duration > 0
+        )
+        has_output_tokens = (
+            isinstance(output_tokens, (int, float))
+            and not isinstance(output_tokens, bool)
+            and math.isfinite(output_tokens)
+            and output_tokens >= 0
+        )
+        if not (has_duration and has_output_tokens):
+            continue
+        gen_pair = generation_seconds(s)
+        if gen_pair is None:
+            continue
+        gen_s, tool_wait_s = gen_pair
+        if gen_s <= 0:
+            # Tool stamps consumed the whole step, so this step has no
+            # measurable generation window. Counting its output tokens against
+            # zero seconds would inflate the rate without bound; leave it out
+            # and let the coverage figure say so.
+            continue
+        timed_steps += 1
+        seconds += gen_s
+        tool_wait += tool_wait_s
+        tokens += output_tokens
+    return {
+        "rate": round(tokens / seconds, 1) if seconds > 0 and tokens > 0 else None,
+        "tokens": tokens,
+        "seconds": seconds,
+        "tool_wait_seconds": tool_wait,
+        "timed_steps": timed_steps,
+        "total_steps": total_steps,
+    }
+
+
 def _compute_timing_metrics(steps: list[dict]) -> dict:
     """Compute response latency, output throughput, and timing coverage.
 
@@ -454,23 +521,11 @@ def _compute_timing_metrics(steps: list[dict]) -> dict:
     only ``time_created_ms``/``time_completed_ms`` — so a true time-to-first-token
     is not computable here. The names are kept because callers already read them.
 
-    Output throughput uses output tokens and generation time from the exact
-    same set of assistant steps.  This prevents untimed output (which is
-    common for some sub-agent final messages) from inflating the measured rate.
-
-    Denominator is step duration minus spawn/delegation wait and timed
-    non-spawn tool time, so blocked Bash/script waits are not counted as
-    generation. When tool stamps are missing, those waits remain in the
-    denominator (conservative under-estimate of gen rate).
+    Output throughput is :func:`output_throughput` over every assistant step.
     """
     first_user_created = None
     first_asst_completed = None
     last_asst_completed = None
-    timed_asst_duration = 0.0
-    timed_tool_wait = 0.0
-    timed_output_tokens = 0.0
-    assistant_step_count = 0
-    timed_assistant_step_count = 0
 
     for s in steps:
         role = s.get("role", "")
@@ -478,42 +533,10 @@ def _compute_timing_metrics(steps: list[dict]) -> dict:
         t_completed = s.get("time_completed_ms")
         if role == "user" and first_user_created is None and isinstance(t_created, (int, float)):
             first_user_created = t_created
-        if role == "assistant":
-            assistant_step_count += 1
-            if isinstance(t_completed, (int, float)):
-                if first_asst_completed is None:
-                    first_asst_completed = t_completed
-                last_asst_completed = t_completed
-
-            duration = s.get("duration")
-            output_tokens = s.get("tokens", {}).get("output")
-            has_duration = (
-                isinstance(duration, (int, float))
-                and not isinstance(duration, bool)
-                and math.isfinite(duration)
-                and duration > 0
-            )
-            has_output_tokens = (
-                isinstance(output_tokens, (int, float))
-                and not isinstance(output_tokens, bool)
-                and math.isfinite(output_tokens)
-                and output_tokens >= 0
-            )
-            if has_duration and has_output_tokens:
-                gen_pair = generation_seconds(s)
-                if gen_pair is None:
-                    continue
-                gen_s, tool_wait_s = gen_pair
-                if gen_s <= 0:
-                    # Tool stamps consumed the whole step, so this step has no
-                    # measurable generation window. Counting its output tokens
-                    # against zero seconds would inflate the rate without
-                    # bound; leave it out and let the coverage figure say so.
-                    continue
-                timed_assistant_step_count += 1
-                timed_asst_duration += gen_s
-                timed_tool_wait += tool_wait_s
-                timed_output_tokens += output_tokens
+        if role == "assistant" and isinstance(t_completed, (int, float)):
+            if first_asst_completed is None:
+                first_asst_completed = t_completed
+            last_asst_completed = t_completed
 
     result: dict = {}
     if first_user_created is not None and first_asst_completed is not None:
@@ -523,22 +546,16 @@ def _compute_timing_metrics(steps: list[dict]) -> dict:
     else:
         result["time_to_first_token"] = None
 
-    result["output_tokens_per_sec"] = (
-        round(timed_output_tokens / timed_asst_duration, 1)
-        if timed_asst_duration > 0 and timed_output_tokens > 0 else None
-    )
-    result["output_throughput_timed_steps"] = timed_assistant_step_count
-    result["output_throughput_total_steps"] = assistant_step_count
-    result["output_throughput_coverage_pct"] = (
-        round(timed_assistant_step_count / assistant_step_count * 100, 1)
-        if assistant_step_count else None
-    )
-    result["output_throughput_incomplete"] = (
-        timed_assistant_step_count < assistant_step_count
-    )
-    result["output_throughput_timed_tokens"] = timed_output_tokens
-    result["output_throughput_timed_seconds"] = round(timed_asst_duration, 3)
-    result["output_throughput_tool_wait_seconds"] = round(timed_tool_wait, 3)
+    throughput = output_throughput(steps)
+    timed, total = throughput["timed_steps"], throughput["total_steps"]
+    result["output_tokens_per_sec"] = throughput["rate"]
+    result["output_throughput_timed_steps"] = timed
+    result["output_throughput_total_steps"] = total
+    result["output_throughput_coverage_pct"] = round(timed / total * 100, 1) if total else None
+    result["output_throughput_incomplete"] = timed < total
+    result["output_throughput_timed_tokens"] = throughput["tokens"]
+    result["output_throughput_timed_seconds"] = round(throughput["seconds"], 3)
+    result["output_throughput_tool_wait_seconds"] = round(throughput["tool_wait_seconds"], 3)
 
     if first_user_created is not None and last_asst_completed is not None:
         # Full-response latency, same caveat: last assistant message completed.
@@ -1077,7 +1094,9 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
     """Compute per-agent summary statistics from parsed steps.
 
     Returns a list of agent summary dicts sorted by first appearance,
-    containing tokens, duration, tool calls, errors, and cache efficiency.
+    containing tokens, duration, tool calls, errors, cache efficiency, and the
+    agent's generation rate (``output_tokens_per_sec``, from
+    :func:`output_throughput` over that agent's assistant steps).
     """
     from collections import defaultdict
 
@@ -1102,10 +1121,12 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
         "step_count": 0,
         "total_duration_s": 0.0, "tool_call_count": 0, "error_count": 0,
     })
+    agent_steps: dict[str, list[dict]] = defaultdict(list)
     for s in steps:
         if s.get("role") != "assistant":
             continue
         agent = effective_agent(s)
+        agent_steps[agent].append(s)
         d = stats[agent]
         d["step_count"] += 1
         dur = s.get("duration")
@@ -1159,7 +1180,11 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
         _cache_share = cache_read_share(cache_read, total_tok)
         cache_pct = None if _cache_share is None else round(_cache_share * 100, 1)
         dur = d["total_duration_s"]
-        tok_per_s = round(total_tok / dur, 1) if dur > 0 else 0.0
+        # The session's generation-rate code over this agent's steps, so a
+        # single-agent card and the Overview cannot disagree. Dividing every
+        # token (cache reads included) by wall-clock instead read 70-120x the
+        # generation rate on cache-heavy runs.
+        throughput = output_throughput(agent_steps[agent_id])
 
         # Spawning correlation
         spawned_by_tool = spawned_by_map.get(agent_id, "")
@@ -1181,7 +1206,8 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
             "tool_call_count": d["tool_call_count"],
             "error_count": d["error_count"],
             "cache_efficiency_pct": cache_pct,
-            "tokens_per_second": tok_per_s,
+            "output_tokens_per_sec": throughput["rate"],
+            "output_throughput_timed_steps": throughput["timed_steps"],
             "spawned_by_step": spawned_by_step,
         })
     return result

@@ -577,7 +577,8 @@ class StepIndexJsInjectionTests(unittest.TestCase):
                 "total_duration_s": 0.0,
                 "tool_call_count": 0,
                 "error_count": 0,
-                "tokens_per_second": 0.0,
+                "output_tokens_per_sec": None,
+                "output_throughput_timed_steps": 0,
             },
             "#111111",
         )

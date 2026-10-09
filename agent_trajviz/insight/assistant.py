@@ -75,7 +75,7 @@ structure the reply in Markdown as:
    问题: …
    结果: …
    分析: …（为何慢或失败；引用 tool_time_share、tool_wait_pct、p95_tool_duration、
-   max_tool_duration、tokens_per_second、tokens_per_tool 等 brief 中的指标）
+   max_tool_duration、output_tokens_per_sec、tokens_per_tool 等 brief 中的指标）
 2. …
 
 ## 错误模式
@@ -261,7 +261,9 @@ def _metrics_lines(metrics: dict, steps: list[dict]) -> list[str]:
         # all-steps mean.
         f"avg_tokens_per_assistant_step: {metrics.get('avg_tokens_per_assistant_step', 0)}",
         f"avg_tokens_per_step_all_steps: {metrics.get('avg_tokens_per_step', 0)}",
-        f"tokens_per_second: {metrics.get('tokens_per_second', 0)}",
+        # Every token, cache reads included, over wall-clock: a volume figure,
+        # not a speed. Named so the model cannot cite it as generation rate.
+        f"processed_tokens_per_second_incl_cache: {metrics.get('tokens_per_second', 0)}",
         f"tokens_per_tool: {metrics.get('tokens_per_tool', 0)}",
         f"output_tokens_per_sec: {metrics.get('output_tokens_per_sec')}",
         # n/a, never 0: telling the model the tools took zero seconds when the
@@ -346,11 +348,13 @@ def _agent_lines(summaries: list[dict]) -> list[str]:
         return ["(single-agent or unlabeled)"]
     lines = []
     for agent in summaries:
+        gen_rate = agent.get("output_tokens_per_sec")
         lines.append(
-            f"- {agent.get('label')}: {agent.get('step_count')} steps, "
+            f"- {agent.get('label')}: {agent.get('step_count')} assistant steps, "
             f"{agent.get('total_tokens')} tok, {agent.get('total_duration_s')}s, "
             f"{agent.get('tool_call_count')} tools, {agent.get('error_count')} errors, "
-            f"cache {_pct_or_na(agent.get('cache_efficiency_pct'))}"
+            f"cache {_pct_or_na(agent.get('cache_efficiency_pct'))}, "
+            f"gen {'n/a' if gen_rate is None else gen_rate} tok/s"
         )
     for insight in generate_agent_insights(summaries):
         lines.append(f"- insight: {insight}")

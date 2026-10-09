@@ -179,12 +179,12 @@ def _build_per_message_md(rows: list[dict], limit: int = 80) -> str:
     lines = ["### Per-Message Diagnostics", ""]
     if has_agent:
         lines.append(
-            "| Step | Role | Agent | Finish | Duration (s) | Tokens | Tok/s | Cache Read % | Fresh Input | Tool Calls |"
+            "| Step | Role | Agent | Finish | Duration (s) | Tokens | Processed tok/s | Cache Read % | Fresh Input | Tool Calls |"
         )
         lines.append("|---:|---|---|---|---:|---:|---:|---:|---:|---:|")
     else:
         lines.append(
-            "| Step | Role | Finish | Duration (s) | Tokens | Tok/s | Cache Read % | Fresh Input | Tool Calls |"
+            "| Step | Role | Finish | Duration (s) | Tokens | Processed tok/s | Cache Read % | Fresh Input | Tool Calls |"
         )
         lines.append("|---:|---|---:|---:|---:|---:|---:|---:|---:|")
 

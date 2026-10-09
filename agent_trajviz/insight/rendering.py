@@ -203,12 +203,23 @@ def _render_one_agent_card(a: dict, agent_hex: str) -> str:
         or a["cache_efficiency_pct"] is None
         else f"{a['cache_efficiency_pct']:.1f}%"
     )
+    # Output tokens over generation time -- the Overview's "gen tok/s", measured
+    # on this agent's steps only. Not every step is timed, so the tooltip says
+    # how many the rate covers.
+    step_count = a["step_count"]
+    steps_text = f"{step_count} assistant step{'' if step_count == 1 else 's'}"
+    gen_rate = a.get("output_tokens_per_sec")
+    gen_rate_text = "n/a" if gen_rate is None else f"{gen_rate:,.1f}"
+    gen_rate_title = (
+        "Output tokens ÷ generation time (step time minus tool and sub-agent "
+        f"waits), over {a.get('output_throughput_timed_steps', 0)} of {steps_text} with timing"
+    )
     return (
         f"<div class='agent-card' title='{full_id}'"
         f" style='border-left:4px solid {agent_hex};'>"
         f"<div class='agent-card-header'>"
         f"<span class='agent-card-label' style='color:{agent_hex};'>{label}</span>"
-        f"<span class='agent-card-steps'>{a['step_count']} steps</span>"
+        f"<span class='agent-card-steps'>{steps_text}</span>"
         f"</div>"
         f"{spawn_html}"
         f"<div class='agent-card-grid'>"
@@ -217,7 +228,7 @@ def _render_one_agent_card(a: dict, agent_hex: str) -> str:
         f"<div><span class='agent-kpi-val'>{a['tool_call_count']}</span><span class='agent-kpi-label'>Tool Calls</span></div>"
         f"<div><span class='agent-kpi-val'>{a['error_count']}</span><span class='agent-kpi-label'>Errors</span></div>"
         f"<div><span class='agent-kpi-val'>{_cache_display}</span><span class='agent-kpi-label'>Cache %</span></div>"
-        f"<div><span class='agent-kpi-val'>{a['tokens_per_second']:,.0f}</span><span class='agent-kpi-label'>Tok/s</span></div>"
+        f"<div title='{gen_rate_title}'><span class='agent-kpi-val'>{gen_rate_text}</span><span class='agent-kpi-label'>Gen tok/s</span></div>"
         f"</div>"
         f"</div>"
     )
