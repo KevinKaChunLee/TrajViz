@@ -2,69 +2,163 @@ name: CI
 
 on:
   push:
-    branches: [main, "feat/**", "fix/**", "refactor/**"]
+    branches: [main, "feat/**", "fix/**", "refactor/**", "rename/**"]
   pull_request:
 
 permissions:
   contents: read
 
+# One uv for every job: the lockfile format is uv's, so an unpinned uv can
+# reject a lock that the pinned one wrote. Bump it together with `uv lock`.
+env:
+  UV_VERSION: "0.11.28"
+
 jobs:
-  # Proves TrajViz works WITHOUT DECAF (standalone): the core suite plus the
-  # fixture-hygiene and no-DECAF render/degradation checks. The attribution
-  # module's tests skip here by design (module-level skipif: no `awe`).
-  #
-  # This is the ONLY workflow that runs on pull_request: the DECAF integration
-  # needs a credentialed checkout, which must never coexist with PR-controlled
-  # code (see integration.yml — trusted main only).
-  standalone:
+  # The suite on every supported Python, WITHOUT DECAF (standalone): the
+  # attribution module's tests skip here by design (module-level skipif: no
+  # `awe`). This workflow is the only one that runs on pull_request: the DECAF
+  # integration needs a credentialed checkout, which must never coexist with
+  # PR-controlled code (see integration.yml — trusted main only).
+  test:
+    name: test (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Install (locked)
+        run: uv sync --locked --extra dev
+      - name: Lint (ruff)
+        if: matrix.python == '3.13'
+        run: uv run --locked ruff check agent_trajviz tests
+      # No PYTHONPATH: `pythonpath = ["."]` in [tool.pytest.ini_options] puts
+      # the repo root on sys.path and pins rootdir to this repository.
+      - name: Test
+        run: uv run --locked python -m pytest tests -q
+
+  # The declared lower bounds are real: install the oldest allowed release of
+  # every direct dependency, on the oldest and newest supported Python.
+  lowest-deps:
+    name: lowest dependencies (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Install (lowest direct versions)
+        run: |
+          uv venv --python ${{ matrix.python }}
+          uv pip install --resolution lowest-direct ".[dev]"
+      - name: Test
+        run: .venv/bin/python -m pytest tests -q
+
+  # The public API (the names exported from agent_trajviz) is typed and must
+  # stay clean under --strict.
+  typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Install (locked)
         run: uv sync --locked --extra dev
-      - name: Lint (ruff)
-        run: uv run ruff check agent_trajviz tests
-      # No PYTHONPATH: the repo root now reaches sys.path through
-      # `pythonpath = ["."]` in [tool.pytest.ini_options], which is declared,
-      # rootdir-relative and identical locally and in CI (it also pins rootdir to
-      # this repo instead of any surrounding tree).
-      - name: Test (standalone — DECAF absent)
-        run: uv run python -m pytest tests -q
+      - name: mypy --strict (public API)
+        run: >
+          uv run --locked --with "mypy>=1.13" mypy --strict
+          agent_trajviz/__init__.py agent_trajviz/api.py agent_trajviz/errors.py agent_trajviz/model.py
+
+  # What a user installs: build the sdist and wheel, check their metadata, and
+  # install the wheel into clean environments -- the core alone must pull in
+  # no third-party package, and the app extra must run every entry point.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Build
+        run: uv build
+      - name: Check metadata
+        run: uvx twine check --strict dist/*
+      - name: Core install (no extras)
+        run: |
+          uv venv --python 3.11 /tmp/core
+          uv pip install --python /tmp/core/bin/python dist/*.whl
+          /tmp/core/bin/python - <<'PY'
+          import importlib.metadata as md
+          names = sorted(d.metadata["Name"] for d in md.distributions())
+          assert names == ["agent-trajviz"], names
+          import agent_trajviz as tv
+          run = tv.load("tests/fixtures/codearts_minimal.json")
+          assert run.steps and run.metrics["tokens"]["total"] > 0
+          PY
+          /tmp/core/bin/agent-trajviz --version
+          # Without the app extra the dashboard must refuse with exit 2 and a hint.
+          status=0; /tmp/core/bin/agent-trajviz 2>/tmp/err.txt || status=$?
+          test "$status" -eq 2 && grep -q 'agent-trajviz\[app\]' /tmp/err.txt
+      - name: App install
+        run: |
+          uv venv --python 3.13 /tmp/app
+          uv pip install --python /tmp/app/bin/python "agent-trajviz[app] @ file://$(ls "$PWD"/dist/*.whl)"
+          /tmp/app/bin/agent-trajviz --report tests/fixtures/codearts_minimal.json -o /tmp/report.html
+          test -s /tmp/report.html
+          /tmp/app/bin/agent-trajviz-converge tests/fixtures/codearts_minimal.json tests/fixtures/codearts_minimal.json > /dev/null
+          /tmp/app/bin/agent-trajviz-collect --version
+          /tmp/app/bin/agent-trajviz-label --version
+          /tmp/app/bin/python -c "from agent_trajviz.insight.insight import build_ui; build_ui()"
+          /tmp/app/bin/python -c "from agent_trajviz.converge.app import build_ui; build_ui()"
 
   # Coverage is reported, not assumed. Separate job so a coverage dip reads
-  # differently from a test failure, and so the `standalone` log keeps its shape.
+  # differently from a test failure.
   #
   # This measures the STANDALONE figure: the DECAF-gated attribution tests skip
-  # here, so it is a floor on the real number, not the number a DECAF-present run
-  # would print. `fail-under` is a collapse detector set deliberately below the
-  # measured value — raise it to just under the first green run's TOTAL rather
-  # than to whatever a review doc once claimed.
+  # here, so it is a floor on the real number. `fail-under` is a collapse
+  # detector set deliberately below the measured value.
   coverage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Install (locked)
         run: uv sync --locked --extra dev
       # `uv run --with` layers coverage over the locked environment instead of
-      # adding it to the dev extra: `uv sync --locked` above stays the single
-      # source of what is installed, and no lockfile churn is needed to measure.
-      # The settings live on the command line, not in a [tool.coverage] table, so
-      # the job log states exactly what was measured and the line can be pasted
-      # verbatim to reproduce it.
+      # adding it to the dev extra, so the lock stays the single source of what
+      # is installed. The settings live on the command line so the log states
+      # exactly what was measured.
       - name: Measure coverage (standalone — DECAF absent)
         run: >
-          uv run --with "coverage>=7.16" coverage run
+          uv run --locked --with "coverage>=7.16" coverage run
           --branch --source=agent_trajviz -m pytest tests -q
       - name: Report coverage
         run: |
-          uv run --with "coverage>=7.16" coverage report --precision=1 --show-missing --fail-under=70
-          uv run --with "coverage>=7.16" coverage html
+          uv run --locked --with "coverage>=7.16" coverage report --precision=1 --show-missing --fail-under=70
+          uv run --locked --with "coverage>=7.16" coverage html
       - name: Upload HTML report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

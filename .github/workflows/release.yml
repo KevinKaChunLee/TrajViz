@@ -1,0 +1,61 @@
+name: Release
+
+# Publishes to PyPI when a version tag (v0.1.0, ...) is pushed. Uses PyPI
+# Trusted Publishing: no API token is stored anywhere. One-time setup on PyPI:
+# add a trusted publisher for this repository, workflow `release.yml`,
+# environment `pypi`; on GitHub, create the `pypi` environment (ideally with a
+# required reviewer).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.11.28"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Tag matches the package version
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' agent_trajviz/__init__.py)
+          echo "package $version, tag $GITHUB_REF_NAME"
+          test "v$version" = "$GITHUB_REF_NAME"
+      - name: Test (locked)
+        run: |
+          uv sync --locked --extra dev
+          uv run --locked python -m pytest tests -q
+      - name: Build
+        run: uv build
+      - name: Check metadata
+        run: uvx twine check --strict dist/*
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/agent-trajviz
+    permissions:
+      id-token: write # Trusted Publishing; nothing else
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

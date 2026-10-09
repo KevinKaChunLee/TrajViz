@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Actions are pinned by commit SHA; Dependabot proposes the bumps.
+  #
+  # Python dependencies are deliberately not listed: Dependabot's uv support
+  # rewrites lower bounds in pyproject.toml, and a library's lower bounds are
+  # a compatibility promise (checked by the lowest-deps CI job), not a pin.
+  # Refresh the locked test environment with `uv lock --upgrade`.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

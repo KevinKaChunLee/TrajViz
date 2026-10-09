@@ -24,6 +24,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Visualization",
     "Topic :: Software Development :: Debuggers",
     "Typing :: Typed",
@@ -34,10 +35,13 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+# Lower bounds are the oldest releases the suite passes with (CI installs them
+# with `--resolution lowest-direct`), except requests, which is held at the
+# release that fixed a .netrc credential leak (CVE-2024-47081).
 # Figures and the static HTML report.
-charts = ["plotly>=5.0", "pygments>=2.0"]
+charts = ["plotly>=5.15", "pygments>=2.13"]
 # LLM features: the AI analysis sidebar, the Issues judge and the step labeler.
-llm = ["requests>=2.0"]
+llm = ["requests>=2.32.4"]
 # The Insight and Converge dashboards, with charts and LLM features.
 app = ["agent-trajviz[charts,llm]", "gradio>=6.14.0"]
 # Everything a user can install.
@@ -47,9 +51,9 @@ all = ["agent-trajviz[app]"]
 # collection error there, not a skip.
 dev = [
     "agent-trajviz[all]",
-    "pytest>=7.0",
+    "pytest>=8.0",
     "ruff>=0.16",
-    "hypothesis>=6.0",
+    "hypothesis>=6.100",
 ]
 # DECAF (the Attribution tab) is not on PyPI, so it has no extra: clone it and
 # set AWE_DECAF_PATH (default: a sibling ../DECAF checkout).
