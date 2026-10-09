@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-import traceback
+import logging
 
 from ..charts import timeline_agent_id_of
 from ..rendering import (
@@ -19,6 +19,8 @@ from ..rendering import (
     workflow_role,
 )
 from ..step_errors import step_error_kind
+
+logger = logging.getLogger(__name__)
 
 DETAIL_PLACEHOLDER = (
     "<div id='wf-detail-content'>"
@@ -44,7 +46,7 @@ def _prerender_step_details(steps: list[dict]) -> str:
             # Every step's detail is pre-rendered at load, so an exception here
             # used to fail the entire load. The step model is type-normalised in
             # parse_steps; this is the backstop for whatever that misses.
-            traceback.print_exc()
+            logger.exception("could not render step %s", idx)
             details[idx] = (
                 "<div class='dp-tool-meta'>This step could not be rendered "
                 "(details are in the server log).</div>"

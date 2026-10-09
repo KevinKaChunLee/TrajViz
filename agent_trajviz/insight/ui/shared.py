@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import functools
-import traceback
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
 import gradio as gr
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -52,7 +54,7 @@ def safe_callback(label: str) -> Callable:
                 # Already a user-facing message (e.g. a nested safe_callback).
                 raise
             except Exception as exc:  # noqa: BLE001
-                traceback.print_exc()
+                logger.exception("%s failed", label)
                 raise gr.Error(f"{label} failed: {type(exc).__name__}. See the server log.") from exc
 
         wrapper.__tv_safe__ = True

@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from .. import __version__
+from .._cli import configure_logging
 from .._extras import require_or_exit
 
 
@@ -34,6 +35,7 @@ def main():
         help="Embed plotly.js in the report so it works offline (with --report; adds several MB)",
     )
     args = parser.parse_args()
+    configure_logging()
 
     if args.report:
         require_or_exit("charts", "The HTML report", "agent-trajviz")

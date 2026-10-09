@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
-import traceback
+import logging
 from dataclasses import dataclass
 
 import gradio as gr
@@ -14,6 +14,8 @@ from ..presenters.overview import load_warnings_html
 from ..report import ReportError, write_report_file
 from ..session import LoadedSession
 from .shared import SharedState
+
+logger = logging.getLogger(__name__)
 
 # Picking a file re-clicks this button from the browser instead of binding a
 # second Python load path; see `load.bind_load`.
@@ -148,7 +150,7 @@ def prepare_html_export(raw, _steps=None, dark=False, request: gr.Request | None
     except ReportError:
         return _export_off()
     except Exception:
-        traceback.print_exc()
+        logger.exception("writing the HTML report failed")
         return _export_off()
     # Gradio injects *request* on a browser call (annotation-driven) and leaves
     # it None for a direct call, which is the key library callers share.

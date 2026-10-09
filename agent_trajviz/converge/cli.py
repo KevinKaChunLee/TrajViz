@@ -7,6 +7,7 @@ import json
 import sys
 
 from .. import __version__
+from .._cli import configure_logging
 from .alignment import build_comparison_report
 
 
@@ -269,6 +270,7 @@ def main() -> None:
                         help="Optional task identifier included in the report")
 
     args = parser.parse_args()
+    configure_logging()
 
     # Validate mutual exclusivity
     modes = sum([

@@ -7,7 +7,7 @@ import.
 
 from __future__ import annotations
 
-import traceback
+import logging
 from typing import Any
 
 from .formats.claude_code import _convert_claude_code_to_internal
@@ -38,6 +38,8 @@ from .formats.sniff import (
     _detect_event_stream_format,
     _detect_object_format,
 )
+
+logger = logging.getLogger(__name__)
 
 # Canonical display names for the detected trajectory formats.  Defined here,
 # next to detect_format, as the single source of truth — UI/report modules
@@ -262,7 +264,7 @@ def load_trajectory(file_path: str, format_hint: str | None = None) -> dict:
     each site that might fail: converters and normalisers copy values from the
     export as found, and a value of an unexpected type, or JSON nested deeply
     enough to exhaust the recursion limit, used to raise out of whichever line
-    touched it first. The traceback goes to the operator's terminal; the caller
+    touched it first. The traceback goes to the log; the caller
     gets a message. See :func:`_load_trajectory_unguarded` for the dispatch.
     """
     try:
@@ -270,7 +272,7 @@ def load_trajectory(file_path: str, format_hint: str | None = None) -> dict:
     except RecursionError:
         return {"_error": "This file nests JSON too deeply to be read safely."}
     except Exception as exc:  # noqa: BLE001 — the contract is "never raise"
-        traceback.print_exc()
+        logger.exception("could not load %s", file_path)
         detail = f"{type(exc).__name__}: {exc}"
         return {"_error": f"Could not read this file as a trajectory ({detail[:200]})."}
 

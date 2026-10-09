@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-import traceback
+import logging
 from dataclasses import dataclass
 from typing import Literal
 
@@ -46,6 +46,8 @@ from .patterns import (
     detect_tool_sequences,
     extract_plan_history,
 )
+
+logger = logging.getLogger(__name__)
 
 # Maximum steps to process — keeps rendering, metrics, and charts bounded.
 MAX_STEPS = 2000
@@ -155,11 +157,11 @@ def load_session(path: str, format_hint: str = "") -> LoadedSession | LoadError:
     # Same promise as the loader: a LoadedSession or a LoadError, never an
     # exception. The step model is type-normalised in parse_steps, so this
     # guard is the backstop for an analyser bug, not the routine path for
-    # malformed input. The traceback goes to the operator's terminal.
+    # malformed input. The traceback goes to the log.
     try:
         return build_loaded_session(path, raw, detected=detected)
     except Exception as exc:  # noqa: BLE001 — see above
-        traceback.print_exc()
+        logger.exception("could not analyse %s", path)
         return LoadError(
             code="analysis_error",
             message=f"The file loaded but could not be analysed ({type(exc).__name__}: {str(exc)[:160]}).",

@@ -266,11 +266,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     output_path = args.output or str(Path(args.input).with_name(f"{Path(args.input).stem}_labeled.json"))
 
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    package_logger = logging.getLogger("agent_trajviz")
-    package_logger.addHandler(handler)
-    package_logger.setLevel(logging.INFO)
+    from .._cli import configure_logging
+
+    configure_logging(logging.INFO, "%(message)s")
     try:
         label_trajectory(
             trajectory_path=args.input, output_path=output_path, base_url=base_url, api_key=api_key,
@@ -283,8 +281,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (ValueError, OSError) as exc:
         print(f"agent-trajviz-label: {exc}", file=sys.stderr)
         return 1
-    finally:
-        package_logger.removeHandler(handler)
     return 0
 
 

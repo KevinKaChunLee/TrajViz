@@ -8,7 +8,7 @@ HTML report.
 """
 
 import html
-import traceback
+import logging
 
 from agent_trajviz.insight.parser import parse_steps
 
@@ -19,6 +19,8 @@ from agent_trajviz.converge.alignment import (
     empty_steps_reason,
 )
 from agent_trajviz.converge.rendering import build_comparison_report_html
+
+logger = logging.getLogger(__name__)
 
 
 def run_comparison(
@@ -130,12 +132,12 @@ def run_comparison(
         return {"report_html": report_html, "ok": True}
 
     except Exception as e:
-        # The traceback goes to the operator's terminal, not into the page: it
+        # The traceback goes to the log, not into the page: it
         # carries absolute filesystem paths, and the exception text itself is
         # derived from trajectory content. Same split `do_load` uses — the
         # viewer gets the exception TYPE, the person running the server gets
         # everything needed to debug it.
-        traceback.print_exc()
+        logger.exception("comparison failed")
         empty["report_html"] = (
             f"<div style='color:var(--ov-bad);padding:1em;'>"
             f"<strong>Comparison failed:</strong> {html.escape(type(e).__name__)}"

@@ -6,10 +6,12 @@ launches the app (same precedent as ``agent_trajviz.insight.__main__``), so do n
 repoint it at the CLI — that would break every documented app invocation.
 """
 
+from .._cli import configure_logging
 from .._extras import require_or_exit
 
 
 def main():
+    configure_logging()
     require_or_exit("app", "The Converge dashboard", "agent_trajviz.converge")
     from .app import LAUNCH_PRESENTATION, build_ui
 

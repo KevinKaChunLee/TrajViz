@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import html
-import traceback
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +15,8 @@ from ..loaders import FORMAT_LABELS
 from ..session import LoadError, LoadedSession, load_session
 from . import overview_tab, patterns_tab, raw_tab, upload, workflow_tab
 from .shared import SharedState
+
+logger = logging.getLogger(__name__)
 
 PackFn = Callable[..., dict[str, Any]]
 
@@ -219,7 +221,7 @@ def do_load(upload_obj, dark=False, selected_format="", *, slots: dict[str, Any]
         result = load_session(file_path or "", format_hint=selected_format or "")
         packed = pack_load_outputs(result, dark=bool(dark))
     except Exception as exc:  # noqa: BLE001
-        traceback.print_exc()
+        logger.exception("loading the upload failed")
         packed = empty_load_outputs(
             banner=(f"<p style='color:#dc2626;'>Error loading trajectory: {html.escape(str(exc))}</p>"),
             detail="*Failed to load — see console for details.*",

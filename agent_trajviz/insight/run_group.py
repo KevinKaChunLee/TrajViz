@@ -11,7 +11,7 @@ from __future__ import annotations
 import html
 import math
 import os
-import traceback
+import logging
 from collections import Counter
 from collections.abc import Sequence
 from typing import Any
@@ -37,6 +37,8 @@ from agent_trajviz.insight.loaders import FORMAT_LABELS, detect_format, load_tra
 from agent_trajviz.insight.metrics import build_message_metrics, compute_metrics
 from agent_trajviz.insight.parser import parse_steps
 from agent_trajviz.tool_vocab import parse_skill_name as _parse_skill_name
+
+logger = logging.getLogger(__name__)
 
 # Pattern labels shown in the UI (omit low-signal names when empty).
 _PATTERN_LABELS = {
@@ -749,7 +751,7 @@ def build_run_group_scorecard(
             actions = canonicalize_steps(steps)
             assign_effect_labels(actions, steps, None)
         except Exception as exc:  # noqa: BLE001 — one run must not sink the scorecard
-            traceback.print_exc()
+            logger.exception("could not analyse run %s", run_id)
             _error_row(f"could not be analysed ({type(exc).__name__})")
             return
         rows.append(row)
