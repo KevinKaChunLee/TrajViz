@@ -251,8 +251,8 @@ class ReportCliFailureModeTests(unittest.TestCase):
     """Every ingest failure must be a clean exit 1 with a sentence on stderr.
 
     One case runs as a real subprocess to pin the process exit status; the rest
-    drive ``main()`` in-process, where anything other than ``SystemExit`` — the
-    exception escaping as a traceback — fails the test directly.
+    drive ``main()`` in-process, where an exception escaping as a traceback
+    fails the test directly and the return value is the exit status.
     """
 
     def _assert_clean_exit(self, path: str) -> str:
@@ -260,13 +260,11 @@ class ReportCliFailureModeTests(unittest.TestCase):
 
         out, err = io.StringIO(), io.StringIO()
         with (
-            patch.object(sys, "argv", ["agent-trajviz", "--report", path]),
             contextlib.redirect_stdout(out),
             contextlib.redirect_stderr(err),
-            self.assertRaises(SystemExit) as raised,
         ):
-            main()
-        self.assertEqual(raised.exception.code, 1)
+            code = main(["--report", path])
+        self.assertEqual(code, 1)
         self.assertEqual(out.getvalue(), "", "a failed run must print no path for a caller to consume")
         self.assertTrue(err.getvalue().strip(), "a failed run must explain itself on stderr")
         return err.getvalue()
@@ -436,7 +434,7 @@ class DashboardFlagWiringTests(unittest.TestCase):
         from agent_trajviz.insight.__main__ import main
 
         with (
-            patch.object(insight_module, "build_ui", lambda: _Recorder()),
+            patch.object(insight_module, "build_ui", lambda **_: _Recorder()),
             patch.object(sys, "argv", ["agent-trajviz", *argv]),
         ):
             main()

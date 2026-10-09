@@ -22,7 +22,7 @@ class AttributionRefs:
     attr_result_html: gr.HTML
 
 
-def layout() -> AttributionRefs:
+def layout(*, allow_server_paths: bool = True) -> AttributionRefs:
     with gr.TabItem("Attribution"):
         gr.HTML(
             "<div class='section-subtitle'>DECAF capability failure attribution "
@@ -50,8 +50,13 @@ def layout() -> AttributionRefs:
         ):
             attr_agent_override = gr.Textbox(label="Agent", placeholder="auto-detected from path", scale=1)
             attr_inst_override = gr.Textbox(label="Instance id", placeholder="auto-detected from path", scale=2)
+            # A path on the serving machine: offered only on a local launch.
             attr_root_override = gr.Textbox(
-                label="Reference data root", placeholder="default: auto-detected sibling checkout", scale=2
+                label="Reference data root",
+                placeholder="default: auto-detected sibling checkout",
+                scale=2,
+                visible=allow_server_paths,
+                interactive=allow_server_paths,
             )
         attr_result_html = gr.HTML("")
     return AttributionRefs(
@@ -64,7 +69,14 @@ def layout() -> AttributionRefs:
     )
 
 
-def bind(refs: AttributionRefs, shared: SharedState, upload: UploadRefs, load_events) -> None:
+def bind(
+    refs: AttributionRefs,
+    shared: SharedState,
+    upload: UploadRefs,
+    load_events,
+    *,
+    allow_server_paths: bool = True,
+) -> None:
     @safe_callback("Attribution diagnosis")
     def on_diagnose(overview_raw, agent_override, inst_override, root_override):
         from dataclasses import asdict
@@ -84,7 +96,9 @@ def bind(refs: AttributionRefs, shared: SharedState, upload: UploadRefs, load_ev
         src_sha = overview_raw.get("_source_sha256") if isinstance(overview_raw, dict) else None
         agent = (agent_override or "").strip()
         inst = (inst_override or "").strip()
-        root = (root_override or "").strip()
+        # Enforced here, not only by hiding the box: a client can call the
+        # event endpoint with any value it likes.
+        root = (root_override or "").strip() if allow_server_paths else ""
         if src:
             if not inst:
                 inst = os.path.splitext(os.path.basename(src))[0]

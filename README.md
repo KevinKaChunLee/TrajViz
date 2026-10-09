@@ -105,15 +105,39 @@ Custom port or host (prefix any of these with `uv run` when using uv):
 
 ```bash
 # Different port
-python -m agent_trajviz.insight --port 8080
+agent-trajviz --port 8080
 
-# Access from any IP on the network
-python -m agent_trajviz.insight --host 0.0.0.0
-# Then access it via your server's IP address: `http://YOUR_IP:7860`
+# Access from other machines on the network, behind a login
+TRAJVIZ_AUTH=alice:change-me agent-trajviz --host 0.0.0.0
+# Then open http://YOUR_IP:7860
 
-# Create a public share link
-python -m agent_trajviz.insight --share
+# Create a public share link, behind a login
+TRAJVIZ_AUTH=alice:change-me agent-trajviz --share
+
+# Accept uploads larger than the default 500 MB
+agent-trajviz --max-file-size 2gb
 ```
+
+The dashboard binds to `127.0.0.1` by default. Anyone who can reach an
+exposed one (`--host 0.0.0.0`, `--share`) can upload files and use the LLM
+key configured on your machine, so set `TRAJVIZ_AUTH=user:password` before
+exposing it; TrajViz warns at startup when you do not. The login is read
+from the environment so it never appears in your shell history or the
+process list. An exposed dashboard also hides the inputs that name paths on
+your machine (the Attribution tab's reference-data root).
+
+### Converge dashboard
+
+The trajectory-comparison dashboard takes the same server options and
+listens on port 7861 by default, so it can run beside Insight:
+
+```bash
+python -m agent_trajviz.converge --data-root path/to/trajectories
+```
+
+Paths inside an uploaded batch manifest resolve against `--data-root`
+(default: the current directory), and a manifest naming a file outside it is
+refused.
 
 ---
 

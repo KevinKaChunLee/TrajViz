@@ -25,12 +25,24 @@ class ManifestEntry:
     anchor: str | None = None
 
 
-def parse_manifest(manifest_path: str) -> list[ManifestEntry]:
+def parse_manifest(
+    manifest_path: str | os.PathLike,
+    *,
+    base_dir: str | os.PathLike | None = None,
+    root: str | os.PathLike | None = None,
+) -> list[ManifestEntry]:
     """Parse and validate a batch manifest JSON file.
 
     The manifest is a JSON array of objects with required fields task_id,
-    reference, compared, and optional anchor. Paths are resolved relative
-    to the manifest file's directory.
+    reference, compared, and optional anchor. Relative paths resolve against
+    *base_dir*, which defaults to the manifest file's own directory.
+
+    With *root*, every path -- after resolving ``..`` and symlinks -- must lie
+    inside it, or the manifest is refused with :class:`ValueError` before any
+    file is opened. The web app passes its data root here: a manifest is
+    uploaded by whoever can reach the page, and must not name files elsewhere
+    on the server. Confined entries carry the resolved path, so the file that
+    is read is the file that was checked.
     """
     with open(manifest_path) as f:
         data = json.load(f)
@@ -38,7 +50,8 @@ def parse_manifest(manifest_path: str) -> list[ManifestEntry]:
     if not isinstance(data, list):
         raise ValueError("Manifest must be a JSON array")
 
-    base_dir = os.path.dirname(os.path.abspath(manifest_path))
+    base = os.path.abspath(base_dir) if base_dir is not None else os.path.dirname(os.path.abspath(manifest_path))
+    real_root = os.path.realpath(root) if root is not None else None
     entries: list[ManifestEntry] = []
 
     for i, item in enumerate(data):
@@ -51,28 +64,33 @@ def parse_manifest(manifest_path: str) -> list[ManifestEntry]:
                     f"Manifest entry {i} (task_id={item.get('task_id', '?')}) "
                     f"missing required field '{field_name}'"
                 )
+        where = f"Manifest entry {i} (task_id={item['task_id']})"
 
-        def _resolve(p: str) -> str:
-            if os.path.isabs(p):
-                return p
-            return os.path.normpath(os.path.join(base_dir, p))
+        def _resolve(label: str, value: object, where: str = where) -> str:
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{where}: {label} must be a non-empty path string")
+            path = value if os.path.isabs(value) else os.path.normpath(os.path.join(base, value))
+            if real_root is None:
+                return path
+            real = os.path.realpath(path)
+            try:
+                inside = os.path.commonpath([real, real_root]) == real_root
+            except ValueError:  # different drives on Windows
+                inside = False
+            if not inside:
+                raise ValueError(f"{where}: {label} path {value!r} is outside the data root")
+            return real
 
-        ref_path = _resolve(item["reference"])
-        cmp_path = _resolve(item["compared"])
-        anchor_path = _resolve(item["anchor"]) if item.get("anchor") else None
+        ref_path = _resolve("reference", item["reference"])
+        cmp_path = _resolve("compared", item["compared"])
+        anchor_path = _resolve("anchor", item["anchor"]) if item.get("anchor") else None
 
         # Validate files exist
         for label, path in [("reference", ref_path), ("compared", cmp_path)]:
             if not os.path.isfile(path):
-                raise FileNotFoundError(
-                    f"Manifest entry {i} (task_id={item['task_id']}): "
-                    f"{label} file not found: {path}"
-                )
+                raise FileNotFoundError(f"{where}: {label} file not found: {path}")
         if anchor_path and not os.path.isfile(anchor_path):
-            raise FileNotFoundError(
-                f"Manifest entry {i} (task_id={item['task_id']}): "
-                f"anchor file not found: {anchor_path}"
-            )
+            raise FileNotFoundError(f"{where}: anchor file not found: {anchor_path}")
 
         entries.append(ManifestEntry(
             task_id=item["task_id"],

@@ -34,8 +34,14 @@ LAUNCH_PRESENTATION = {
 }
 
 
-def build_ui() -> gr.Blocks:
-    """Build the full Gradio Blocks UI."""
+def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
+    """Build the full Gradio Blocks UI.
+
+    ``allow_server_paths=False`` removes every input that names a path on the
+    serving machine (the Attribution tab's reference-data root), and the
+    callbacks ignore such a value even if a client sends one. Launch with it
+    whenever the app is reachable from other machines.
+    """
     load_env_files()
 
     with gr.Blocks(title="TrajViz", elem_classes=["trajectory-viz"]) as app:
@@ -62,7 +68,7 @@ def build_ui() -> gr.Blocks:
         with gr.Tabs(visible=False) as main_tabs:
             overview = overview_tab.layout(overview_kpi_html)
             patterns = patterns_tab.layout()
-            attribution = attribution_tab.layout()
+            attribution = attribution_tab.layout(allow_server_paths=allow_server_paths)
             comparison = comparison_tab.layout()
             workflow = workflow_tab.layout()
             raw = raw_tab.layout()
@@ -92,7 +98,8 @@ def build_ui() -> gr.Blocks:
 
         sidebar.bind(sidebar_refs, shared, load_events)
         overview_tab.bind(overview, shared, upload_refs, load_events)
-        attribution_tab.bind(attribution, shared, upload_refs, load_events)
+        attribution_tab.bind(attribution, shared, upload_refs, load_events,
+                             allow_server_paths=allow_server_paths)
         comparison_tab.bind(comparison, shared, upload_refs)
         workflow_tab.bind(workflow, shared)
 
