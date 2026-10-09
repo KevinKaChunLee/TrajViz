@@ -29,6 +29,7 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
+from .. import __version__
 from .. import _fileio as _common
 from . import step_labeler as v1
 
@@ -318,6 +319,7 @@ def main() -> None:
             "record for every original index."
         )
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("input", help="Path to trajectory file (JSON or Lingxi .log)")
     parser.add_argument(
         "--output",

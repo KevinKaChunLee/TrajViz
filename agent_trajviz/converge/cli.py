@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 
+from .. import __version__
 from .alignment import build_comparison_report
 
 
@@ -237,6 +238,7 @@ def main() -> None:
         prog="trajectory-converge",
         description="Compare two agent trajectories and produce alignment metrics.",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
     # Pairwise mode
     parser.add_argument("ref_file", nargs="?", default=None,

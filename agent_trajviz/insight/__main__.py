@@ -3,11 +3,13 @@
 import argparse
 import sys
 
+from .. import __version__
 from .._extras import require_or_exit
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Insight")
+    parser = argparse.ArgumentParser(prog="agent-trajviz", description="TrajViz dashboard and HTML report")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--port", type=int, default=7860, help="Server port (default: 7860)")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Server host (default: 127.0.0.1). Use 0.0.0.0 to accept connections from any IP.")
     parser.add_argument("--share", action="store_true", help="Create a public Gradio link")

@@ -1,26 +1,32 @@
 [build-system]
-requires = ["hatchling"]
+# 1.27 is the first hatchling with PEP 639 license metadata.
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "agent-trajviz"
-version = "1.0.0"
+# Single source: agent_trajviz/__init__.py (see [tool.hatch.version]).
+dynamic = ["version"]
 description = "Offline analytics & visualization for LLM agent trajectories (Claude Code, Cursor, OpenCode, CodeArts, ICode, Codex CLI, Pi, DeepSeek Harness)"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Rui Shu" }]
-keywords = ["llm", "agent", "trajectory", "visualization", "analytics", "gradio", "plotly"]
+keywords = ["llm", "agent", "coding-agent", "trajectory", "observability", "visualization", "analytics",
+            "claude-code", "codex", "opencode", "cursor", "gradio", "plotly"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Software Development :: Debuggers",
+    "Typing :: Typed",
 ]
 # The core (loading, parsing, metrics, context usage, patterns, comparison and
 # the collection tools) uses only the standard library; features that need
@@ -59,12 +65,21 @@ agent-trajviz-collect = "agent_trajviz.collect.__main__:main"
 agent-trajviz-label = "agent_trajviz.labeling.step_labeler_v2:main"
 
 [project.urls]
-Homepage = "https://github.com/rshu/TrajectoryVisualizer"
-Repository = "https://github.com/rshu/TrajectoryVisualizer"
-Issues = "https://github.com/rshu/TrajectoryVisualizer/issues"
+Homepage = "https://github.com/rshu/TrajViz"
+Repository = "https://github.com/rshu/TrajViz"
+Issues = "https://github.com/rshu/TrajViz/issues"
+Changelog = "https://github.com/rshu/TrajViz/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "agent_trajviz/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agent_trajviz"]
+
+# The sdist carries what is needed to build and read the package, not the
+# test suite: its fixtures include recorded agent runs.
+[tool.hatch.build.targets.sdist]
+include = ["/agent_trajviz", "/README.md", "/LICENSE", "/CHANGELOG.md"]
 
 [tool.ruff]
 line-length = 120

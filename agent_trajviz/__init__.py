@@ -12,7 +12,7 @@ from .api import FORMATS, SCHEMA_VERSION, Trajectory, compare, load, write_repor
 from .errors import LoadError, MissingExtraError, ReportError, TrajVizError
 from .model import Step, TokenUsage, ToolCall
 
-__version__ = "1.0.0"
+__version__ = "0.1.0"
 
 __all__ = [
     "FORMATS",
