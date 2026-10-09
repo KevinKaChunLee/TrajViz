@@ -3,6 +3,8 @@
 import argparse
 import sys
 
+from .._extras import require_or_exit
+
 
 def main():
     parser = argparse.ArgumentParser(description="Insight")
@@ -32,6 +34,7 @@ def main():
     args = parser.parse_args()
 
     if args.report:
+        require_or_exit("charts", "The HTML report", "agent-trajviz")
         from .report import ReportError, report_from_path
 
         try:
@@ -42,17 +45,8 @@ def main():
         print(path)
         return
 
-    try:
-        from .insight import LAUNCH_PRESENTATION, build_ui
-    except ImportError:
-        print(
-            "Error: Insight dependencies are not installed.\n"
-            "Install them with:\n"
-            "  pip install -e .            (package-managed)\n"
-            "  pip install -r requirements.txt   (requirements file)",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    require_or_exit("app", "The dashboard", "agent-trajviz")
+    from .insight import LAUNCH_PRESENTATION, build_ui
 
     app = build_ui()
     app.launch(

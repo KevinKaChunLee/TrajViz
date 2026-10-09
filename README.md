@@ -18,31 +18,30 @@ TrajViz ingests raw agent-trajectory JSON, normalizes it into a shared step mode
 
 ## Install
 
+Requires Python 3.11+.
+
 ```bash
-git clone https://github.com/rshu/TrajectoryVisualizer.git
-cd TrajectoryVisualizer
+pip install "agent-trajviz[app]"     # dashboards, HTML report, LLM features
+pip install agent-trajviz            # library + collection tools: no third-party dependencies
 ```
 
-Pick one of the workflows below. Requires Python 3.11+.
+| Extra | Adds | Enables |
+|---|---|---|
+| `charts` | plotly, pygments | figures and the static HTML report (`agent-trajviz --report`) |
+| `llm` | requests | the AI analysis sidebar, the Issues judge, `agent-trajviz-label` |
+| `app` | gradio + `charts` + `llm` | the Insight and Converge dashboards |
+| `all` | everything above | |
 
-### uv (recommended)
+A command whose extra is missing says which one to install instead of failing
+with a traceback.
 
-[`uv`](https://github.com/astral-sh/uv) is the fastest path and produces a
-reproducible `uv.lock`. From the repo root:
-
-```bash
-uv sync                              # creates .venv, installs the project + deps
-```
-
-That's it — no separate `pip install -e .` step. To add or upgrade a dependency
-later, use `uv add <pkg>` / `uv lock --upgrade`.
-
-### pip
+### From a checkout
 
 ```bash
-pip install -e .                     # package-managed
-# — or —
-pip install -r requirements.txt      # plain requirements file
+git clone https://github.com/rshu/TrajViz.git
+cd TrajViz
+uv sync --extra app          # or: pip install -e ".[app]"
+uv sync --extra dev          # contributors: everything plus pytest, ruff, hypothesis
 ```
 
 ---

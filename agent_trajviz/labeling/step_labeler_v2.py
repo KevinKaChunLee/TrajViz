@@ -338,6 +338,10 @@ def main() -> None:
     parser.add_argument("--user-action", default=USER_DEFAULT_LABEL["action"])
     args = parser.parse_args()
 
+    from .._extras import require_or_exit
+
+    require_or_exit("llm", "The step labeler", "agent-trajviz-label")
+
     base_url = args.base_url or os.getenv("LABEL_BASE_URL", "")
     api_key = args.api_key or os.getenv("LABEL_API_KEY", "")
     model = args.model or os.getenv("LABEL_MODEL", "")

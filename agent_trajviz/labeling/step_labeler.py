@@ -42,7 +42,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import requests
 
 # ── .env loader ─────────────────────────────────────────────────────────
 
@@ -345,6 +344,8 @@ def _call_openai(
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
 
+    import requests  # the llm extra; imported where it is used
+
     resp = requests.post(url, json=body, headers=headers, timeout=timeout)
     resp.raise_for_status()
     data = resp.json()
@@ -370,6 +371,8 @@ def _call_anthropic(
     }
     if temperature is not None:
         body["temperature"] = temperature
+
+    import requests  # the llm extra; imported where it is used
 
     resp = requests.post(url, json=body, headers=headers, timeout=timeout)
     resp.raise_for_status()
@@ -462,6 +465,10 @@ def main() -> None:
                         help="Path to a taxonomy file (default: the bundled taxonomy.md)")
 
     args = parser.parse_args()
+
+    from .._extras import require_or_exit
+
+    require_or_exit("llm", "The step labeler", "agent_trajviz.labeling.step_labeler")
 
     # Resolve configuration: CLI > .env > defaults
     base_url = args.base_url or os.getenv("LABEL_BASE_URL", "")

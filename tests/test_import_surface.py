@@ -251,7 +251,17 @@ class ImportSideEffectTests(unittest.TestCase):
 
 
 def _declared_dependencies(pyproject: Path) -> list[str]:
-    return list(tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["dependencies"])
+    """Runtime requirements: the core's plus every user-facing extra's (not ``dev``).
+
+    Self-references such as ``agent-trajviz[charts,llm]`` are dropped: they name
+    this distribution, not a dependency.
+    """
+    project = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]
+    specs = list(project.get("dependencies", []))
+    for extra, extra_specs in project.get("optional-dependencies", {}).items():
+        if extra != "dev":
+            specs += extra_specs
+    return [spec for spec in specs if _requirement_name(spec) != project["name"]]
 
 
 def _requirement_name(spec: str) -> str:
@@ -273,7 +283,7 @@ def _undocumented_dependencies(pyproject: Path, sources: list[Path]) -> list[str
         if re.search(rf"^\s*(?:import\s+{re.escape(module)}\b|from\s+{re.escape(module)}[\s.])", text, re.M):
             continue
         # Not imported: the declaration needs a reason, on the line(s) above it.
-        idx = next((i for i, line in enumerate(lines) if line.strip().strip(",").strip('"') == spec), None)
+        idx = next((i for i, line in enumerate(lines) if f'"{spec}"' in line), None)
         annotated = idx is not None and idx > 0 and lines[idx - 1].lstrip().startswith("#")
         if not annotated:
             offenders.append(spec)
@@ -281,42 +291,29 @@ def _undocumented_dependencies(pyproject: Path, sources: list[Path]) -> list[str
 
 
 class DeclaredDependencyTests(unittest.TestCase):
-    """What the package says it needs must match what it uses — and requirements.txt."""
+    """What the package says it needs must match what it uses."""
 
     PYPROJECT = _REPO_ROOT / "pyproject.toml"
-    REQUIREMENTS = _REPO_ROOT / "requirements.txt"
 
     def _sources(self) -> list[Path]:
         return sorted(_REPO_ROOT.glob("agent_trajviz/**/*.py"))
 
-    def test_requirements_txt_mirrors_project_dependencies(self):
-        """requirements.txt claims to mirror ``[project.dependencies]``; hold it to that.
+    def test_the_core_declares_no_runtime_dependencies(self):
+        """Loading, parsing, metrics and comparison must install with nothing else.
 
-        Two hand-maintained lists of the same thing drift silently — and
-        ``requirements.txt`` is the install path for anyone not using uv, so a
-        drift there is a missing dependency at someone else's runtime, not here.
+        Third-party packages belong to an extra (charts, llm, app), and an entry
+        point that needs one checks for it and names it.
         """
-        declared = {spec.replace(" ", "") for spec in _declared_dependencies(self.PYPROJECT)}
-        pinned = set()
-        for raw in self.REQUIREMENTS.read_text(encoding="utf-8").splitlines():
-            spec = raw.split("#", 1)[0].strip().replace(" ", "")
-            if spec:
-                pinned.add(spec)
-        self.assertEqual(
-            pinned, declared,
-            "requirements.txt and [project.dependencies] disagree:\n"
-            f"  only in requirements.txt: {sorted(pinned - declared)}\n"
-            f"  only in pyproject.toml:   {sorted(declared - pinned)}",
-        )
+        project = tomllib.loads(self.PYPROJECT.read_text(encoding="utf-8"))["project"]
+        self.assertEqual(project.get("dependencies"), [])
 
     def test_every_declared_dependency_is_imported_or_annotated(self):
         """An unimported requirement must say why it is there.
 
-        ``pandas`` is the precedent for a legitimate one: nothing needs its API,
-        but ``charts/_layout.py`` pre-imports it to dodge a plotly circular
-        import under Gradio's async threads, and says so. Without this test the
-        next dependency that stops being used just stays, and nobody can tell it
-        apart from one that is load-bearing for a reason off the import graph.
+        Without this test the next dependency that stops being used just stays,
+        and nobody can tell it apart from one that is load-bearing for a reason
+        off the import graph. (pandas was one: imported only to dodge a plotly
+        circular import, it is no longer declared; gradio brings it.)
         """
         offenders = _undocumented_dependencies(self.PYPROJECT, self._sources())
         self.assertEqual(
