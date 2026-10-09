@@ -16,6 +16,11 @@ _VERDICT_STYLES = {
 _WHITESPACE_RUN = re.compile(r"\s+")
 
 
+
+def _success_text(rate: float | None) -> str:
+    """"X% success", or "no success rate" when there were no tool calls."""
+    return f"{rate}% success" if isinstance(rate, (int, float)) else "no success rate"
+
 def _display_text(value: object) -> str:
     """Flatten an untrusted scalar to a single line of display text.
 
@@ -296,7 +301,7 @@ def format_performance_md(metrics: dict, wall_fmt: str) -> str:
     ]
     if tool_chips:
         sections.append(
-            f"\n**Tool calls** ({metrics['tool_call_count']} total, {metrics['tool_success_rate']}% success)\n\n"
+            f"\n**Tool calls** ({metrics['tool_call_count']} total, {_success_text(metrics.get('tool_success_rate'))})\n\n"
             + _metric_grid(tool_chips)
         )
     if agent_chips:
@@ -417,7 +422,7 @@ def format_banner_html(filename: str, metrics: dict, wall_fmt: str) -> str:
     parts = [
         f"<strong>{_html.escape(filename)}</strong> &nbsp;&mdash;&nbsp; ",
         f"{metrics['total_steps']} steps &middot; ",
-        f"{metrics['tool_call_count']} tool calls ({metrics['tool_success_rate']}% success) &middot; ",
+        f"{metrics['tool_call_count']} tool calls ({_success_text(metrics.get('tool_success_rate'))}) &middot; ",
     ]
     # Only show token metrics if the format provides them
     total_tokens = metrics.get("tokens", {}).get("total", 0)

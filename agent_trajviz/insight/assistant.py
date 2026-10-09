@@ -141,6 +141,10 @@ _AUTO_ANALYSIS_QUESTION_OTHER_LANGUAGE = (
 )
 
 
+
+def _brief_rate(rate: float | None) -> str:
+    return f"{rate}%" if isinstance(rate, (int, float)) else "n/a"
+
 def system_prompt(language: str | None = None) -> str:
     """The analyst system prompt for *language* (default: ANALYZE_LANGUAGE)."""
     lang = language or analysis_language()
@@ -202,7 +206,7 @@ def _session_header(raw: dict, steps: list[dict], metrics: dict, wall_fmt: str) 
         f"steps: {metrics.get('total_steps', 0)}",
         f"wall_clock: {wall_fmt}",
         f"tool_calls: {metrics.get('tool_call_count', 0)} "
-        f"({metrics.get('tool_success_rate', 0)}% success, "
+        f"({_brief_rate(metrics.get('tool_success_rate'))} success, "
         f"{metrics.get('tool_fail', 0)} failed)",
     ]
     if model_id:

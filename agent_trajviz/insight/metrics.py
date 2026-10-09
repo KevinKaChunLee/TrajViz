@@ -705,7 +705,8 @@ def _compute_tool_stats(steps, total_tokens_total, message_rows, wait_denom: flo
         "tool_status_breakdown": tool_status_breakdown,
         "tool_success": tool_success,
         "tool_fail": tool_fail,
-        "tool_success_rate": round(tool_success / tool_count * 100, 1) if tool_count else 0,
+        # No tool calls means no rate: None ("n/a"), not a 0% success.
+        "tool_success_rate": round(tool_success / tool_count * 100, 1) if tool_count else None,
         "tokens_per_tool": round(total_tokens_total / tool_count) if tool_count else 0,
         "tool_time_total": round(tool_time_total, 2) if timed else None,
         "tool_wait_share": round(tool_time_total / denom * 100, 1) if timed and denom else None,

@@ -50,6 +50,11 @@ from .issues import (
 from ..session import MAX_STEPS, LoadedSession
 
 
+
+def _rate_text(rate: float | None) -> str:
+    """A percentage for a KPI card, or "n/a" when there is nothing to rate."""
+    return f"{rate}%" if isinstance(rate, (int, float)) else "n/a"
+
 def trajectory_format_label(fmt: str | None) -> str:
     """Return a human-readable trajectory format label."""
     return FORMAT_LABELS.get(fmt or "", fmt or "Unknown")
@@ -292,7 +297,7 @@ def build_overview_kpi_html(
             ("estimated · " if tokens_estimated else "") + throughput_sub,
         ),
         ("Issues", issue_value, issue_sub),
-        ("Tool Success", f"{metrics.get('tool_success_rate', 0)}%", f"{metrics.get('tool_call_count', 0):,} calls"),
+        ("Tool Success", _rate_text(metrics.get("tool_success_rate")), f"{metrics.get('tool_call_count', 0):,} calls"),
     ]
     card_html = []
     for label, value, sub in cards:
