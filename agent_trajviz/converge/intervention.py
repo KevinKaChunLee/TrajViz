@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from .batch import BatchResult
@@ -110,11 +111,14 @@ def _count_pattern(report: dict, pattern_type: str) -> int:
 
 def compute_metric_deltas(
     paired: list[tuple[BatchResult, BatchResult]],
+    significance_threshold: float = 0.05,
 ) -> dict[str, dict[str, Any]]:
-    """Compute before/after deltas for each metric.
+    """Compute before/after deltas and their significance for each metric.
 
     Returns dict mapping metric name to {before_mean, after_mean, delta, direction,
-    before_values, after_values}.
+    before_values, after_values, p_value, p_value_adjusted (Holm, across the
+    metrics), significant (adjusted p < threshold), test_method,
+    significance_warning}.
     """
     deltas: dict[str, dict[str, Any]] = {}
 
@@ -149,6 +153,20 @@ def compute_metric_deltas(
             "after_values": after_vals,
         }
 
+    # One test per metric, then a Holm correction across them: testing several
+    # metrics at 0.05 each would otherwise flag a chance difference as an effect.
+    tests = {name: paired_significance(d["before_values"], d["after_values"], significance_threshold)
+             for name, d in deltas.items()}
+    adjusted = holm_adjust({name: t["p_value"] for name, t in tests.items() if t["p_value"] is not None})
+    for name, d in deltas.items():
+        p_adj = adjusted.get(name)
+        d.update({
+            "p_value": tests[name]["p_value"],
+            "p_value_adjusted": p_adj,
+            "significant": p_adj is not None and p_adj < significance_threshold,
+            "test_method": tests[name]["test_method"],
+            "significance_warning": tests[name]["warning"],
+        })
     return deltas
 
 
@@ -203,66 +221,88 @@ def compute_pattern_deltas(
 # Statistical testing
 # ---------------------------------------------------------------------------
 
-def test_significance(
+def _wilcoxon_signed_rank_p(diffs: list[float]) -> tuple[float, str]:
+    """Two-sided p-value of the Wilcoxon signed-rank test, and the method used.
+
+    Zero differences are dropped (Wilcoxon's convention). Without ties and with
+    at most 50 differences the p-value is exact, from the null distribution of
+    the positive-rank sum over all 2**n sign assignments; otherwise it is the
+    normal approximation with the tie-corrected variance. Pure Python, so the
+    result does not depend on which optional packages are installed.
+    """
+    nonzero = [d for d in diffs if d != 0]
+    n = len(nonzero)
+    if n == 0:
+        return 1.0, "wilcoxon_exact"
+    order = sorted(range(n), key=lambda i: abs(nonzero[i]))
+    ranks = [0.0] * n
+    tie_term = 0
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and abs(nonzero[order[j + 1]]) == abs(nonzero[order[i]]):
+            j += 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = (i + j + 2) / 2  # ranks are 1-based; ties share the mean
+        tied = j - i + 1
+        tie_term += tied ** 3 - tied
+        i = j + 1
+    w_plus = sum(rank for rank, d in zip(ranks, nonzero, strict=True) if d > 0)
+
+    if tie_term == 0 and n <= 50:
+        max_sum = n * (n + 1) // 2
+        counts = [1] + [0] * max_sum  # counts[s]: subsets of {1..n} with rank sum s
+        for rank in range(1, n + 1):
+            for total in range(max_sum, rank - 1, -1):
+                counts[total] += counts[total - rank]
+        w = round(w_plus)
+        lower = sum(counts[: w + 1])
+        upper = sum(counts[w:])
+        return min(1.0, 2 * min(lower, upper) / 2 ** n), "wilcoxon_exact"
+
+    mean = n * (n + 1) / 4
+    variance = n * (n + 1) * (2 * n + 1) / 24 - tie_term / 48
+    if variance <= 0:
+        return 1.0, "wilcoxon_normal"
+    z = (w_plus - mean) / math.sqrt(variance)
+    return math.erfc(abs(z) / math.sqrt(2)), "wilcoxon_normal"
+
+
+def paired_significance(
     before_values: list[float],
     after_values: list[float],
     threshold: float = 0.05,
 ) -> dict[str, Any]:
-    """Test whether the delta is statistically significant.
+    """Wilcoxon signed-rank test of paired before/after values (unadjusted).
 
-    Uses Wilcoxon signed-rank (scipy) with fallback to sign test.
+    ``significant`` here compares the raw p-value with *threshold*; when several
+    metrics are tested together, :func:`compute_metric_deltas` adjusts for that.
     """
     n = len(before_values)
     if n < 2:
         return {"p_value": None, "significant": False, "test_method": "none",
                 "warning": "fewer than 2 paired observations"}
-    if n < 6:
-        warning = "fewer than 6 paired observations — low statistical power"
-    else:
-        warning = None
-
-    # Try Wilcoxon signed-rank
-    try:
-        from scipy.stats import wilcoxon
-        diffs = [a - b for a, b in zip(after_values, before_values, strict=False)]
-        # wilcoxon requires at least one non-zero difference
-        if all(d == 0 for d in diffs):
-            return {"p_value": 1.0, "significant": False, "test_method": "wilcoxon",
-                    "warning": warning}
-        stat, p_value = wilcoxon(diffs)
-        return {
-            "p_value": round(p_value, 6),
-            "significant": p_value < threshold,
-            "test_method": "wilcoxon",
-            "warning": warning,
-        }
-    except ImportError:
-        pass
-
-    # Fallback: sign test (binomial)
+    warning = "fewer than 6 paired observations — low statistical power" if n < 6 else None
     diffs = [a - b for a, b in zip(after_values, before_values, strict=False)]
-    n_pos = sum(1 for d in diffs if d > 0)
-    n_neg = sum(1 for d in diffs if d < 0)
-    n_nonzero = n_pos + n_neg
-    if n_nonzero == 0:
-        return {"p_value": 1.0, "significant": False, "test_method": "sign_test",
-                "warning": warning}
-
-    # Two-sided binomial p-value
-    from math import comb
-    k = min(n_pos, n_neg)
-    p_value = 0.0
-    for i in range(k + 1):
-        p_value += comb(n_nonzero, i) * (0.5 ** n_nonzero)
-    p_value *= 2  # two-sided
-    p_value = min(p_value, 1.0)
-
+    p_value, method = _wilcoxon_signed_rank_p(diffs)
     return {
         "p_value": round(p_value, 6),
         "significant": p_value < threshold,
-        "test_method": "sign_test",
+        "test_method": method,
         "warning": warning,
     }
+
+
+def holm_adjust(p_values: dict[str, float]) -> dict[str, float]:
+    """Holm-Bonferroni adjusted p-values, controlling the family-wise error rate."""
+    ordered = sorted(p_values.items(), key=lambda item: item[1])
+    m = len(ordered)
+    adjusted: dict[str, float] = {}
+    running = 0.0
+    for position, (name, p_value) in enumerate(ordered):
+        running = max(running, min(1.0, (m - position) * p_value))
+        adjusted[name] = round(running, 6)
+    return adjusted
 
 
 # ---------------------------------------------------------------------------
@@ -307,12 +347,12 @@ def detect_guardrail_regressions(
             relative_regression = 0.0
         exceeds_relative = relative_regression >= relative_threshold
 
-        # Check statistical significance
-        sig = test_significance(
-            d.get("before_values", []),
-            d.get("after_values", []),
-            significance_threshold,
-        )
+        # Significance as compute_metric_deltas adjusted it; deltas built by
+        # other callers fall back to an unadjusted test.
+        if "significant" in d:
+            sig = {"p_value": d.get("p_value_adjusted", d.get("p_value")), "significant": d["significant"]}
+        else:
+            sig = paired_significance(d.get("before_values", []), d.get("after_values", []), significance_threshold)
         exceeds_significance = sig.get("significant", False)
 
         if exceeds_relative or exceeds_significance:
@@ -383,20 +423,21 @@ def build_intervention_report(
 ) -> dict[str, Any]:
     """Assemble the full intervention comparison report."""
     clean_deltas = {}
-    sig_cache: dict[str, dict] = {}
     for name, d in metric_deltas.items():
-        if name not in sig_cache:
-            sig_cache[name] = test_significance(
-                d.get("before_values", []), d.get("after_values", []))
-        sig = sig_cache[name]
+        if "significant" not in d:  # deltas assembled outside compute_metric_deltas
+            sig = paired_significance(d.get("before_values", []), d.get("after_values", []))
+            d = {**d, "p_value": sig["p_value"], "p_value_adjusted": None, "significant": sig["significant"],
+                 "test_method": sig["test_method"], "significance_warning": sig["warning"]}
         clean_deltas[name] = {
             "before_mean": d["before_mean"],
             "after_mean": d["after_mean"],
             "delta": d["delta"],
             "direction": d["direction"],
-            "p_value": sig.get("p_value"),
-            "significant": sig.get("significant", False),
-            "significance_warning": sig.get("warning"),
+            "p_value": d.get("p_value"),
+            "p_value_adjusted": d.get("p_value_adjusted"),
+            "significant": d.get("significant", False),
+            "test_method": d.get("test_method"),
+            "significance_warning": d.get("significance_warning"),
         }
 
     recommendation = generate_recommendation(metric_deltas, guardrails)
@@ -408,6 +449,7 @@ def build_intervention_report(
         "unpaired_before": len(before_only),
         "unpaired_after": len(after_only),
         "intervention_effect": clean_deltas,
+        "significance": "Wilcoxon signed-rank per metric; Holm-adjusted across metrics, alpha 0.05",
         "guardrail_warnings": guardrails,
         "pattern_deltas": pattern_deltas,
         "recommendation": recommendation,

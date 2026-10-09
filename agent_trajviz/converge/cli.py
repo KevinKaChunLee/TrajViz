@@ -212,6 +212,7 @@ def _print_intervention_summary(report: dict) -> None:
             arrow = {"improved": "UP", "regressed": "DOWN", "unchanged": "—"}.get(d["direction"], "?")
             print(f"  {name:<35s} {d['before_mean']:>8.4f} {d['after_mean']:>8.4f} "
                   f"{d['delta']:>+8.4f} {arrow:>10s} {sig:>5s}")
+        print("  Sig: * = Holm-adjusted p < 0.05 across these metrics (Wilcoxon signed-rank).")
 
     # Guardrail warnings
     guardrails = report.get("guardrail_warnings", [])
