@@ -849,13 +849,22 @@ def _batch_legacy(
     return processed, ignored, failed, partial
 
 
+# Exit status. 2 is argparse's usage error, so a partial export -- written,
+# but missing sessions or messages -- has a status of its own.
+EXIT_PARTIAL = 3
+
+
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agent-trajviz-collect codearts",
         description=(
             "Export a complete CodeArts trajectory from legacy JSON shards or the "
             "current opencode.db database."
-        )
+        ),
+        epilog=(
+            "Exit status: 0 complete export, 1 failure, 2 usage error, "
+            f"{EXIT_PARTIAL} partial export (written, but incomplete; see the warnings)."
+        ),
     )
     parser.add_argument(
         "input",
@@ -905,7 +914,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if failed:
                 return 1
             if partial:
-                return 2
+                return EXIT_PARTIAL
             return 0 if processed or not ignored else 1
 
         if mode == "legacy":
@@ -947,7 +956,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ensure_output_is_not_source(output, protected_sources)
         write_output(data, output)
         _print_summary(data, output)
-        return 2 if data.get("export_metadata", {}).get("complete") is False else 0
+        return EXIT_PARTIAL if data.get("export_metadata", {}).get("complete") is False else 0
     except (ConsolidationError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

@@ -624,7 +624,9 @@ class CodeArtsCollectorTests(unittest.TestCase):
                     str(partial_output),
                 ]
             )
-        self.assertEqual(return_code, 2)
+        # Not 2: that is argparse's usage error.
+        self.assertEqual(return_code, consolidator.EXIT_PARTIAL)
+        self.assertEqual(consolidator.EXIT_PARTIAL, 3)
         partial = json.loads(partial_output.read_text(encoding="utf-8"))
         self.assertFalse(partial["export_metadata"]["complete"])
 

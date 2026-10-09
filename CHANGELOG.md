@@ -47,7 +47,8 @@ First release as the `agent-trajviz` package.
   `agent_trajviz.labeling.labeler`); the CodeArts tool writes
   `<session>_trajectory.json`.
 - Every command's entry point takes `argv` and returns its exit status: 0
-  success, 1 a failure caused by the input, 2 a usage error. Input failures
+  success, 1 a failure caused by the input, 2 a usage error, and for
+  `agent-trajviz-collect codearts` 3 a partial export (was 2). Input failures
   print one sentence; a genuine bug keeps its traceback.
 - Library code logs through `logging` (the package root has a
   `NullHandler`) instead of printing tracebacks to stderr; the commands
