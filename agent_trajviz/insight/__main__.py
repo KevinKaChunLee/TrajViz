@@ -105,17 +105,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     require_or_exit("app", "The dashboard", "agent-trajviz")
     try:
-        launch = _serve.launch_kwargs(args)
+        auth = _serve.auth_from_env()
     except ValueError as exc:
         parser.error(str(exc))
-    from .insight import LAUNCH_PRESENTATION, build_ui
+    # The public launcher: it drops server-path inputs on an exposed launch
+    # and applies the presentation Gradio only accepts at launch().
+    from ..dashboard import launch_insight
 
-    # A reachable dashboard must not let its visitors point it at paths on
-    # this machine (the Attribution tab's reference-data root).
-    app = build_ui(allow_server_paths=not _serve.is_exposed(args))
-    # build_ui() returns a deliberately unstyled app; presentation is applied
-    # at launch. Spread the shared dict so an embedder cannot drift from it.
-    app.launch(**launch, **LAUNCH_PRESENTATION)
+    launch_insight(host=args.host, port=args.port, share=args.share, auth=auth, max_file_size=args.max_file_size)
     return 0
 
 

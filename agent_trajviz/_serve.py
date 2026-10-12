@@ -76,14 +76,17 @@ def auth_from_env() -> tuple[str, str] | None:
     return user, password
 
 
-def launch_kwargs(args: argparse.Namespace) -> dict:
-    """``Blocks.launch`` keyword arguments for *args*, warning on an open exposure.
-
-    Raises :class:`ValueError` when ``TRAJVIZ_AUTH`` is malformed.
-    """
-    auth = auth_from_env()
-    if is_exposed(args) and auth is None:
-        where = "through a public share link" if args.share else f"on {args.host}:{args.port}"
+def server_kwargs(
+    *,
+    host: str,
+    port: int | None,
+    share: bool,
+    max_file_size: str | int | None,
+    auth: tuple[str, str] | None,
+) -> dict:
+    """``Blocks.launch`` server keyword arguments, warning on an open exposure."""
+    if (share or not is_loopback(host)) and auth is None:
+        where = "through a public share link" if share else f"on {host}:{port}"
         logger.warning(
             "The dashboard will be reachable %s without a login: anyone who can reach it can "
             "upload files and use the LLM key configured here. Set %s=user:password to require one.",
@@ -91,9 +94,23 @@ def launch_kwargs(args: argparse.Namespace) -> dict:
             AUTH_ENV,
         )
     return {
-        "server_name": args.host,
-        "server_port": args.port,
-        "share": args.share,
+        "server_name": host,
+        "server_port": port,
+        "share": share,
         "auth": auth,
-        "max_file_size": args.max_file_size,
+        "max_file_size": max_file_size,
     }
+
+
+def launch_kwargs(args: argparse.Namespace) -> dict:
+    """``Blocks.launch`` keyword arguments for *args*, warning on an open exposure.
+
+    Raises :class:`ValueError` when ``TRAJVIZ_AUTH`` is malformed.
+    """
+    return server_kwargs(
+        host=args.host,
+        port=args.port,
+        share=args.share,
+        max_file_size=args.max_file_size,
+        auth=auth_from_env(),
+    )

@@ -42,13 +42,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(f"--data-root {args.data_root} is not a directory")
     require_or_exit("app", "The Converge dashboard", PROG)
     try:
-        launch = _serve.launch_kwargs(args)
+        auth = _serve.auth_from_env()
     except ValueError as exc:
         parser.error(str(exc))
-    from .app import LAUNCH_PRESENTATION, build_ui
+    from ..dashboard import launch_converge
 
-    app = build_ui(data_root=args.data_root.resolve())
-    app.launch(**launch, **LAUNCH_PRESENTATION)
+    launch_converge(host=args.host, port=args.port, share=args.share, auth=auth,
+                    max_file_size=args.max_file_size, data_root=args.data_root.resolve())
     return 0
 
 
