@@ -34,7 +34,7 @@ from ..presenters.overview import (
 )
 from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
 from ..llm_config import resolve_analysis_config
-from ..session import LoadedSession, build_loaded_session
+from ..session import LoadedSession, session_from_run
 from .shared import SharedState, safe_callback
 from .upload import UploadRefs
 
@@ -457,17 +457,16 @@ def bind(
         js="() => { if (window.tvExpandFileTimeline) { window.tvExpandFileTimeline(); setTimeout(window.tvExpandFileTimeline, 200); } }",
     )
 
-    def on_suggest_fixes(steps, raw):
+    def on_suggest_fixes(run):
         """Run the LLM Issues judge on request; progress shows inside the panel."""
         from ..presenters.issues import render_overview_issues_html
 
-        if not steps:
+        if run is None or not run.steps:
             yield render_overview_issues_html([])
             return
 
         cfg = resolve_analysis_config()
-        raw_dict = raw if isinstance(raw, dict) else {}
-        session = build_loaded_session("", raw_dict)
+        session = session_from_run(run, "")
 
         if not cfg.ready:
             missing = ", ".join(cfg.missing)
@@ -521,7 +520,7 @@ def bind(
 
     judge_event = dict(
         fn=on_suggest_fixes,
-        inputs=[shared.state_steps, shared.state_raw],
+        inputs=[shared.state_run],
         outputs=[refs.issues_html],
         show_progress="minimal",
         concurrency_id="issues_judge",

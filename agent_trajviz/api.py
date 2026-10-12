@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from . import plugins
 from ._extras import require
-from .errors import LoadError, ReportError
+from .errors import LoadError
 from .insight import loaders
 from .insight.analysis import Analysis
 from .insight.context_usage import context_pressure_series, context_pressure_stats
@@ -288,8 +288,8 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
         if detected is not None:
             return detected
         raise LoadError(
-            "could not detect the trajectory format; pass format= to read the file as one of: "
-            + ", ".join(FORMATS), code="unknown_format", path=path,
+            "could not detect the trajectory format; name the format to read it as (one of: "
+            + ", ".join(FORMATS) + ")", code="unknown_format", path=path,
         )
     steps = parse_steps(raw)
     if not steps:
@@ -412,18 +412,16 @@ def write_report(source: Trajectory | PathLike, destination: PathLike | None = N
                  dark: bool = False, inline_plotly: bool = False) -> Path:
     """Write the standalone HTML report for a trajectory and return its path.
 
-    *destination* is a file or a directory (default: a temporary file).
-    ``inline_plotly`` embeds plotly.js so the report works offline. Needs the
-    ``charts`` extra; raises :class:`ReportError` if the trajectory cannot be read.
+    *source* is a loaded trajectory (from a file or not, such as one from
+    :meth:`Trajectory.from_steps`) or a file to load. *destination* is a file
+    or a directory (default: a temporary file). ``inline_plotly`` embeds
+    plotly.js so the report works offline. Needs the ``charts`` extra; raises
+    :class:`ReportError` if the trajectory cannot be read or has no steps.
     """
     require("charts", "write_report()")
-    if isinstance(source, Trajectory):
-        if not source.source:
-            raise ReportError("this Trajectory was not loaded from a file")
-        path = source.source
-    else:
-        path = os.fspath(source)
-    from .insight.report import report_from_path
+    from .insight.report import report_from_path, report_from_run
 
     dest = os.fspath(destination) if destination is not None else None
-    return Path(report_from_path(path, dest, dark=dark, inline_plotly=inline_plotly))
+    if isinstance(source, Trajectory):
+        return Path(report_from_run(source, dest, dark=dark, inline_plotly=inline_plotly))
+    return Path(report_from_path(os.fspath(source), dest, dark=dark, inline_plotly=inline_plotly))

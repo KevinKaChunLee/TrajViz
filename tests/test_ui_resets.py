@@ -200,6 +200,7 @@ class OverviewSectionMappingTests(unittest.TestCase):
                 state_dark=gr.State(False),
                 state_raw=gr.State({}),
                 state_analysis_brief=gr.State(""),
+                state_run=gr.State(None),
             )
         return refs, shared_state, upload_refs
 

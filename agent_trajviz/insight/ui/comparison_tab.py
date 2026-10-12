@@ -10,14 +10,15 @@ import plotly.graph_objects as go
 
 from ..charts import build_run_group_agent_timeline
 from ..comparison import run_comparison
-from ..loaders import FORMAT_DROPDOWN_CHOICES
 from ..run_group import (
     build_run_group_behavior_html,
     build_run_group_scorecard,
     build_run_group_scorecard_html,
+    load_run,
+    loaded_run,
     normalize_run_paths,
 )
-from .shared import SharedState, safe_callback
+from .shared import SharedState, format_choices, safe_callback
 from .upload import UploadRefs
 
 _CMP_STATUS_PLACEHOLDER = (
@@ -105,7 +106,7 @@ def layout() -> ComparisonRefs:
             with gr.Row(equal_height=True):
                 rg_format_selector = gr.Dropdown(
                     label="Format hint",
-                    choices=FORMAT_DROPDOWN_CHOICES,
+                    choices=format_choices(),
                     value="",
                     interactive=True,
                     scale=1,
@@ -136,7 +137,7 @@ def layout() -> ComparisonRefs:
             with gr.Row(equal_height=True):
                 cmp_format_selector = gr.Dropdown(
                     label="Format",
-                    choices=FORMAT_DROPDOWN_CHOICES,
+                    choices=format_choices(),
                     value="",
                     interactive=True,
                     scale=1,
@@ -200,18 +201,14 @@ def layout() -> ComparisonRefs:
 
 def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
     @safe_callback("Run group scorecard")
-    def on_run_group_scorecard(files, format_hint, dark, overview_raw):
+    def on_run_group_scorecard(files, format_hint, dark, overview_run):
         """Build an N-run scorecard; Overview trajectory is the baseline."""
         empty_fig = _empty_cmp_fig(200)
         paths = normalize_run_paths(files)
         hint = format_hint or None
-        if hint == "":
-            hint = None
-        baseline = overview_raw if isinstance(overview_raw, dict) and overview_raw else None
         result = build_run_group_scorecard(
-            paths,
-            format_hint=hint,
-            baseline_raw=baseline,
+            [load_run(path, hint) for path in paths],
+            baseline_raw=loaded_run(overview_run) if overview_run is not None and overview_run.steps else None,
         )
         scorecard = build_run_group_scorecard_html(
             result,
@@ -231,14 +228,14 @@ def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
 
     refs.rg_run_btn.click(
         fn=on_run_group_scorecard,
-        inputs=[refs.rg_file_upload, refs.rg_format_selector, shared.state_dark, shared.state_raw],
+        inputs=[refs.rg_file_upload, refs.rg_format_selector, shared.state_dark, shared.state_run],
         outputs=[refs.rg_scorecard_html, refs.rg_agent_timeline_chart, refs.rg_behavior_html],
     )
 
-    def on_run_comparison(ref_file, anchor_file, ref_format, ref_labels_file, cmp_labels_file, overview_raw, dark):
+    def on_run_comparison(ref_file, anchor_file, ref_format, ref_labels_file, cmp_labels_file, overview_run, dark):
         empty_fig = _empty_cmp_fig(380)
 
-        if not overview_raw:
+        if overview_run is None or not overview_run.steps:
             return (
                 "<div style='color:var(--ov-warn);padding:1em;text-align:center;'>"
                 "Load a trajectory in the Overview tab first — it will be the compared trajectory.</div>",
@@ -263,17 +260,20 @@ def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
         if anchor_file is not None:
             anchor_path = anchor_file if isinstance(anchor_file, str) else anchor_file.name
 
-        from ..loaders import load_trajectory as _load_traj
-
-        ref_raw = _load_traj(ref_path, format_hint=ref_format or None)
+        reference = load_run(ref_path, ref_format or None)
+        compared = loaded_run(overview_run)
 
         result = run_comparison(
-            ref_raw=ref_raw,
-            cmp_raw=overview_raw,
+            ref_raw=reference.raw,
+            cmp_raw=compared.raw,
             anchor_path=anchor_path,
             token_rate=50.0,
             fuzzy=False,
             dark=bool(dark),
+            ref_steps=reference.steps,
+            cmp_steps=compared.steps,
+            ref_path=reference.path,
+            cmp_path=compared.path,
         )
 
         phase_count_fig = empty_fig
@@ -299,11 +299,7 @@ def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
                 ref_agg = aggregate_labels(load_labeled_json(ref_labels_path))
                 cmp_agg = aggregate_labels(load_labeled_json(cmp_labels_path))
                 ref_label_name = os.path.basename(ref_path) if ref_path else "reference"
-                cmp_label_name = (
-                    os.path.basename(overview_raw.get("_source_path", ""))
-                    if isinstance(overview_raw, dict)
-                    else "compared"
-                ) or "compared"
+                cmp_label_name = os.path.basename(compared.path) or "compared"
                 phase_count_fig = build_phase_count_comparison_chart(
                     ref_agg["phase_counts"],
                     cmp_agg["phase_counts"],
@@ -341,7 +337,7 @@ def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
             refs.cmp_format_selector,
             refs.cmp_ref_labels_upload,
             upload.label_file_upload,
-            shared.state_raw,
+            shared.state_run,
             shared.state_dark,
         ],
         outputs=[refs.cmp_report_html, refs.cmp_phase_count_chart, refs.cmp_phase_duration_chart, refs.cmp_status_html],

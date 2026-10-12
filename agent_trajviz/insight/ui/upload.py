@@ -6,14 +6,14 @@ import os
 import shutil
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import gradio as gr
 
-from ..loaders import FORMAT_DROPDOWN_CHOICES
 from ..presenters.overview import load_warnings_html
 from ..report import ReportError, write_report_file
 from ..session import LoadedSession
-from .shared import SharedState
+from .shared import SharedState, format_choices
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def layout() -> UploadRefs:
     with gr.Column(elem_classes=["upload-row"]) as upload_accordion, gr.Row(equal_height=True):
         format_selector = gr.Dropdown(
             label="Format",
-            choices=FORMAT_DROPDOWN_CHOICES,
+            choices=format_choices(),
             value="",
             interactive=True,
             scale=1,
@@ -134,7 +134,7 @@ def _replace_temp_export_dir(new_path: str, session: str | None = None) -> None:
         shutil.rmtree(previous, ignore_errors=True)
 
 
-def prepare_html_export(raw, _steps=None, dark=False, request: gr.Request | None = None):
+def prepare_html_export(source, _steps=None, dark=False, request: gr.Request | None = None):
     """Build the HTML snapshot after a trajectory loads.
 
     Gradio's DownloadButton only saves in the same click that already has a
@@ -142,9 +142,17 @@ def prepare_html_export(raw, _steps=None, dark=False, request: gr.Request | None
     blocked as a non-gesture download, and ``value=callable`` toasts on page
     load. So the report is prepared here and the button just downloads.
     """
-    payload = raw if isinstance(raw, dict) else {}
-    if not payload or payload.get("_error"):
-        return _export_off()
+    from ...api import Trajectory
+    from ..session import session_from_run
+
+    if isinstance(source, Trajectory):
+        if not source.steps:
+            return _export_off()
+        payload: Any = session_from_run(source)
+    else:
+        payload = source if isinstance(source, dict) else {}
+        if not payload or payload.get("_error"):
+            return _export_off()
     try:
         path = write_report_file(payload, dark=bool(dark))
     except ReportError:
@@ -163,7 +171,7 @@ def bind_export(refs: UploadRefs, shared: SharedState, load_events: tuple) -> No
     for event in load_events:
         event.success(
             fn=prepare_html_export,
-            inputs=[shared.state_raw, shared.state_steps, shared.state_dark],
+            inputs=[shared.state_run, shared.state_steps, shared.state_dark],
             outputs=refs.export_btn,
             show_progress="minimal",
             show_progress_on=refs.export_btn,

@@ -11,6 +11,7 @@ import dataclasses
 import hashlib
 import inspect
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -170,11 +171,30 @@ class CompareAndReportTests(unittest.TestCase):
             self.assertTrue(path.is_file())
             self.assertIn("<html", path.read_text(encoding="utf-8")[:2000].lower())
 
-    def test_write_report_needs_a_source_file(self):
+    def test_write_report_works_for_a_trajectory_that_was_never_a_file(self):
+        made = tv.Trajectory.from_steps([
+            {"role": "user", "text_preview": "Fix the test"},
+            {"role": "assistant", "tokens": {"input": 10, "output": 5},
+             "tool_calls": [{"tool_name": "bash", "input": {"command": "pytest"}, "error": "exit 1"}]},
+        ], format="myagent")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = tv.write_report(made, tmp)
+            self.assertEqual(path.name, "trajectory-trajviz-report.html")
+            self.assertIn("<html", path.read_text(encoding="utf-8")[:2000].lower())
+
+    def test_write_report_of_a_loaded_run_matches_the_file_report(self):
+        run = tv.load(ASTROPY)
+        with tempfile.TemporaryDirectory() as tmp:
+            from_run = tv.write_report(run, Path(tmp, "a.html")).read_text(encoding="utf-8")
+            from_file = tv.write_report(ASTROPY, Path(tmp, "b.html")).read_text(encoding="utf-8")
+        # Plotly gives every chart a random div id; the time of writing is in the header.
+        strip = re.compile(r"Generated [^<]*|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+        self.assertEqual(strip.sub("", from_run), strip.sub("", from_file))
+
+    def test_write_report_refuses_an_empty_trajectory(self):
         run = tv.load(DJANGO)
-        orphan = dataclasses.replace(run, source=None)
         with self.assertRaises(tv.ReportError):
-            tv.write_report(orphan)
+            tv.write_report(dataclasses.replace(run, steps=[]))
 
 
 if __name__ == "__main__":

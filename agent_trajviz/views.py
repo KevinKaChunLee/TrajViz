@@ -723,20 +723,14 @@ def compare_runs(
     names the runs (default: from their file names). Raises
     :class:`ValueError` for fewer than two runs.
     """
-    from .api import Trajectory, load
-    from .errors import LoadError
-    from .insight.run_group import LoadedRun, build_run_group_scorecard
+    from .api import FORMATS, Trajectory
+    from .insight.run_group import LoadedRun, build_run_group_scorecard, load_run, loaded_run
 
-    runs: list[str | LoadedRun] = []
-    for src in sources:
-        if not isinstance(src, Trajectory):
-            path = os.fspath(src)
-            try:
-                src = load(path, format=format)
-            except LoadError as exc:
-                runs.append(LoadedRun(path, {"_error": str(exc)}))
-                continue
-        runs.append(LoadedRun(src.source or "", src.raw, _steps(src), src.format))
+    if format is not None and format not in FORMATS:
+        raise ValueError(f"unknown format {format!r}; expected one of: {', '.join(FORMATS)}")
+    runs: list[str | LoadedRun] = [
+        loaded_run(src) if isinstance(src, Trajectory) else load_run(os.fspath(src), format) for src in sources
+    ]
     result = build_run_group_scorecard(
         runs, labels=list(labels) if labels is not None else None, fuzzy=fuzzy_commands,
     )

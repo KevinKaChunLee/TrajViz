@@ -110,6 +110,26 @@ class LoadedRun:
     format: str | None = None
 
 
+def loaded_run(run: Any) -> LoadedRun:
+    """A loaded ``agent_trajviz.Trajectory`` as a :class:`LoadedRun` (nothing is re-read)."""
+    return LoadedRun(run.source or "", run.raw, run.steps, run.format)
+
+
+def load_run(path: str, format_hint: str | None = None) -> LoadedRun:
+    """*path* read with the public ``agent_trajviz.load`` (registered formats included).
+
+    A file that cannot be read becomes a run carrying the error, which the
+    scorecard shows as an error row.
+    """
+    from agent_trajviz.api import FORMATS, load
+    from agent_trajviz.errors import LoadError
+
+    try:
+        return loaded_run(load(path, format=format_hint if format_hint in FORMATS else None))
+    except LoadError as exc:
+        return LoadedRun(path, {"_error": str(exc)})
+
+
 def _distinct_run_ids(entries: list[tuple[str, dict]], formats: Sequence[str | None] | None = None) -> list[str]:
     """Run ids for ``(path, raw)`` pairs: the file stem, made distinct by content.
 
@@ -670,7 +690,7 @@ def build_run_group_scorecard(
     labels: list[str] | None = None,
     format_hint: str | None = None,
     fuzzy: bool = False,
-    baseline_raw: dict | None = None,
+    baseline_raw: dict | LoadedRun | None = None,
     baseline_label: str | None = None,
 ) -> dict:
     """Load N trajectories, scorecard rows, and behavioral comparison.
@@ -684,7 +704,18 @@ def build_run_group_scorecard(
     apply to it). Returns ``{"rows", "behavior", "timeline_runs", "ok", "error"}``.
     """
     paths = list(paths or [])
-    has_baseline = isinstance(baseline_raw, dict) and baseline_raw and "_error" not in baseline_raw
+    baseline_steps: list[dict] | None = None
+    baseline_format: str | None = None
+    baseline_src = ""
+    if isinstance(baseline_raw, LoadedRun):
+        # Already loaded (any format, even one the converters do not know): no re-parse.
+        baseline_steps, baseline_format, baseline_src = baseline_raw.steps, baseline_raw.format, baseline_raw.path
+        has_baseline = bool(baseline_steps) and "_error" not in baseline_raw.raw
+        baseline_raw = baseline_raw.raw
+    else:
+        has_baseline = bool(isinstance(baseline_raw, dict) and baseline_raw and "_error" not in baseline_raw)
+        if has_baseline:
+            baseline_src = str(baseline_raw.get("_source_path") or "")
     # Need ≥2 runs total: baseline+≥1 path, or ≥2 paths with no baseline
     min_paths = 1 if has_baseline else 2
     if not has_baseline and not paths:
@@ -794,9 +825,9 @@ def build_run_group_scorecard(
         else (p, load_trajectory(p, format_hint=format_hint), None, None)
         for p in paths
     ]
-    src = str(baseline_raw.get("_source_path") or "") if has_baseline else ""
+    src = baseline_src if has_baseline else ""
     entries = ([(src or "overview", baseline_raw)] if has_baseline else []) + [(p, r) for p, r, _, _ in uploads]
-    formats = ([None] if has_baseline else []) + [fmt for *_, fmt in uploads]
+    formats = ([baseline_format] if has_baseline else []) + [fmt for *_, fmt in uploads]
     run_ids = _distinct_run_ids(entries, formats)
 
     if has_baseline:
@@ -815,6 +846,8 @@ def build_run_group_scorecard(
             path=src or "(overview)",
             label=blabel,
             prefer_id=baseline_id,
+            steps=baseline_steps,
+            fmt=baseline_format,
         )
 
     for i, ((path, raw, steps, fmt), run_id) in enumerate(zip(uploads, run_ids, strict=True)):

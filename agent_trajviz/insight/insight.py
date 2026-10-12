@@ -19,6 +19,7 @@ from .ui import (
     raw_tab,
     sidebar,
     upload,
+    views_tab,
     workflow_tab,
 )
 from .ui.load import bind_load, merge_load_slots
@@ -57,6 +58,7 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
             state_dark=gr.State(False),
             state_raw=gr.State({}),
             state_analysis_brief=gr.State(""),
+            state_run=gr.State(None),
         )
 
         sidebar_refs = sidebar.layout()
@@ -74,6 +76,8 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
             comparison = comparison_tab.layout()
             workflow = workflow_tab.layout()
             raw = raw_tab.layout()
+            # Only when views were registered (by the application or a plugin).
+            views = views_tab.layout()
 
         slots = merge_load_slots(
             main_tabs=main_tabs,
@@ -104,6 +108,7 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
                              allow_server_paths=allow_server_paths)
         comparison_tab.bind(comparison, shared, upload_refs)
         workflow_tab.bind(workflow, shared)
+        views_tab.bind(views, shared, load_events)
 
         app.load(
             fn=lambda _dark=False: False,

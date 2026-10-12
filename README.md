@@ -222,7 +222,9 @@ tv.register_view("call_count", lambda run: {"calls": sum(len(s["tool_calls"]) fo
 A package registers them for everyone who installs it with an entry point
 in the `agent_trajviz.plugins` group that names a function taking no
 arguments; `tv.load_plugins()` runs those hooks, and `agent-trajviz` runs
-them on start.
+them on start. The dashboard reads files with `tv.load()` and draws from the
+same views, so a registered format opens there too, and registered views
+appear in a Views tab.
 
 **Scale.** Analysis is linear in the number of steps and a test holds it
 so. A 15,000-step, 70 MB export loads in about 1.6 s and produces every view

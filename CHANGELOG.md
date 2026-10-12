@@ -41,6 +41,14 @@ First release as the `agent-trajviz` package.
   `view_schema()`, `view_schemas()` and `agent-trajviz --schemas DIR`;
   `register_view(..., schema=)` describes a view of your own. The test suite
   validates every view strictly against its schema.
+- The dashboard is built on the public API: it opens files with `load()`
+  (so formats registered by an application or a plugin open, and so do
+  exported `trajectory.json` files), draws its Overview and diagnostics
+  charts from the public views with `figures.figure()`, and keeps the
+  loaded `Trajectory` for the Comparison tab, the Issues judge and the HTML
+  export. Views added with `register_view()` get a Views tab (absent
+  otherwise). `write_report()` takes any `Trajectory`, including one built
+  with `from_steps()`.
 - Extension points: `Trajectory.from_steps()` analyzes steps parsed by the
   caller (missing keys are filled as for a format that does not record
   them); `register_format()` with `Format` teaches `load()` a format of your

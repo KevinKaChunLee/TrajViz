@@ -32,6 +32,11 @@ def run_comparison(
     dark: bool = False,
     ref_labels: dict[int, dict[str, str]] | None = None,
     cmp_labels: dict[int, dict[str, str]] | None = None,
+    *,
+    ref_steps: list[dict] | None = None,
+    cmp_steps: list[dict] | None = None,
+    ref_path: str | None = None,
+    cmp_path: str | None = None,
 ) -> dict:
     """Run Converge's full comparison pipeline.
 
@@ -60,6 +65,11 @@ def run_comparison(
         purpose: the batch path must stay label-free so the
         ``patterns[].confidence`` values it already reported are not
         retroactively rescored.
+    ref_steps, cmp_steps : list or None
+        The runs' steps when already parsed (a loaded ``Trajectory``, of any
+        format); otherwise they are parsed from the raw dicts.
+    ref_path, cmp_path : str or None
+        The runs' file paths (default: the raw dicts' ``_source_path``).
 
     Returns
     -------
@@ -90,8 +100,14 @@ def run_comparison(
             )
             return empty
 
-        ref_steps = parse_steps(ref_raw)
-        cmp_steps = parse_steps(cmp_raw)
+        if ref_steps is None:
+            ref_steps = parse_steps(ref_raw)
+        if cmp_steps is None:
+            cmp_steps = parse_steps(cmp_raw)
+        if ref_path is None:
+            ref_path = ref_raw.get("_source_path", "")
+        if cmp_path is None:
+            cmp_path = cmp_raw.get("_source_path", "")
 
         # The `_error` checks above are not enough: `load_trajectory`
         # returns an unrecognised JSON *object* with no `_error` at all, and it
@@ -102,7 +118,7 @@ def run_comparison(
             ("compared", cmp_raw, cmp_steps),
         ):
             reason = empty_steps_reason(
-                label, raw, raw.get("_source_path", ""), steps)
+                label, raw, ref_path if label == "reference" else cmp_path, steps)
             if reason:
                 # Escaped: the reason quotes the uploaded file's path.
                 empty["report_html"] = (
@@ -116,8 +132,8 @@ def run_comparison(
             token_rate=token_rate,
             fuzzy_commands=fuzzy,
             anchor_files=_parse_anchor_files(anchor_path),
-            ref_path=ref_raw.get("_source_path", ""),
-            cmp_path=cmp_raw.get("_source_path", ""),
+            ref_path=ref_path,
+            cmp_path=cmp_path,
             ref_labels=ref_labels,
             cmp_labels=cmp_labels,
         )

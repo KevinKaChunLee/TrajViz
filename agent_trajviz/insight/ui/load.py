@@ -11,7 +11,7 @@ from typing import Any
 import gradio as gr
 
 from ..assistant import build_analysis_brief_from_session
-from ..loaders import FORMAT_LABELS
+from ...plugins import format_label
 from ..session import LoadError, LoadedSession, load_session
 from . import overview_tab, patterns_tab, raw_tab, upload, workflow_tab
 from .shared import SharedState
@@ -49,12 +49,14 @@ def pack_shell(session: LoadedSession | None = None, *, dark: bool = False, bann
             "state_steps": [],
             "state_raw": {},
             "state_analysis_brief": "",
+            "state_run": None,
         }
     return {
         "main_tabs": gr.update(visible=True),
         "state_steps": session.steps,
         "state_raw": session.raw,
         "state_analysis_brief": build_analysis_brief_from_session(session),
+        "state_run": session.run,
     }
 
 
@@ -64,6 +66,7 @@ def _shell_slots(ctx: LoadContext) -> dict[str, Any]:
         "state_steps": ctx.shared.state_steps,
         "state_raw": ctx.shared.state_raw,
         "state_analysis_brief": ctx.shared.state_analysis_brief,
+        "state_run": ctx.shared.state_run,
     }
 
 
@@ -179,9 +182,9 @@ def _pack_error(err: LoadError) -> dict[str, Any]:
         detected_key = err.detected or ""
         err_msg = (
             f"Format mismatch: selected "
-            f"<b>{html.escape(FORMAT_LABELS.get(selected_key, selected_key))}</b>"
+            f"<b>{html.escape(format_label(selected_key))}</b>"
             f" but file detected as "
-            f"<b>{html.escape(FORMAT_LABELS.get(detected_key, detected_key))}</b>."
+            f"<b>{html.escape(format_label(detected_key))}</b>."
         )
         return empty_load_outputs(
             banner=f"<p style='color:#dc2626;'>{err_msg}</p>",

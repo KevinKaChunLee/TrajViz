@@ -1,15 +1,25 @@
-"""Gradio-free load pipeline: ingest a trajectory into a LoadedSession DTO."""
+"""Gradio-free load pipeline: ingest a trajectory into a LoadedSession DTO.
+
+The dashboard reads files through the public :func:`agent_trajviz.load`, so it
+opens whatever the library opens (formats registered by plugins, exported
+``trajectory.json`` documents), and a session is a view of one public
+:class:`~agent_trajviz.Trajectory`.
+"""
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import logging
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from .analysis import NOISY_ROOT_CAUSE_FORMATS, Analysis
-from .loaders import check_format_selection, detect_format, load_trajectory
+from .analysis import NOISY_ROOT_CAUSE_FORMATS
+from .loaders import detect_format, tokens_are_estimates
 from .parser import parse_steps
+
+if TYPE_CHECKING:
+    from ..api import Trajectory
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +83,10 @@ class LoadedSession:
     phase_regressions: list
     premature_compactions: list
     truncated: bool = False
+    #: The trajectory as loaded (every step): comparisons and run groups use it.
+    run: Trajectory | None = None
+    #: What the dashboard draws, at most MAX_STEPS steps of ``run``: views and figures come from it.
+    shown: Trajectory | None = None
 
 
 def _path_exists(file_path: str) -> bool:
@@ -86,44 +100,31 @@ def load_session(path: str, format_hint: str = "") -> LoadedSession | LoadError:
     if not path or not _path_exists(path):
         return LoadError(code="not_found", message="No file selected or file not found.")
 
-    hint = format_hint or None
-    raw = load_trajectory(path, format_hint=hint)
-    if raw.get("_error_code") == "mismatch":
-        return LoadError(
-            code="mismatch",
-            message=str(raw.get("_error") or "Format mismatch."),
-            selected=raw.get("_selected") or format_hint or None,
-            detected=raw.get("_detected") or None,
-        )
-    if "_error" in raw:
-        return LoadError(code="read_error", message=str(raw["_error"]))
+    from ..api import FORMATS, load
+    from ..errors import LoadError as TrajectoryLoadError
 
-    detected = detect_format(raw)
-    gate = check_format_selection(detected, format_hint)
-    if gate == "unknown":
-        return LoadError(
-            code="unknown",
-            message=(
-                "Could not detect trajectory format. "
-                "Select a format from the dropdown and try again."
-            ),
-        )
-    if gate == "mismatch":
-        return LoadError(
-            code="mismatch",
-            message=(
-                f"Format mismatch: selected {format_hint} but file detected as {detected}."
-            ),
-            selected=format_hint or None,
-            detected=detected,
-        )
+    hint = format_hint if format_hint in FORMATS else None
+    try:
+        run = load(path, format=hint)
+    except TrajectoryLoadError as exc:
+        if exc.code == "mismatch":
+            return LoadError(code="mismatch", message=str(exc), selected=hint, detected=exc.detected)
+        if exc.code == "unknown_format":
+            return LoadError(
+                code="unknown",
+                message=(
+                    "Could not detect trajectory format. "
+                    "Select a format from the dropdown and try again."
+                ),
+            )
+        return LoadError(code="read_error", message=str(exc))
 
     # Same promise as the loader: a LoadedSession or a LoadError, never an
     # exception. The step model is type-normalised in parse_steps, so this
     # guard is the backstop for an analyser bug, not the routine path for
     # malformed input. The traceback goes to the log.
     try:
-        return build_loaded_session(path, raw, detected=detected)
+        return session_from_run(run, path)
     except Exception as exc:  # noqa: BLE001 — see above
         logger.exception("could not analyse %s", path)
         return LoadError(
@@ -134,23 +135,36 @@ def load_session(path: str, format_hint: str = "") -> LoadedSession | LoadError:
 
 def build_loaded_session(path: str, raw: dict, *, detected: str | None = None) -> LoadedSession:
     """Analyze already-loaded *raw* into a ``LoadedSession`` (no file I/O)."""
-    detected = detected if detected is not None else detect_format(raw)
-    steps = parse_steps(raw)
-    steps_total = len(steps)
-    truncated = False
-    if steps_total > MAX_STEPS:
-        steps = steps[:MAX_STEPS]
-        truncated = True
+    from ..api import Trajectory
 
-    # One orchestration for every consumer: see analysis.Analysis.
-    a = Analysis(steps, raw, detected)
+    detected = detected if detected is not None else detect_format(raw)
+    run = Trajectory(
+        format=detected,
+        steps=parse_steps(raw),  # type: ignore[arg-type]
+        source=path or None,
+        sha256=raw.get("_source_sha256"),
+        warnings=tuple(str(w) for w in raw.get("_load_warnings") or ()),
+        tokens_estimated=tokens_are_estimates(raw),
+        raw=raw,
+    )
+    return session_from_run(run, path)
+
+
+def session_from_run(run: Trajectory, path: str | None = None) -> LoadedSession:
+    """The dashboard's session for a public trajectory, showing at most ``MAX_STEPS`` steps."""
+    steps_total = len(run.steps)
+    truncated = steps_total > MAX_STEPS
+    shown = dataclasses.replace(run, steps=run.steps[:MAX_STEPS]) if truncated else run
+    # One orchestration for every consumer: the trajectory's own analysis.
+    a = shown._analysis
+    steps = a.steps
 
     return LoadedSession(
-        path=path,
-        raw=raw,
+        path=path if path is not None else (run.source or ""),
+        raw=run.raw,
         steps=steps,
         steps_total=steps_total,
-        format=detected,
+        format=run.format,
         message_rows=a.message_rows,
         metrics=a.metrics,
         verdicts=a.verdicts,
@@ -178,4 +192,6 @@ def build_loaded_session(path: str, raw: dict, *, detected: str | None = None) -
         phase_regressions=a.phase_regressions,
         premature_compactions=a.premature_compactions,
         truncated=truncated,
+        run=run,
+        shown=shown,
     )

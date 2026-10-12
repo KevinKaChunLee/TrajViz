@@ -5,23 +5,11 @@ from __future__ import annotations
 import html
 import os
 from collections import Counter
+from typing import TYPE_CHECKING
 
 import plotly.graph_objects as go
 
 from ..formats.common import as_text
-from ..charts import (
-    build_agent_swimlane_chart,
-    build_agent_token_chart,
-    build_context_pressure_chart,
-    build_duration_chart,
-    build_file_interaction_chart,
-    build_plan_timeline_chart,
-    build_skill_agent_chart,
-    build_token_chart,
-    build_tool_chart,
-    build_tool_duration_chart,
-    build_tool_outcome_timeline,
-)
 from ..context_usage import PRESSURE_ALL_AGENTS
 from ..formatting import (
     format_banner_html,
@@ -32,7 +20,8 @@ from ..formatting import (
     _build_per_message_md,
 )
 from ..help import HELP_TEXT
-from ..loaders import FORMAT_LABELS, tokens_are_estimates
+from ..loaders import tokens_are_estimates
+from ...plugins import format_label
 from ..metrics import extract_agent_info
 from ..palette import AGENT_COLORS
 from ..rendering import (
@@ -49,6 +38,9 @@ from .issues import (
 
 from ..session import MAX_STEPS, LoadedSession
 
+if TYPE_CHECKING:
+    from ...api import Trajectory
+
 
 
 def _rate_text(rate: float | None) -> str:
@@ -56,8 +48,8 @@ def _rate_text(rate: float | None) -> str:
     return f"{rate}%" if isinstance(rate, (int, float)) else "n/a"
 
 def trajectory_format_label(fmt: str | None) -> str:
-    """Return a human-readable trajectory format label."""
-    return FORMAT_LABELS.get(fmt or "", fmt or "Unknown")
+    """Return a human-readable trajectory format label (registered formats included)."""
+    return format_label(fmt) if fmt else "Unknown"
 
 
 def _build_sparkline_svg(values: list[float], width: int = 100, height: int = 20) -> str:
@@ -424,24 +416,41 @@ def build_overview_outputs(session: LoadedSession) -> dict:
     }
 
 
-def build_chart_outputs(session: LoadedSession, dark: bool = False) -> dict:
-    """Build Overview chart figures."""
-    steps = session.steps
-    agent_summaries = session.agent_summaries
-    trajectory_format = session.format
+def shown_run(session: LoadedSession) -> Trajectory:
+    """The public trajectory a session draws (one is built for a session made field by field)."""
+    if session.shown is not None:
+        return session.shown
+    from ...api import Trajectory
 
-    return {
-        "tok_fig": build_token_chart(steps, dark=dark, format=trajectory_format),
-        "dur_fig": build_duration_chart(steps, dark=dark),
-        "tl_fig": build_tool_chart(steps, dark=dark),
-        "tool_dur_fig": build_tool_duration_chart(steps, dark=dark),
-        "skill_fig": build_skill_agent_chart(steps, dark=dark),
-        "tool_outcome_fig": build_tool_outcome_timeline(steps, dark=dark),
-        "agent_cards_html": render_agent_summary_cards(agent_summaries),
-        "agent_tok_fig": build_agent_token_chart(agent_summaries, dark=dark),
-        "swimlane_fig": build_agent_swimlane_chart(steps, dark=dark),
-        "plan_timeline_fig": build_plan_timeline_chart(session.plan_history, session.plan_metrics, dark=dark),
-    }
+    return Trajectory(format=session.format, steps=session.steps, source=session.path or None,  # type: ignore[arg-type]
+                      raw=session.raw)
+
+
+def view_figure(session: LoadedSession, view_id: str, *, dark: bool = False, **options) -> go.Figure:
+    """A chart of the session drawn from its public view, as any application would draw it."""
+    from ...figures import figure
+
+    return figure(shown_run(session).view(view_id, **options), dark=dark)
+
+
+# Overview chart slot -> the view it draws.
+CHART_VIEWS = {
+    "tok_fig": "token_usage",
+    "dur_fig": "step_durations",
+    "tl_fig": "tool_usage",
+    "tool_dur_fig": "tool_durations",
+    "skill_fig": "skill_calls",
+    "tool_outcome_fig": "tool_outcomes",
+    "agent_tok_fig": "agent_tokens",
+    "swimlane_fig": "agent_swimlane",
+    "plan_timeline_fig": "plan",
+}
+
+
+def build_chart_outputs(session: LoadedSession, dark: bool = False) -> dict:
+    """Build Overview chart figures, each from the session's public view."""
+    charts = {slot: view_figure(session, view_id, dark=dark) for slot, view_id in CHART_VIEWS.items()}
+    return {**charts, "agent_cards_html": render_agent_summary_cards(session.agent_summaries)}
 
 
 def build_diagnostics_outputs(session: LoadedSession, dark: bool = False) -> dict:
@@ -449,25 +458,11 @@ def build_diagnostics_outputs(session: LoadedSession, dark: bool = False) -> dic
     empty_fig = empty_plotly_fig()
     interactions = session.file_interactions
     target_files = session.target_files
-    file_chart = (
-        build_file_interaction_chart(
-            interactions,
-            target_files,
-            dark=dark,
-            steps=session.steps,
-        )
-        if interactions
-        else empty_fig
-    )
+    file_chart = view_figure(session, "file_interactions", dark=dark) if interactions else empty_fig
 
     rootcause_html = build_root_cause_html(session.clusters) if session.show_root_cause else ""
 
-    pressure_fig = build_context_pressure_chart(
-        session.steps,
-        agent_key=PRESSURE_ALL_AGENTS,
-        raw=session.raw,
-        dark=dark,
-    )
+    pressure_fig = view_figure(session, "context_pressure", dark=dark)
     pressure_html = format_context_pressure_html(
         session.pressure_series,
         steps=session.steps,

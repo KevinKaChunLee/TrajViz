@@ -30,7 +30,7 @@ from .presenters.patterns import (
     render_failure_patterns_html,
     render_tool_sequences_html,
 )
-from .session import LoadedSession, LoadError, build_loaded_session, load_session
+from .session import LoadedSession, LoadError, build_loaded_session, load_session, session_from_run
 from .styles import APP_CSS
 
 _PLOTLY_CDN = "cdn"
@@ -227,6 +227,13 @@ def _as_session(source: LoadedSession | dict, *, file_path: str | None = None) -
         raise ReportError(str(raw["_error"]))
     path = file_path or raw.get("_source_path") or "trajectory"
     return build_loaded_session(str(path), raw)
+
+
+def report_from_run(run: Any, dest: str | None = None, *, dark: bool = False, inline_plotly: bool = False) -> str:
+    """Write the report for a loaded ``agent_trajviz.Trajectory`` (no file is read) and return its path."""
+    if not run.steps:
+        raise ReportError("the trajectory has no steps")
+    return write_report_file(session_from_run(run), dest, dark=dark, inline_plotly=inline_plotly)
 
 
 def report_from_path(

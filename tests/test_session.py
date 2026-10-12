@@ -104,6 +104,7 @@ class LoadSessionTests(unittest.TestCase):
             state_raw=object(),
             state_dark=object(),
             state_analysis_brief=object(),
+            state_run=object(),
         )
         with self.assertRaises(ValueError) as missing:
             merge_load_slots(main_tabs=object(), shared=shared, refs={})

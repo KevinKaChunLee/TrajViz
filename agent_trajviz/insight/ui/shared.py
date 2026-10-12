@@ -23,6 +23,17 @@ class SharedState:
     # is the single switch point should the dashboard ever offer a toggle.
     state_dark: gr.State
     state_analysis_brief: gr.State
+    # The loaded agent_trajviz.Trajectory (every step), or None before a load.
+    # Handlers that need the run itself read it here rather than re-parsing
+    # `state_raw`, which holds nothing for a format registered by a plugin.
+    state_run: gr.State
+
+
+def format_choices() -> list[tuple[str, str]]:
+    """Format dropdown choices: auto-detect first, then every format, registered ones included."""
+    from ...api import FORMATS
+
+    return [("Auto-detect", ""), *((label, key) for key, label in FORMATS.items())]
 
 
 def safe_callback(label: str) -> Callable:
