@@ -98,6 +98,18 @@ class RedactTests(unittest.TestCase):
         self.assertEqual(count, 2)
 
 
+class ConfigReprTests(unittest.TestCase):
+    def test_the_api_key_never_appears_in_the_config_repr(self):
+        from agent_trajviz.insight.llm_config import AnalysisLLMConfig
+
+        config = AnalysisLLMConfig(base_url="https://llm.example", api_key="sk-not-a-real-key-0123456789",
+                                   model="m", provider="openai", temperature=None, max_tokens=1, timeout=1,
+                                   source="analyze")
+        self.assertNotIn("sk-not-a-real-key-0123456789", repr(config))
+        self.assertNotIn("sk-not-a-real-key-0123456789", str(config))
+        self.assertIn("model='m'", repr(config))
+
+
 class EgressTests(unittest.TestCase):
     """Both functions that send HTTP requests redact what they send."""
 

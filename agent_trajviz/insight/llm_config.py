@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -117,7 +117,8 @@ class AnalysisLLMConfig:
     """Resolved OpenAI-compatible or Anthropic chat settings."""
 
     base_url: str
-    api_key: str
+    # Out of the repr, so printing or logging a config never shows the key.
+    api_key: str = field(repr=False)
     model: str
     provider: str
     temperature: float | None
@@ -127,10 +128,12 @@ class AnalysisLLMConfig:
 
     @property
     def ready(self) -> bool:
+        """True when the endpoint, key and model are all set."""
         return bool(self.base_url and self.api_key and self.model)
 
     @property
     def missing(self) -> list[str]:
+        """The environment variables still to set before :attr:`ready` (names only, never values)."""
         names: list[str] = []
         if not self.base_url:
             names.append("ANALYZE_BASE_URL (or LABEL_BASE_URL)")
