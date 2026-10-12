@@ -20,11 +20,12 @@ import dataclasses
 import json
 import math
 import os
+import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 from .insight import chart_data
 from .insight.context_usage import (
@@ -367,13 +368,69 @@ _SPECS: dict[str, _Spec] = {
         lambda run, a: a.diagnostic_metrics),
 }
 
+_BUILT_IN_VIEWS = frozenset(_SPECS)
+# View ids are file names in an export; these two are taken by export_json.
+_VIEW_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+_RESERVED_VIEW_IDS = frozenset({"index", "trajectory"})
+_VIEW_KINDS = frozenset(get_args(ViewKind))
+
+
+def _catalog_entry(spec: _Spec) -> Mapping[str, Any]:
+    return MappingProxyType({"title": spec.title, "kind": spec.kind, "description": spec.description,
+                             "options": MappingProxyType(dict(spec.options))})
+
+
+_CATALOG: dict[str, Mapping[str, Any]] = {vid: _catalog_entry(spec) for vid, spec in _SPECS.items()}
+
 #: Single-run view id -> ``{"title", "kind", "description", "options"}``, in display order.
 #: ``options`` maps each keyword :meth:`Trajectory.view` accepts for the view to its meaning.
-VIEW_CATALOG: Mapping[str, Mapping[str, Any]] = MappingProxyType({
-    vid: MappingProxyType({"title": spec.title, "kind": spec.kind, "description": spec.description,
-                           "options": MappingProxyType(dict(spec.options))})
-    for vid, spec in _SPECS.items()
-})
+#: Includes the views registered with :func:`register_view`, after the built-in ones.
+VIEW_CATALOG: Mapping[str, Mapping[str, Any]] = MappingProxyType(_CATALOG)
+
+
+def register_view(
+    view_id: str,
+    build: Callable[..., Any],
+    *,
+    title: str,
+    kind: ViewKind = "table",
+    description: str = "",
+    options: Mapping[str, str] | None = None,
+    replace: bool = False,
+) -> None:
+    """Add a view of your own: ``build(run, **options)`` returns its JSON data.
+
+    *run* is the :class:`Trajectory`; its other views, :attr:`~Trajectory.metrics`
+    and steps are at hand. The view joins :data:`VIEW_CATALOG` after the built-in
+    views, so :meth:`Trajectory.views`, :func:`export_json`, ``agent-trajviz
+    --json`` and the dashboards' view lists include it. *options* maps each
+    keyword *build* accepts to its meaning; :meth:`Trajectory.view` passes them.
+
+        >>> tv.register_view("edits", lambda run: {"count": sum(...)}, title="Edits")
+        >>> run.view("edits").data
+
+    Raises :class:`ValueError` for an id that is malformed (it names a file in
+    an export), built in, or already registered (pass ``replace=True`` to
+    replace your own), or for an unknown *kind*.
+    """
+    if not isinstance(view_id, str) or not _VIEW_ID.fullmatch(view_id) or view_id in _RESERVED_VIEW_IDS:
+        raise ValueError(f"invalid view id {view_id!r}: use letters, digits, '_', '.' and '-' "
+                         f"(not {' or '.join(sorted(_RESERVED_VIEW_IDS))})")
+    if view_id in _BUILT_IN_VIEWS:
+        raise ValueError(f"{view_id!r} is a built-in view")
+    if view_id in _SPECS and not replace:
+        raise ValueError(f"view {view_id!r} is already registered; pass replace=True to replace it")
+    if kind not in _VIEW_KINDS:
+        raise ValueError(f"unknown view kind {kind!r}; expected one of: {', '.join(sorted(_VIEW_KINDS))}")
+    if not callable(build):
+        raise TypeError("build must be callable: build(run, **options) -> data")
+
+    def run_build(run: Trajectory, analysis: Analysis, **opts: Any) -> Any:
+        return build(run, **opts)
+
+    spec = _Spec(kind, title, description, run_build, dict(options or {}))
+    _SPECS[view_id] = spec
+    _CATALOG[view_id] = _catalog_entry(spec)
 
 
 def build_view(run: Trajectory, analysis: Analysis, view_id: str, options: Mapping[str, Any] | None = None) -> View:

@@ -189,6 +189,35 @@ Optional layers build on the views:
 [`examples/`](examples/) has the dashboard rebuilt on this API alone and a
 small app of your own; both are tested end to end.
 
+**Extending.** For an agent TrajViz does not read, parse the file yourself
+and hand over the steps: only `role` is required, and whatever a step lacks
+is filled the way it is for a format that does not record it, so every view
+works. Register the parser and `tv.load()` and the `agent-trajviz` command read
+such files directly. Views and figures of your own join the catalog the same
+way, so `views()`, `export_json()`, `--json` and the dashboards include them:
+
+```python
+run = tv.Trajectory.from_steps([
+    {"role": "user", "text_preview": "Fix the failing test"},
+    {"role": "assistant", "tokens": {"input": 1200, "output": 80},
+     "tool_calls": [{"tool_name": "bash", "input": {"command": "pytest"}, "error": "exit 1"}]},
+], format="myagent")
+
+tv.register_format(tv.Format(
+    key="myagent", label="My Agent",
+    detect=lambda doc: isinstance(doc, dict) and "myagent_version" in doc,  # the parsed JSON (JSONL: records)
+    parse=lambda doc: [{"role": t["role"], "text_preview": t["text"]} for t in doc["turns"]],
+))
+tv.register_view("call_count", lambda run: {"calls": sum(len(s["tool_calls"]) for s in run.steps)},
+                 title="Tool calls", kind="summary")
+# charts extra: agent_trajviz.figures.register_figure("my_chart", lambda data, dark: go.Figure(...))
+```
+
+A package registers them for everyone who installs it with an entry point
+in the `agent_trajviz.plugins` group that names a function taking no
+arguments; `tv.load_plugins()` runs those hooks, and `agent-trajviz` runs
+them on start.
+
 **Scale.** Analysis is linear in the number of steps and a test holds it
 so. A 15,000-step, 70 MB export loads in about 1.6 s and produces every view
 in about 3.6 s; the whole file is read into memory, so peak memory is about

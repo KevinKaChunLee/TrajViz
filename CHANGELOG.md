@@ -37,6 +37,15 @@ First release as the `agent-trajviz` package.
   and tables, listed in `VIEW_CATALOG`; the dashboard draws its charts from
   exactly this data. `export_json()` writes them (`<id>.json`, `index.json`,
   `trajectory.json`), as does `agent-trajviz --json RUN [-o DIR] [--view ID]`.
+- Extension points: `Trajectory.from_steps()` analyzes steps parsed by the
+  caller (missing keys are filled as for a format that does not record
+  them); `register_format()` with `Format` teaches `load()` a format of your
+  own; `register_view()` adds a view to `VIEW_CATALOG` and everything that
+  reads it; `figures.register_figure()` draws it; `load_plugins()` runs the
+  hooks installed packages declare in the `agent_trajviz.plugins`
+  entry-point group, as `agent-trajviz` does on start (`PluginError` names a
+  failing one). `FORMATS`, `VIEW_CATALOG` and `figures.FIGURE_VIEWS` are live
+  read-only views of the registries.
 - Round trip: `Trajectory.to_dict(include_raw=True)` keeps the converted
   export, `Trajectory.from_dict()` rebuilds the trajectory, and `load()`
   reads such a document (the `trajectory.json` that `export_json()` writes)

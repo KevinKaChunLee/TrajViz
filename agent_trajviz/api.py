@@ -8,6 +8,7 @@ change between minor versions.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -16,19 +17,22 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
+from . import plugins
 from ._extras import require
 from .errors import LoadError, ReportError
 from .insight import loaders
 from .insight.analysis import Analysis
 from .insight.context_usage import context_pressure_series, context_pressure_stats
-from .insight.parser import parse_steps
+from .insight.parser import complete_steps, parse_steps
 from .model import Step
+from .plugins import Format
 
 if TYPE_CHECKING:
     from .views import View
 
 #: Supported formats: format id (as in :attr:`Trajectory.format`) -> display name.
-FORMATS: Mapping[str, str] = MappingProxyType(dict(loaders.FORMAT_LABELS))
+#: Includes the formats registered with :func:`register_format`.
+FORMATS: Mapping[str, str] = MappingProxyType(plugins._LABELS)
 
 #: Version of the layout :meth:`Trajectory.to_dict` produces.
 SCHEMA_VERSION = 1
@@ -37,6 +41,8 @@ SCHEMA_VERSION = 1
 TRAJECTORY_TYPE = "agent-trajviz-trajectory"
 
 PathLike = str | os.PathLike[str]
+
+logger = logging.getLogger(__name__)
 
 
 def _plain(steps: list[Step]) -> list[dict[str, Any]]:
@@ -175,6 +181,68 @@ class Trajectory:
             raw=dict(raw) if isinstance(raw, Mapping) else {},
         )
 
+    @classmethod
+    def from_steps(
+        cls,
+        steps: Iterable[Mapping[str, Any]],
+        *,
+        format: str = "custom",
+        source: str | None = None,
+        sha256: str | None = None,
+        warnings: Iterable[str] = (),
+        tokens_estimated: bool = False,
+    ) -> Trajectory:
+        """A trajectory from steps you parsed yourself, for an agent TrajViz does not read.
+
+        Each step is a mapping with keys of :class:`Step`; only ``role``
+        (``"user"`` or ``"assistant"``) matters for most views. Tool calls are
+        mappings with keys of :class:`ToolCall` (``tool_name``, ``input``,
+        ``output``, and ``error`` or ``status`` for a failure); token counts are
+        a :class:`TokenUsage`. A key a step lacks gets the value a format that
+        does not record it gets, so every view works on the result; ``total``
+        tokens default to the sum of the reported fields, and a step's
+        ``duration`` to the span between ``time_created_ms`` and
+        ``time_completed_ms`` (epoch milliseconds). A sub-agent's steps name it
+        in ``agent``: leave ``agent`` empty on the main agent's steps, or set
+        ``is_sub_agent`` on every step. The steps are copied, never modified.
+
+        Raises :class:`ValueError` when there are no steps and
+        :class:`TypeError` for a step that is not a mapping.
+        """
+        completed = complete_steps(steps)
+        if not completed:
+            raise ValueError("no steps")
+        return cls(
+            format=format,
+            steps=cast("list[Step]", completed),
+            source=source,
+            sha256=sha256,
+            warnings=tuple(str(w) for w in warnings),
+            tokens_estimated=tokens_estimated,
+        )
+
+
+def register_format(fmt: Format, *, replace: bool = False) -> None:
+    """Make :func:`load` read a format of your own (see :class:`Format`).
+
+    The format joins :data:`FORMATS`. Raises :class:`ValueError` for a key
+    that is malformed or built in, or already registered (pass
+    ``replace=True`` to replace your own).
+    """
+    plugins.register_format(fmt, replace=replace)
+
+
+def load_plugins() -> list[str]:
+    """Run the hook of every installed plugin once; returns the names loaded so far.
+
+    A plugin is an entry point in the ``agent_trajviz.plugins`` group that
+    names a function taking no arguments, which typically calls
+    :func:`register_format` or :func:`register_view`. The ``agent-trajviz``
+    command runs this on start. Raises :class:`PluginError` naming a plugin
+    whose hook fails.
+    """
+    return plugins.load_plugins()
+
 
 def load(source: PathLike, *, format: str | None = None) -> Trajectory:
     """Load a trajectory file of any supported format (see :data:`FORMATS`).
@@ -192,8 +260,15 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
     exported = _read_exported(path)
     if exported is not None:
         return _load_exported(exported, path, format)
+    registered = plugins.registered_format(format)
+    if registered is not None:
+        return _load_registered(registered, path)
     raw = loaders.load_trajectory(path, format_hint=format)
     if raw.get("_error"):
+        if format is None and raw.get("_error_code") == "unknown_format":
+            detected = _detect_registered(path)
+            if detected is not None:
+                return detected
         raise LoadError(str(raw["_error"]), code=raw.get("_error_code") or "load_failed", path=path)
     if raw.get("type") == TRAJECTORY_TYPE:
         # An export written with sorted keys: no format claims it, so the
@@ -203,8 +278,12 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
         raise LoadError(
             f"the file is {loaders.detect_format(raw)}, not {format}", code="mismatch", path=path,
         )
-    steps = parse_steps(raw)
     fmt = raw.get("_source_format") or loaders.detect_format(raw)
+    if format is None and fmt == "unknown":
+        detected = _detect_registered(path)
+        if detected is not None:
+            return detected
+    steps = parse_steps(raw)
     if not steps:
         raise LoadError(f"no trajectory steps found (detected format: {fmt})", code="no_steps", path=path)
     return Trajectory(
@@ -216,6 +295,49 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
         tokens_estimated=loaders.tokens_are_estimates(raw),
         raw=raw,
     )
+
+
+def _load_registered(fmt: Format, path: str, payload: Any = None, sha256: str | None = None) -> Trajectory:
+    """*path* parsed by the registered format *fmt* (*payload*: the file, already read)."""
+    if payload is None:
+        payload, sha256, error = loaders.read_payload(path)
+        if error is not None:
+            raise LoadError(error, code="load_failed", path=path)
+    try:
+        steps = list(fmt.parse(payload))
+    except Exception as exc:
+        raise LoadError(f"the {fmt.label} parser failed: {type(exc).__name__}: {exc}",
+                        code="parse_failed", path=path) from exc
+    if not steps:
+        raise LoadError(f"no trajectory steps found (format: {fmt.key})", code="no_steps", path=path)
+    try:
+        return Trajectory.from_steps(steps, format=fmt.key, source=path, sha256=sha256)
+    except TypeError as exc:
+        raise LoadError(f"the {fmt.label} parser returned {exc}", code="parse_failed", path=path) from exc
+
+
+def _detect_registered(path: str) -> Trajectory | None:
+    """*path* read by the first registered format whose ``detect`` accepts it, else ``None``.
+
+    Runs only for files no built-in format recognizes. A ``detect`` that
+    raises is a non-match (logged): one plugin's bug must not stop a file of
+    another format from loading.
+    """
+    candidates = [(f, f.detect) for f in plugins.registered_formats() if f.detect is not None]
+    if not candidates:
+        return None
+    payload, sha256, error = loaders.read_payload(path)
+    if error is not None:
+        return None
+    for fmt, detect in candidates:
+        try:
+            matched = bool(detect(payload))
+        except Exception:
+            logger.warning("format %r: detect() raised on %s; treated as no match", fmt.key, path, exc_info=True)
+            continue
+        if matched:
+            return _load_registered(fmt, path, payload, sha256)
+    return None
 
 
 def _load_exported(data: Mapping[str, Any], path: str, format: str | None) -> Trajectory:

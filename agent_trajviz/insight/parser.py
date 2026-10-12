@@ -1,7 +1,10 @@
 """Data loading, parsing, and aggregate metrics."""
 
+import copy
 import json
 import math
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from .formats.common import as_text
 from .loaders import safe_get
@@ -394,6 +397,108 @@ def _normalize_step(step: dict) -> None:
     for tc in calls:
         _normalize_tool_call(tc)
     step["tool_call_count"] = len(calls)
+
+
+_STEP_DEFAULTS = {
+    **dict.fromkeys(_STEP_TEXT_FIELDS, ""),
+    **dict.fromkeys(_STEP_TIME_FIELDS),
+    "duration": None, "session_depth": None, "summary": False,
+}
+_TOOL_DEFAULTS = {
+    "type": "tool_call", "input": {}, "output": "", "error": None, "error_type": None,
+    "duration_ms": None, "metadata": {},
+    **dict.fromkeys(_TOOL_TEXT_FIELDS, ""),
+    **dict.fromkeys(_TOOL_TIME_FIELDS),
+}
+_TOKEN_FIELDS = (("input", "Input Tokens"), ("output", "Output Tokens"),
+                 ("cache_read", "Cache Read"), ("cache_write", "Cache Write"))
+_TOKEN_EXTRAS = ("context_window", "prompt_peak", "prompt_peak_cache_read")
+
+
+def _complete_tokens(given: object) -> tuple[dict, list[str]]:
+    """A caller's token counts as the step model holds them, and the fields it did not report."""
+    given = given if isinstance(given, Mapping) else {}
+    tokens = {key: _finite_token(given.get(key, 0)) for key, _ in _TOKEN_FIELDS}
+    missing = [label for key, label in _TOKEN_FIELDS if _optional_token_count(given, key) is None]
+    reasoning = _optional_token_count(given, "reasoning")
+    if reasoning is not None:
+        tokens["reasoning"] = reasoning
+    total = _optional_token_count(given, "total")
+    if total is None and len(missing) < len(_TOKEN_FIELDS):
+        # Every reported field counted once, as the model defines ``total``.
+        total = sum(tokens.values())
+    if total is None:
+        missing.insert(0, "Total Tokens")
+    tokens["total"] = total or 0
+    for key in _TOKEN_EXTRAS:
+        value = _optional_token_count(given, key)
+        if value is not None and value >= 0:
+            tokens[key] = value
+    return {"total": tokens.pop("total"), **tokens}, missing
+
+
+def complete_steps(steps: Iterable[Any]) -> list[dict]:
+    """Steps a caller parsed (``Trajectory.from_steps``), completed to the step model.
+
+    Each step is copied, never modified. Every key a loader fills is filled
+    with the value a format that does not record it gets, then the model's
+    types are enforced as for loaded steps (:func:`_normalize_step`). Beyond
+    defaults: ``index`` is the position; a tool call without ``status`` is
+    ``"error"`` when it records a failure, else ``"completed"``;
+    ``error_count`` counts the failed calls; a step without ``parts`` gets
+    its ``text_preview`` and tool calls as parts; ``tokens["total"]`` defaults
+    to the sum of the reported fields; ``duration`` to the span between
+    ``time_created_ms`` and ``time_completed_ms``.
+
+    Raises :class:`TypeError` for a step that is not a mapping.
+    """
+    from .tool_failure import tool_call_failed
+
+    completed = []
+    for position, given in enumerate(steps):
+        if not isinstance(given, Mapping):
+            raise TypeError(f"step {position} is a {type(given).__name__}, not a mapping")
+        step = copy.deepcopy(dict(given))
+        for key, default in _STEP_DEFAULTS.items():
+            step.setdefault(key, copy.copy(default))
+        step["index"] = position
+        if not isinstance(step.get("raw_index"), int) or isinstance(step.get("raw_index"), bool):
+            step["raw_index"] = position
+        step["tokens"], missing = _complete_tokens(step.get("tokens"))
+        step.setdefault("_metrics_unavailable_fields", missing)
+        calls = step.get("tool_calls")
+        calls = [tc for tc in calls if isinstance(tc, dict)] if isinstance(calls, list) else []
+        for tc in calls:
+            for key, default in _TOOL_DEFAULTS.items():
+                tc.setdefault(key, copy.copy(default))
+            if not tc.get("status"):
+                tc["status"] = "error" if tool_call_failed(tc) else "completed"
+        step["tool_calls"] = calls
+        if "parts" not in step:
+            text = step.get("text_preview")
+            step["parts"] = ([{"type": "text", "text": text, "synthetic": False, "metadata": {}, "time": {},
+                               "part_id": "", "session_id": "", "message_id": ""}]
+                             if isinstance(text, str) and text else []) + calls
+        if not step.get("text_preview"):
+            *_, preview = _parse_parts([p for p in step["parts"] if isinstance(p, dict)
+                                        and p.get("type") in ("text", "reasoning", "compaction")])
+            if not preview and calls:
+                preview = f"[Tool: {calls[0]['tool_name']}] {calls[0].get('title') or ''}"
+            step["text_preview"] = preview
+        if not isinstance(step.get("has_reasoning"), bool):
+            step["has_reasoning"] = any(isinstance(p, dict) and p.get("type") == "reasoning" for p in step["parts"])
+        errors = step.get("error_count")
+        if not isinstance(errors, int) or isinstance(errors, bool) or errors < 0:
+            step["error_count"] = sum(1 for tc in calls if tool_call_failed(tc))
+        step.setdefault("message_type", "")
+        step.setdefault("is_compaction_checkpoint",
+                        step.get("message_type") == "compaction" or step.get("role") == "compaction")
+        start, end = step.get("time_created_ms"), step.get("time_completed_ms")
+        if step.get("duration") is None and _as_epoch_ms(start) and _as_epoch_ms(end) and end >= start:
+            step["duration"] = round((end - start) / 1000.0, 2)
+        _normalize_step(step)
+        completed.append(step)
+    return completed
 
 
 def parse_steps(raw: dict) -> list[dict]:

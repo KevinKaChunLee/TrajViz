@@ -14,9 +14,19 @@ The ``insight`` and ``converge`` subpackages are internal and may change.
 
 import logging
 
-from .api import FORMATS, SCHEMA_VERSION, Trajectory, compare, load, write_report
-from .errors import LoadError, MissingExtraError, ReportError, TrajVizError
+from .api import (
+    FORMATS,
+    SCHEMA_VERSION,
+    Trajectory,
+    compare,
+    load,
+    load_plugins,
+    register_format,
+    write_report,
+)
+from .errors import LoadError, MissingExtraError, PluginError, ReportError, TrajVizError
 from .model import Step, TokenUsage, ToolCall
+from .plugins import Format
 from .views import (
     VIEW_CATALOG,
     VIEWS_SCHEMA_VERSION,
@@ -26,6 +36,7 @@ from .views import (
     export_json,
     label_comparison_views,
     label_views,
+    register_view,
     run_group_views,
 )
 
@@ -39,8 +50,10 @@ __all__ = [
     "SCHEMA_VERSION",
     "VIEWS_SCHEMA_VERSION",
     "VIEW_CATALOG",
+    "Format",
     "LoadError",
     "MissingExtraError",
+    "PluginError",
     "ReportError",
     "Step",
     "TokenUsage",
@@ -55,6 +68,9 @@ __all__ = [
     "label_comparison_views",
     "label_views",
     "load",
+    "load_plugins",
+    "register_format",
+    "register_view",
     "run_group_views",
     "write_report",
 ]

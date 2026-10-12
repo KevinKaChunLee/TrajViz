@@ -181,7 +181,7 @@ def _apply_format(payload: Any, fmt: str, *, source_path: str | None = None) -> 
     if fmt == "unknown":
         if isinstance(payload, dict):
             return payload
-        return {"_error": _UNSUPPORTED_EVENT_STREAM}
+        return {"_error": _UNSUPPORTED_EVENT_STREAM, "_error_code": "unknown_format"}
 
     if isinstance(payload, dict) and _already_converted(payload, fmt):
         return payload
@@ -255,6 +255,27 @@ def tokens_are_estimates(raw: dict | None) -> bool:
     the converter's estimates (Cursor derives them from logged text)."""
     caps = raw.get("_capabilities") if isinstance(raw, dict) else None
     return isinstance(caps, dict) and caps.get("has_runtime_token_usage") is False
+
+
+def read_payload(file_path: str) -> tuple[Any, str | None, str | None]:
+    """``(parsed JSON, sha256 of the bytes, error)`` for a file, without detection or conversion.
+
+    The parsed JSON is the document, or for JSON Lines the list of records:
+    what a format registered by an application (``agent_trajviz.Format``)
+    parses. On failure the first element is ``None`` and the error is set.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            data = f.read()
+    except OSError as exc:
+        return None, None, str(exc)
+    sha = _sha256_bytes(data)
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        return None, sha, str(exc)
+    payload, error = _parse_trajectory_text(text, file_path)
+    return payload, sha, error
 
 
 def load_trajectory(file_path: str, format_hint: str | None = None) -> dict:

@@ -30,6 +30,7 @@ class ApiSurfaceTests(unittest.TestCase):
             "TokenUsage", "ToolCall", "Trajectory", "TrajVizError", "compare", "load", "write_report",
             "VIEWS_SCHEMA_VERSION", "VIEW_CATALOG", "View", "comparison_views", "export_json",
             "compare_runs", "label_comparison_views", "label_views", "run_group_views",
+            "Format", "PluginError", "load_plugins", "register_format", "register_view",
         ]))
         for name in tv.__all__:
             self.assertTrue(hasattr(tv, name), name)
@@ -45,19 +46,34 @@ class ApiSurfaceTests(unittest.TestCase):
             "export_json": "(source: 'Trajectory | Mapping[str, View]', directory: 'str | os.PathLike[str]', *, "
                            "only: 'Iterable[str] | None' = None, indent: 'int | None' = 2) -> 'list[Path]'",
             "comparison_views": "(report: 'Mapping[str, Any]') -> 'dict[str, View]'",
+            "register_format": "(fmt: 'Format', *, replace: 'bool' = False) -> 'None'",
+            "register_view": "(view_id: 'str', build: 'Callable[..., Any]', *, title: 'str', "
+                             "kind: 'ViewKind' = 'table', description: 'str' = '', "
+                             "options: 'Mapping[str, str] | None' = None, replace: 'bool' = False) -> 'None'",
+            "load_plugins": "() -> 'list[str]'",
         }
         for name, signature in pinned.items():
             self.assertEqual(str(inspect.signature(getattr(tv, name))), signature, name)
+        methods = {
+            "to_dict": "(self, *, include_raw: 'bool' = False) -> 'dict[str, Any]'",
+            "from_dict": "(data: 'Mapping[str, Any]') -> 'Trajectory'",
+            "from_steps": "(steps: 'Iterable[Mapping[str, Any]]', *, format: 'str' = 'custom', "
+                          "source: 'str | None' = None, sha256: 'str | None' = None, "
+                          "warnings: 'Iterable[str]' = (), tokens_estimated: 'bool' = False) -> 'Trajectory'",
+        }
+        for name, signature in methods.items():
+            self.assertEqual(str(inspect.signature(getattr(tv.Trajectory, name))), signature, name)
+        self.assertEqual([f.name for f in dataclasses.fields(tv.Format)], ["key", "label", "parse", "detect"])
 
     def test_the_trajectory_fields_are_the_pinned_ones(self):
         self.assertEqual([f.name for f in dataclasses.fields(tv.Trajectory)],
                          ["format", "steps", "source", "sha256", "warnings", "tokens_estimated", "raw"])
         for member in ("format_label", "metrics", "health", "agents", "context_pressure", "views", "view",
-                       "to_dict"):
+                       "to_dict", "from_dict", "from_steps"):
             self.assertTrue(hasattr(tv.Trajectory, member), member)
 
     def test_every_error_is_a_trajviz_error(self):
-        for error in (tv.LoadError, tv.ReportError, tv.MissingExtraError):
+        for error in (tv.LoadError, tv.ReportError, tv.MissingExtraError, tv.PluginError):
             self.assertTrue(issubclass(error, tv.TrajVizError), error)
         self.assertTrue(issubclass(tv.MissingExtraError, ImportError))
         self.assertTrue(issubclass(tv.ReportError, ValueError))

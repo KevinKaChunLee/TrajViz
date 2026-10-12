@@ -20,6 +20,10 @@ class LoadError(TrajVizError):
         self.path = path
 
 
+class PluginError(TrajVizError):
+    """An installed plugin's hook failed to load or raised (see :func:`agent_trajviz.load_plugins`)."""
+
+
 class ReportError(TrajVizError, ValueError):
     """A trajectory could not be turned into an HTML report."""
 

@@ -13,7 +13,7 @@ function the dashboard uses -- so it shows exactly the exported numbers.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, KeysView, Mapping
 from typing import TYPE_CHECKING, Any
 
 from ._extras import require
@@ -33,7 +33,7 @@ from .insight.context_usage import usage_segments  # noqa: E402
 if TYPE_CHECKING:
     from .views import View
 
-__all__ = ["FIGURE_VIEWS", "figure", "figures"]
+__all__ = ["FIGURE_VIEWS", "figure", "figures", "register_figure"]
 
 
 def _context_usage(data: dict, dark: bool) -> go.Figure:
@@ -104,8 +104,28 @@ _DRAW: dict[str, Callable[[Any, bool], go.Figure]] = {
     "anchor_classes": lambda d, dark: _plain(_cvg.build_anchor_class_chart(d), dark),
 }
 
-#: Ids of the views :func:`figure` can draw (every ``"chart"`` view).
-FIGURE_VIEWS: frozenset[str] = frozenset(_DRAW)
+_BUILT_IN = frozenset(_DRAW)
+
+#: Ids of the views :func:`figure` can draw: every built-in ``"chart"`` view,
+#: and those given a figure with :func:`register_figure`.
+FIGURE_VIEWS: KeysView[str] = _DRAW.keys()
+
+
+def register_figure(view_id: str, draw: Callable[[Any, bool], go.Figure], *, replace: bool = False) -> None:
+    """Draw a view of your own: ``draw(data, dark)`` returns the Plotly figure for the view's data.
+
+    Typically for a view added with :func:`agent_trajviz.register_view`;
+    :func:`figure` and the dashboards then draw it. Raises :class:`ValueError`
+    for a built-in view, or one that already has a registered figure (pass
+    ``replace=True`` to replace your own).
+    """
+    if view_id in _BUILT_IN:
+        raise ValueError(f"{view_id!r} is a built-in view with its own figure")
+    if view_id in _DRAW and not replace:
+        raise ValueError(f"view {view_id!r} already has a figure; pass replace=True to replace it")
+    if not callable(draw):
+        raise TypeError("draw must be callable: draw(data, dark) -> plotly Figure")
+    _DRAW[view_id] = draw
 
 
 def figure(view: View, *, dark: bool = False) -> go.Figure:

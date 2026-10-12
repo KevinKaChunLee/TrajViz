@@ -85,7 +85,7 @@ jobs:
         run: >
           uv run --locked --with "mypy>=1.13" mypy --strict
           agent_trajviz/__init__.py agent_trajviz/api.py agent_trajviz/errors.py agent_trajviz/model.py
-          agent_trajviz/views.py
+          agent_trajviz/views.py agent_trajviz/plugins.py
 
   # What a user installs: build the sdist and wheel, check their metadata, and
   # install the wheel into clean environments -- the core alone must pull in

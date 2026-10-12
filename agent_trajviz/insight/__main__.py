@@ -78,6 +78,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     configure_logging()
+    # Installed plugins can add formats and views, so they run before any of them is listed or used.
+    from .. import plugins
+    from ..errors import PluginError
+
+    try:
+        plugins.load_plugins()
+    except PluginError as exc:
+        print(f"agent-trajviz: {exc}", file=sys.stderr)
+        return 1
 
     if args.list_views:
         from ..views import VIEW_CATALOG
