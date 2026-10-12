@@ -611,7 +611,9 @@ uv lock --upgrade                            # refresh the locked test environme
 
 Dependency lower bounds in `pyproject.toml` are the oldest releases the suite
 passes with; CI installs them (`uv pip install --resolution lowest-direct
-".[dev]"`) on the oldest and newest supported Python. Releases are published
+".[dev]"`) on the oldest and newest supported Python. CI runs the suite on
+Linux (Python 3.11 to 3.14) and macOS, and the public API from the installed
+wheel on Windows (`.github/scripts/smoke_core.py`). Releases are published
 to PyPI from a `v*` tag by `.github/workflows/release.yml`.
 
 CI builds the same API reference from the docstrings on every push and keeps

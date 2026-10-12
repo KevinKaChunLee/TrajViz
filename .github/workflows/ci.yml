@@ -45,6 +45,38 @@ jobs:
       - name: Test
         run: uv run --locked python -m pytest tests -q
 
+  # The package declares "OS Independent". The suite also runs on macOS; on
+  # Windows the public API runs from the installed wheel (no extras), since a
+  # few of the suite's own fixtures assume a POSIX file system.
+  other-os:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    env:
+      UV_PYTHON: "3.13"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Test (locked)
+        if: runner.os == 'macOS'
+        run: |
+          uv sync --locked --extra dev
+          uv run --locked python -m pytest tests -q
+      - name: Build the wheel
+        run: uv build --wheel
+      - name: Public API from the installed wheel (no extras)
+        run: uv run --no-project --isolated --with "$(ls dist/*.whl)" python .github/scripts/smoke_core.py
+
   # The declared lower bounds are real: install the oldest allowed release of
   # every direct dependency, on the oldest and newest supported Python.
   lowest-deps:
