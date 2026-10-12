@@ -35,7 +35,7 @@ class ApiSurfaceTests(unittest.TestCase):
 
     def test_the_function_signatures_are_the_pinned_ones(self):
         pinned = {
-            "load": "(source: 'PathLike') -> 'Trajectory'",
+            "load": "(source: 'PathLike', *, format: 'str | None' = None) -> 'Trajectory'",
             "compare": "(reference: 'Trajectory | PathLike', compared: 'Trajectory | PathLike', *, "
                        "fuzzy_commands: 'bool' = False) -> 'dict[str, Any]'",
             "write_report": "(source: 'Trajectory | PathLike', destination: 'PathLike | None' = None, *, "

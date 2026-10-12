@@ -16,9 +16,8 @@ from ..rendering import (
     render_toc_sidebar,
     render_workflow_html,
     workflow_agent_chip_options,
-    workflow_role,
 )
-from ..step_errors import step_error_kind
+from ..chart_data import WORKFLOW_FEATURE_FILTERS, WORKFLOW_ROLE_FILTERS, workflow_step_filters
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +28,8 @@ DETAIL_PLACEHOLDER = (
     "<p style='font-size:12px;'>Click any card on the left, or press <kbd>j</kbd>/<kbd>k</kbd> to navigate</p>"
     "</div></div>"
 )
-ROLE_FILTERS = ["Assistant", "User"]
-FEATURE_FILTERS = ["Tool Calls", "Errors", "Reasoning"]
+ROLE_FILTERS = list(WORKFLOW_ROLE_FILTERS)
+FEATURE_FILTERS = list(WORKFLOW_FEATURE_FILTERS)
 ALL_FEATURE_FILTER = "All"
 FILTER_CHIPS_DEFAULT = [*ROLE_FILTERS, ALL_FEATURE_FILTER]
 
@@ -56,25 +55,8 @@ def _prerender_step_details(steps: list[dict]) -> str:
 
 
 def _workflow_step_labels(step: dict) -> set[str]:
-    """Return every Workflow filter label that applies to *step*."""
-    labels: set[str] = set()
-    display = workflow_role(step)
-    if display == "user":
-        labels.add("User")
-    else:
-        # Everything that is not a human turn is the agent side: assistant
-        # turns, and agent-protocol messages that some exports store with other
-        # roles (task, system, compaction, Codex's `developer` instructions).
-        # An allow-list here left any other role matching NO filter, so the
-        # step was counted but could never be shown.
-        labels.add("Assistant")
-    if step.get("tool_call_count", 0) > 0:
-        labels.add("Tool Calls")
-    if step_error_kind(step) is not None:
-        labels.add("Errors")
-    if step.get("has_reasoning"):
-        labels.add("Reasoning")
-    return labels
+    """Return every Workflow filter label that applies to *step* (the library's rule)."""
+    return workflow_step_filters(step)
 
 
 def filter_workflow_steps(

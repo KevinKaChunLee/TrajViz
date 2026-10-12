@@ -78,7 +78,8 @@ _DRAW: dict[str, Callable[[Any, bool], go.Figure]] = {
     "tool_outcomes": lambda d, dark: _swimlanes.draw_tool_outcomes(d, dark=dark),
     "file_interactions": lambda d, dark: _activity.draw_file_interactions(d, dark=dark),
     "plan": lambda d, dark: _activity.build_plan_timeline_chart(d["history"], d["metrics"], dark=dark),
-    "context_pressure": lambda d, dark: _activity.build_context_pressure_chart([], series=d["series"], dark=dark),
+    "context_pressure": lambda d, dark: _activity.build_context_pressure_chart(
+        [], series=d["series"], dark=dark, highlight_step=d.get("highlight_step")),
     "context_usage": _context_usage,
     "milestone_timeline": lambda d, dark: _plain(
         _cvg.build_milestone_timeline_chart(d["reference"] or {}, d["compared"] or {}), dark),

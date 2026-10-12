@@ -109,9 +109,15 @@ class Trajectory:
 
         return build_views(self, self._analysis, only)
 
-    def view(self, view_id: str) -> View:
-        """One view by id (see :data:`VIEW_CATALOG`)."""
-        return self.views(only=[view_id])[view_id]
+    def view(self, view_id: str, **options: Any) -> View:
+        """One view by id (see :data:`VIEW_CATALOG`).
+
+        Some views take options, listed under ``"options"`` in the catalog --
+        for example ``run.view("context_pressure", agent=key, window_limit=200_000)``.
+        """
+        from .views import build_view
+
+        return build_view(self, self._analysis, view_id, options)
 
     def to_dict(self) -> dict[str, Any]:
         """A JSON-serializable copy: format, provenance, warnings and steps."""
@@ -127,16 +133,26 @@ class Trajectory:
         }
 
 
-def load(source: PathLike) -> Trajectory:
+def load(source: PathLike, *, format: str | None = None) -> Trajectory:
     """Load a trajectory file of any supported format (see :data:`FORMATS`).
 
-    The format is detected from the content. Raises :class:`LoadError` when the
-    file cannot be read, is not a supported format, or holds no steps.
+    The format is detected from the content. *format* (a key of
+    :data:`FORMATS`) requires that format instead: a file detected as another
+    format raises :class:`LoadError` with code ``"mismatch"``, and a file
+    whose format cannot be detected is read as *format*. Raises
+    :class:`LoadError` when the file cannot be read, is not a supported
+    format, or holds no steps; :class:`ValueError` for an unknown *format*.
     """
+    if format is not None and format not in FORMATS:
+        raise ValueError(f"unknown format {format!r}; expected one of: {', '.join(FORMATS)}")
     path = os.fspath(source)
-    raw = loaders.load_trajectory(path)
+    raw = loaders.load_trajectory(path, format_hint=format)
     if raw.get("_error"):
         raise LoadError(str(raw["_error"]), code=raw.get("_error_code") or "load_failed", path=path)
+    if format is not None and loaders.check_format_selection(loaders.detect_format(raw), format) == "mismatch":
+        raise LoadError(
+            f"the file is {loaders.detect_format(raw)}, not {format}", code="mismatch", path=path,
+        )
     steps = parse_steps(raw)
     fmt = raw.get("_source_format") or loaders.detect_format(raw)
     if not steps:

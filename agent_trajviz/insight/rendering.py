@@ -11,12 +11,12 @@ from pygments.lexers import get_lexer_by_name as _get_lexer, TextLexer as _TextL
 
 from .timeline_agents import bind_timeline_agents
 from .issues import _indices_for_step_range
+from .chart_data import step_category
 from .formats.common import as_text
 from .context_usage import PRESSURE_MAIN_AGENT, pressure_agent_key
 from .metrics import tool_call_duration_ms
 from .palette import AGENT_COLORS, AGENT_CSS_COLORS
 from .parser import _optional_token_count, cache_read_share
-from .step_errors import step_error_kind
 from .styles import WORKFLOW_CSS
 from .workflow_role import workflow_role
 
@@ -54,27 +54,26 @@ def _card_style(step: dict) -> tuple[str, str, str, str | None]:
     Colors are CSS variable references so they adapt to the active theme.
     ``error_kind`` is ``\"system\"``, ``\"tool\"``, or ``None``.
     """
-    stored = step.get("role", "")
-    stored_s = stored if isinstance(stored, str) else str(stored or "")
-    err_kind = step_error_kind(step)
-    if err_kind == "tool":
-        return "var(--wf-bg-error)", "var(--wf-border-error)", "Tool Error", err_kind
-    if err_kind == "system":
+    # The category is the library's (chart_data.step_category), so the cards
+    # and the exported workflow view classify every step the same way.
+    category = step_category(step)
+    if category == "tool_error":
+        return "var(--wf-bg-error)", "var(--wf-border-error)", "Tool Error", "tool"
+    if category == "system_error":
         return (
             "var(--wf-bg-system-error)",
             "var(--wf-border-system-error)",
             "System Error",
-            err_kind,
+            "system",
         )
-    if step.get("finish") == "stop" or step.get("finish") == "end_turn":
+    if category == "final":
         return "var(--wf-bg-final)", "var(--wf-border-final)", "Final", None
-    if step["tool_call_count"] > 0:
+    if category == "tool_calls":
         return "var(--wf-bg-tool)", "var(--wf-border-tool)", "Tool Calls", None
-    if step["has_reasoning"] and stored_s == "assistant":
+    if category == "reasoning":
         return "var(--wf-bg-reasoning)", "var(--wf-border-reasoning)", "Reasoning", None
-    role = workflow_role(step)
     bg, border, label = _ROLE_COLORS.get(
-        role, ("var(--wf-bg-default)", "var(--wf-border-default)", role.title()),
+        category, ("var(--wf-bg-default)", "var(--wf-border-default)", category.title()),
     )
     return bg, border, label, None
 

@@ -365,3 +365,80 @@ def file_interactions(
             "target": (os.path.normpath(path) if path else path) in norm_targets,
         })
     return {"agents": _agent_list(color_map, labels), "files": files, "interactions": rows}
+
+
+#: Workflow filter labels: who acted, and what the step contains.
+WORKFLOW_ROLE_FILTERS = ("Assistant", "User")
+WORKFLOW_FEATURE_FILTERS = ("Tool Calls", "Errors", "Reasoning")
+
+
+def workflow_step_filters(step: dict) -> set[str]:
+    """Every workflow filter label that applies to *step*.
+
+    A step is "User" only for a human turn; everything else -- assistant
+    turns, and agent-protocol messages some exports store with other roles
+    (task prompts, system, compaction) -- is the agent side, "Assistant".
+    """
+    labels: set[str] = {"User" if workflow_role(step) == "user" else "Assistant"}
+    if step.get("tool_call_count", 0) > 0:
+        labels.add("Tool Calls")
+    if step_error_kind(step) is not None:
+        labels.add("Errors")
+    if step.get("has_reasoning"):
+        labels.add("Reasoning")
+    return labels
+
+
+def step_category(step: dict) -> str:
+    """What a step card shows first: ``tool_error``, ``system_error``, ``final``,
+    ``tool_calls``, ``reasoning``, or the step's workflow role."""
+    stored = step.get("role", "")
+    stored_s = stored if isinstance(stored, str) else str(stored or "")
+    err_kind = step_error_kind(step)
+    if err_kind == "tool":
+        return "tool_error"
+    if err_kind == "system":
+        return "system_error"
+    if step.get("finish") in ("stop", "end_turn"):
+        return "final"
+    if step.get("tool_call_count", 0) > 0:
+        return "tool_calls"
+    if step.get("has_reasoning") and stored_s == "assistant":
+        return "reasoning"
+    return workflow_role(step)
+
+
+def workflow(steps: list[dict]) -> dict:
+    """One entry per step for a step browser: who acted, what it contains, filters.
+
+    ``role`` is the workflow role (``user`` only for human turns; ``task``,
+    ``system``, ``compaction`` for agent-protocol messages), ``category`` what
+    the step's card leads with (see :func:`step_category`), ``filters`` the
+    filter labels it matches, and ``agent`` its timeline agent. ``agents`` is
+    empty for a single-agent run.
+    """
+    color_map, labels, agent_id_of = bind_timeline_agents(steps) if steps else ({}, {}, None)
+    rows = []
+    for position, s in enumerate(steps):
+        if not isinstance(s, dict):
+            continue
+        tokens = s.get("tokens") or {}
+        rows.append({
+            "position": position,
+            "step": s.get("index", position),
+            "role": workflow_role(s),
+            "category": step_category(s),
+            "agent": agent_id_of(s) if agent_id_of else "",
+            "filters": sorted(workflow_step_filters(s)),
+            "error_kind": step_error_kind(s),
+            "tool_calls": s.get("tool_call_count", 0),
+            "reasoning": bool(s.get("has_reasoning")),
+            "finish": s.get("finish"),
+            "duration_s": s.get("duration"),
+            "tokens": tokens.get("total"),
+        })
+    return {
+        "agents": _agent_list(color_map, labels) if len(color_map) > 1 else [],
+        "filters": {"roles": list(WORKFLOW_ROLE_FILTERS), "features": list(WORKFLOW_FEATURE_FILTERS)},
+        "steps": rows,
+    }

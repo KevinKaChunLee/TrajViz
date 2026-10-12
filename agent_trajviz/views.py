@@ -27,7 +27,13 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 from .insight import chart_data
-from .insight.context_usage import context_pressure_stats, context_usage_breakdown
+from .insight.context_usage import (
+    PRESSURE_ALL_AGENTS,
+    context_pressure_series,
+    context_pressure_stats,
+    context_usage_breakdown,
+    usage_snapshot_choices,
+)
 
 if TYPE_CHECKING:
     from .api import Trajectory
@@ -97,7 +103,9 @@ class _Spec:
     kind: ViewKind
     title: str
     description: str
-    build: Callable[[Trajectory, Analysis], Any]
+    build: Callable[..., Any]
+    #: Keyword options ``build`` accepts (documented in the catalog).
+    options: Mapping[str, str] = dataclasses.field(default_factory=dict)
 
 
 def _summary(run: Trajectory, a: Analysis) -> dict[str, Any]:
@@ -122,8 +130,41 @@ def _summary(run: Trajectory, a: Analysis) -> dict[str, Any]:
     }
 
 
-def _context_pressure(run: Trajectory, a: Analysis) -> dict[str, Any]:
-    return {"stats": context_pressure_stats(a.pressure_series), "series": a.pressure_series}
+def _context_pressure(
+    run: Trajectory,
+    a: Analysis,
+    *,
+    agent: str | None = None,
+    window_limit: int | float | None = None,
+    snapshot_step: int | None = None,
+) -> dict[str, Any]:
+    key = agent or PRESSURE_ALL_AGENTS
+    if key == PRESSURE_ALL_AGENTS and window_limit is None:
+        series = a.pressure_series
+    else:
+        series = context_pressure_series(run.steps, agent_key=key, raw=run.raw, window_limit=window_limit)
+    return {
+        "agent": key,
+        "agents": [{"label": label, "key": value} for label, value in a.pressure_choices],
+        "highlight_step": snapshot_step,
+        "stats": context_pressure_stats(series),
+        "series": series,
+    }
+
+
+def _context_usage(
+    run: Trajectory,
+    a: Analysis,
+    *,
+    agent: str | None = None,
+    snapshot_step: int | None = None,
+    window_limit: int | float | None = None,
+) -> dict[str, Any]:
+    breakdown = context_usage_breakdown(
+        run.steps, raw=run.raw, agent_key=agent, window_limit=window_limit, snapshot_step=snapshot_step,
+    )
+    snapshots = usage_snapshot_choices(run.steps, agent_key=agent)
+    return {**breakdown, "snapshots": [{"label": label, "value": value} for label, value in snapshots]}
 
 
 def _plan(run: Trajectory, a: Analysis) -> dict[str, Any]:
@@ -220,12 +261,24 @@ _SPECS: dict[str, _Spec] = {
     "context_pressure": _Spec(
         "chart", "Context window pressure",
         "Context-window occupancy per agent by step, compaction events, and the window it is measured "
-        "against (with how that window was determined).",
-        _context_pressure),
+        "against (with how that window was determined). `agents` lists the agent keys it can show.",
+        _context_pressure,
+        {"agent": "agent key from `agents` (default: all agents)",
+         "window_limit": "context window in tokens, overriding the declared or inferred one",
+         "snapshot_step": "step to highlight (a pre-compaction snapshot)"}),
     "context_usage": _Spec(
         "chart", "Context composition",
-        "What fills the current context window, by category, at the latest occupancy point.",
-        lambda run, a: context_usage_breakdown(run.steps, raw=run.raw)),
+        "What fills one agent's context window, by category, at the latest occupancy point or a "
+        "snapshot. `snapshots` lists the selectable pre-compaction points.",
+        _context_usage,
+        {"agent": "agent key (default: all agents)",
+         "snapshot_step": "a step from `snapshots` (default: the current window)",
+         "window_limit": "context window in tokens"}),
+    "workflow": _Spec(
+        "table", "Workflow",
+        "One entry per step for a step browser: workflow role, what the step leads with, its agent, "
+        "and the filter labels it matches. Step contents are in Trajectory.steps.",
+        lambda run, a: chart_data.workflow(run.steps)),
     "phases": _Spec(
         "table", "Workflow phases",
         "Contiguous structural phases of the run (exploration, editing, validation, ...).",
@@ -281,24 +334,36 @@ _SPECS: dict[str, _Spec] = {
         lambda run, a: a.diagnostic_metrics),
 }
 
-#: Single-run view id -> ``{"title", "kind", "description"}``, in display order.
-VIEW_CATALOG: Mapping[str, Mapping[str, str]] = MappingProxyType({
-    vid: MappingProxyType({"title": spec.title, "kind": spec.kind, "description": spec.description})
+#: Single-run view id -> ``{"title", "kind", "description", "options"}``, in display order.
+#: ``options`` maps each keyword :meth:`Trajectory.view` accepts for the view to its meaning.
+VIEW_CATALOG: Mapping[str, Mapping[str, Any]] = MappingProxyType({
+    vid: MappingProxyType({"title": spec.title, "kind": spec.kind, "description": spec.description,
+                           "options": MappingProxyType(dict(spec.options))})
     for vid, spec in _SPECS.items()
 })
 
 
+def build_view(run: Trajectory, analysis: Analysis, view_id: str, options: Mapping[str, Any] | None = None) -> View:
+    """One view of *run* (see :meth:`Trajectory.view`)."""
+    try:
+        spec = _SPECS[view_id]
+    except KeyError:
+        raise KeyError(f"unknown view id: {view_id}; see agent_trajviz.VIEW_CATALOG") from None
+    options = dict(options or {})
+    bad = sorted(set(options) - set(spec.options))
+    if bad:
+        raise TypeError(f"view {view_id!r} takes no option(s) {', '.join(bad)}; "
+                        f"it takes: {', '.join(spec.options) or 'none'}")
+    return View(view_id, spec.title, spec.kind, spec.description, _jsonable(spec.build(run, analysis, **options)))
+
+
 def build_views(run: Trajectory, analysis: Analysis, only: Iterable[str] | None = None) -> dict[str, View]:
-    """Views of *run*, computed from *analysis* (see :meth:`Trajectory.views`)."""
+    """Views of *run* with default options, computed from *analysis* (see :meth:`Trajectory.views`)."""
     ids = list(_SPECS) if only is None else list(only)
     unknown = [vid for vid in ids if vid not in _SPECS]
     if unknown:
         raise KeyError(f"unknown view id(s): {', '.join(unknown)}; see agent_trajviz.VIEW_CATALOG")
-    out: dict[str, View] = {}
-    for vid in ids:
-        spec = _SPECS[vid]
-        out[vid] = View(vid, spec.title, spec.kind, spec.description, _jsonable(spec.build(run, analysis)))
-    return out
+    return {vid: build_view(run, analysis, vid) for vid in ids}
 
 
 _COMPARISON_SPECS: dict[str, tuple[ViewKind, str, str, Callable[[dict], Any]]] = {
