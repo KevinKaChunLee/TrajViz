@@ -6,6 +6,7 @@ label Bash failure clusters without a patterns circular import.
 
 from __future__ import annotations
 
+import functools
 import re
 import shlex
 
@@ -46,7 +47,21 @@ _WIN_CMD_HINT_RE = re.compile(r"(?i)(?:[A-Za-z]:\\|\.exe\b)")
 
 
 def _shell_segments(command: str) -> list[list[str]]:
-    """Lex shell command segments without evaluating or executing anything."""
+    """Lex shell command segments without evaluating or executing anything.
+
+    Lexing is the costly part of naming a tool call, and every chart that
+    names calls asks again, so results are cached per command string; callers
+    get fresh lists and may modify them.
+    """
+    return [list(segment) for segment in _shell_segments_cached(command)]
+
+
+@functools.lru_cache(maxsize=4096)
+def _shell_segments_cached(command: str) -> tuple[tuple[str, ...], ...]:
+    return tuple(tuple(segment) for segment in _shell_segments_uncached(command))
+
+
+def _shell_segments_uncached(command: str) -> list[list[str]]:
     if "\\" in command and _WIN_CMD_HINT_RE.search(command):
         command = command.replace("\\", "/")
     lexer = shlex.shlex(command, posix=True, punctuation_chars=_SHELL_PUNCTUATION)

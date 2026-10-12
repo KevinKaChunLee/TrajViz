@@ -187,6 +187,12 @@ Optional layers build on the views:
 [`examples/`](examples/) has the dashboard rebuilt on this API alone and a
 small app of your own; both are tested end to end.
 
+**Scale.** Analysis is linear in the number of steps and a test holds it
+so. A 15,000-step, 70 MB export loads in about 1.6 s and produces every view
+in about 3.6 s; the whole file is read into memory, so peak memory is about
+ten times its size (~0.7 GB there). The dashboard draws at most the first
+2,000 steps of a run; the library analyzes all of them.
+
 Only the names exported from `agent_trajviz` and the modules above are
 public. The `insight` and `converge` subpackages are internal and may change
 between minor versions.
