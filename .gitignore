@@ -65,3 +65,6 @@ data/
 *.trajectory.json.gz
 example_data
 .hypothesis/
+
+# The API reference built by pdoc (see the README).
+site/

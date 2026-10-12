@@ -134,6 +134,30 @@ jobs:
           /tmp/app/bin/python -c "from agent_trajviz.insight.insight import build_ui; build_ui()"
           /tmp/app/bin/python -c "from agent_trajviz.converge.app import build_ui; build_ui()"
 
+  # The API reference, built from the docstrings of the public modules. It is
+  # kept as an artifact to download, not deployed anywhere.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Install (locked)
+        run: uv sync --locked --extra dev
+      - name: Build the API reference
+        run: >
+          uv run --locked --with "pdoc>=15" pdoc --docformat restructuredtext -o site
+          agent_trajviz agent_trajviz.figures agent_trajviz.dashboard agent_trajviz.llm agent_trajviz.attribution
+      - name: Upload the API reference
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: api-reference
+          path: site/
+          retention-days: 14
+
   # Coverage is reported, not assumed. Separate job so a coverage dip reads
   # differently from a test failure.
   #

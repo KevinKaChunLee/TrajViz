@@ -581,7 +581,11 @@ uv sync --extra dev                          # locked environment with every ext
 uv run pytest                                # test suite
 uv run ruff check agent_trajviz tests examples   # lint
 uv run --with mypy mypy --strict agent_trajviz/__init__.py agent_trajviz/api.py \
-    agent_trajviz/errors.py agent_trajviz/model.py agent_trajviz/views.py   # the typed public API
+    agent_trajviz/errors.py agent_trajviz/model.py agent_trajviz/views.py \
+    agent_trajviz/plugins.py                 # the typed public API
+uv run --with pdoc pdoc --docformat restructuredtext -o site agent_trajviz \
+    agent_trajviz.figures agent_trajviz.dashboard agent_trajviz.llm agent_trajviz.attribution
+                                             # the API reference, as HTML in site/
 uv build                                     # sdist + wheel into dist/
 uv lock --upgrade                            # refresh the locked test environment
 ```
@@ -590,6 +594,10 @@ Dependency lower bounds in `pyproject.toml` are the oldest releases the suite
 passes with; CI installs them (`uv pip install --resolution lowest-direct
 ".[dev]"`) on the oldest and newest supported Python. Releases are published
 to PyPI from a `v*` tag by `.github/workflows/release.yml`.
+
+CI builds the same API reference from the docstrings on every push and keeps
+it as the `api-reference` artifact; a test holds every public name to having a
+docstring.
 
 Tests that need the optional DECAF checkout skip when it is absent. Changes
 are recorded in [CHANGELOG.md](./CHANGELOG.md); see [SECURITY.md](./SECURITY.md)
