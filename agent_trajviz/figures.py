@@ -24,6 +24,7 @@ import plotly.graph_objects as go  # noqa: E402
 
 from .converge import charts as _cvg  # noqa: E402
 from .insight.charts import activity as _activity  # noqa: E402
+from .insight.charts import label_charts as _labels  # noqa: E402
 from .insight.charts import swimlanes as _swimlanes  # noqa: E402
 from .insight.charts import usage as _usage  # noqa: E402
 from .insight.charts._layout import _apply_chart_layout, _apply_dark, _empty_figure  # noqa: E402
@@ -81,6 +82,20 @@ _DRAW: dict[str, Callable[[Any, bool], go.Figure]] = {
     "context_pressure": lambda d, dark: _activity.build_context_pressure_chart(
         [], series=d["series"], dark=dark, highlight_step=d.get("highlight_step")),
     "context_usage": _context_usage,
+    "label_phase_counts": lambda d, dark: _labels.build_label_phase_count_chart(d["counts"], dark=dark),
+    "label_action_counts": lambda d, dark: _labels.build_label_action_count_chart(
+        d["counts"], d["action_to_phase"], dark=dark),
+    "label_phase_durations": lambda d, dark: _labels.build_label_phase_duration_chart(d["durations_s"], dark=dark),
+    "label_action_durations": lambda d, dark: _labels.build_label_action_duration_chart(
+        d["durations_s"], d["action_to_phase"], dark=dark),
+    "label_timeline": lambda d, dark: _labels.build_label_timeline_chart(d["steps"], dark=dark),
+    "label_phase_count_comparison": lambda d, dark: _labels.build_phase_count_comparison_chart(
+        d["reference"]["counts"], d["compared"]["counts"],
+        ref_label=d["reference"]["name"], cmp_label=d["compared"]["name"], dark=dark),
+    "label_phase_duration_comparison": lambda d, dark: _labels.build_phase_duration_comparison_chart(
+        d["reference"]["durations_s"], d["compared"]["durations_s"],
+        ref_label=d["reference"]["name"], cmp_label=d["compared"]["name"], dark=dark),
+    "run_timelines": lambda d, dark: _swimlanes.draw_run_timelines(d, dark=dark),
     "milestone_timeline": lambda d, dark: _plain(
         _cvg.build_milestone_timeline_chart(d["reference"] or {}, d["compared"] or {}), dark),
     "segment_costs": lambda d, dark: _plain(

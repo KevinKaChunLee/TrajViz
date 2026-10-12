@@ -27,7 +27,14 @@ from .metrics import (
 from .parser import token_segments, usable_token_count
 from .shell_cmd import tool_call_hint, tool_chart_name
 from .step_errors import step_error_kind
-from .timeline_agents import _legend_label, bind_timeline_agents
+from .timeline_agents import (
+    _disambiguate_timeline_labels,
+    _legend_label,
+    _timeline_agent_id,
+    _timeline_context,
+    _timeline_display_label,
+    bind_timeline_agents,
+)
 from .tool_failure import tool_call_failed
 from .workflow_role import workflow_role
 
@@ -442,3 +449,59 @@ def workflow(steps: list[dict]) -> dict:
         "filters": {"roles": list(WORKFLOW_ROLE_FILTERS), "features": list(WORKFLOW_FEATURE_FILTERS)},
         "steps": rows,
     }
+
+
+def run_timelines(runs: list[dict]) -> dict:
+    """Each run's contiguous agent segments, for an N-run timeline.
+
+    *runs* are ``{"run_id", "label", "steps"}`` dicts. Segments carry the
+    agent, its label in that run, and a ``bucket`` -- the agent's display name
+    before disambiguation -- so the same kind of agent (``explore``,
+    ``plan``, ``main``) shares a colour across runs; ``buckets`` lists them in
+    palette order. Runs without steps are left out.
+    """
+    usable = [r for r in runs if isinstance(r, dict) and (r.get("steps") or [])]
+    buckets: list[str] = ["main"]
+    out_runs = []
+    for run in usable:
+        steps = [s for s in (run.get("steps") or []) if isinstance(s, dict)]
+        multi, use_names, primary = _timeline_context(steps)
+
+        def agent_of(step: dict, multi=multi, use_names=use_names, primary=primary) -> str:
+            return _timeline_agent_id(step, multi_session=multi, use_agent_names=use_names, primary_agents=primary)
+
+        ids_in_run: list[str] = []
+        for s in steps:
+            aid = agent_of(s)
+            if aid not in ids_in_run:
+                ids_in_run.append(aid)
+        label_map = _disambiguate_timeline_labels(ids_in_run, steps)
+        bucket_of = {aid: _timeline_display_label(aid, steps) for aid in ids_in_run}
+        for aid in ids_in_run:
+            if bucket_of[aid] not in buckets:
+                buckets.append(bucket_of[aid])
+
+        segments: list[dict] = []
+        cur: dict | None = None
+        for s in steps:
+            aid = agent_of(s)
+            idx = int(s.get("index") if s.get("index") is not None else 0)
+            tok = int((s.get("tokens") or {}).get("total") or 0)
+            tools = int(s.get("tool_call_count") or 0)
+            if cur is not None and aid == cur["agent"] and idx == cur["end"] + 1:
+                cur.update(end=idx, tokens=cur["tokens"] + tok, tool_calls=cur["tool_calls"] + tools)
+                continue
+            if cur is not None:
+                segments.append(cur)
+            cur = {"agent": aid, "agent_label": _legend_label(aid, label_map), "bucket": bucket_of[aid],
+                   "start": idx, "end": idx, "tokens": tok, "tool_calls": tools}
+        if cur is not None:
+            segments.append(cur)
+        for seg in segments:
+            seg["steps"] = seg["end"] - seg["start"] + 1
+        out_runs.append({
+            "run_id": run.get("run_id"),
+            "label": str(run.get("label") or run.get("run_id") or "run"),
+            "segments": segments,
+        })
+    return {"buckets": buckets, "runs": out_runs}

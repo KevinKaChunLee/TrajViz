@@ -17,7 +17,17 @@ import logging
 from .api import FORMATS, SCHEMA_VERSION, Trajectory, compare, load, write_report
 from .errors import LoadError, MissingExtraError, ReportError, TrajVizError
 from .model import Step, TokenUsage, ToolCall
-from .views import VIEW_CATALOG, VIEWS_SCHEMA_VERSION, View, comparison_views, export_json
+from .views import (
+    VIEW_CATALOG,
+    VIEWS_SCHEMA_VERSION,
+    View,
+    compare_runs,
+    comparison_views,
+    export_json,
+    label_comparison_views,
+    label_views,
+    run_group_views,
+)
 
 __version__ = "0.1.0"
 
@@ -39,8 +49,12 @@ __all__ = [
     "TrajVizError",
     "View",
     "compare",
+    "compare_runs",
     "comparison_views",
     "export_json",
+    "label_comparison_views",
+    "label_views",
     "load",
+    "run_group_views",
     "write_report",
 ]

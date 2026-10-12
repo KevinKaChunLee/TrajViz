@@ -15,13 +15,6 @@ import plotly.graph_objects as go
 
 from .. import chart_data
 from ..palette import SESSION_COLORS, TOOL_OUTCOME_COLORS, USER_SWIMLANE_COLOR
-from ..timeline_agents import (
-    _disambiguate_timeline_labels,
-    _legend_label,
-    _timeline_agent_id,
-    _timeline_context,
-    _timeline_display_label,
-)
 
 USER_SWIMLANE_ID = chart_data.USER_LANE_ID
 USER_SWIMLANE_LABEL = chart_data.USER_LANE_LABEL
@@ -105,74 +98,37 @@ def build_run_group_agent_timeline(
 ) -> go.Figure:
     """Compact N-run agent timeline: one horizontal lane per run.
 
+    Drawn from :func:`chart_data.run_timelines`; see :func:`draw_run_timelines`.
+    """
+    return draw_run_timelines(chart_data.run_timelines(runs), dark=dark)
+
+
+def draw_run_timelines(data: dict, dark: bool = False) -> go.Figure:
+    """Draw :func:`chart_data.run_timelines` output.
+
     Each run dict needs ``label`` (or ``run_id``) and ``steps`` (parsed).
     Segments within a lane are colored by session / subagent / agent mode
     (see ``_timeline_context``); shared display names share colors across runs.
     """
-    usable = [r for r in runs if isinstance(r, dict) and (r.get("steps") or [])]
-    if not usable:
+    runs = data["runs"]
+    if not runs:
         fig = _empty_figure(200, "No agent activity across runs.")
         _apply_dark(fig, dark)
         return fig
-
-    # Per-run context + shared palette keyed by display label (explore/plan/main)
-    run_meta: list[tuple[dict, bool, bool, dict[str, str], dict[str, str], list[dict]]] = []
-    color_map: dict[str, int] = {"main": 0}
-    next_idx = 1
-    for run in usable:
-        steps = [s for s in (run.get("steps") or []) if isinstance(s, dict)]
-        multi, use_names, primary = _timeline_context(steps)
-        ids_in_run: list[str] = []
-        seen: set[str] = set()
-        for s in steps:
-            aid = _timeline_agent_id(s, multi_session=multi, use_agent_names=use_names, primary_agents=primary)
-            if aid not in seen:
-                ids_in_run.append(aid)
-                seen.add(aid)
-        label_map = _disambiguate_timeline_labels(ids_in_run, steps)
-        run_meta.append((run, multi, use_names, label_map, primary, steps))
-        for aid in ids_in_run:
-            # Color by pre-disambiguation display name so explore matches across runs
-            bucket = _timeline_display_label(aid, steps)
-            if bucket not in color_map:
-                color_map[bucket] = next_idx
-                next_idx += 1
+    palette_index = {bucket: i for i, bucket in enumerate(data["buckets"])}
 
     fig = go.Figure()
     legend_seen: set[str] = set()
     y_labels: list[str] = []
 
     # First loaded run at top
-    for run, multi, use_names, label_map, primary, steps in reversed(run_meta):
-        label = str(run.get("label") or run.get("run_id") or "run")
+    for run in reversed(runs):
+        label = run["label"]
         y_labels.append(label)
-
-        segments: list[tuple[str, str, int, int, int, int]] = []
-        cur_id: str | None = None
-        cur_dlabel = ""
-        start = end = tok = tools = 0
-        for s in steps:
-            aid = _timeline_agent_id(s, multi_session=multi, use_agent_names=use_names, primary_agents=primary)
-            dlabel = _legend_label(aid, label_map)
-            idx = int(s.get("index") if s.get("index") is not None else 0)
-            stok = int((s.get("tokens") or {}).get("total") or 0)
-            stools = int(s.get("tool_call_count") or 0)
-            if cur_id is None:
-                cur_id, cur_dlabel = aid, dlabel
-                start, end, tok, tools = idx, idx, stok, stools
-            elif aid == cur_id and idx == end + 1:
-                end, tok, tools = idx, tok + stok, tools + stools
-            else:
-                segments.append((cur_id, cur_dlabel, start, end, tok, tools))
-                cur_id, cur_dlabel = aid, dlabel
-                start, end, tok, tools = idx, idx, stok, stools
-        if cur_id is not None:
-            segments.append((cur_id, cur_dlabel, start, end, tok, tools))
-
-        for aid, dlabel, seg_start, seg_end, seg_tok, seg_tools in segments:
+        for seg in run["segments"]:
+            dlabel, seg_start, seg_end = seg["agent_label"], seg["start"], seg["end"]
             width = seg_end - seg_start + 1
-            bucket = _timeline_display_label(aid, steps)
-            pal_i = color_map.get(bucket, color_map.get("main", 0))
+            pal_i = palette_index.get(seg["bucket"], palette_index.get("main", 0))
             hex_c = SESSION_COLORS[pal_i % len(SESSION_COLORS)]
             show_leg = dlabel not in legend_seen
             if show_leg:
@@ -190,13 +146,13 @@ def build_run_group_agent_timeline(
                     hovertext=(
                         f"<b>{label}</b><br>{dlabel}<br>"
                         f"steps {seg_start}–{seg_end} ({width})<br>"
-                        f"{seg_tok:,} tokens, {seg_tools} tool calls"
+                        f"{seg['tokens']:,} tokens, {seg['tool_calls']} tool calls"
                     ),
                     hoverinfo="text",
                 )
             )
 
-    n = len(usable)
+    n = len(runs)
     _apply_chart_layout(
         fig,
         "Agent timeline (by run)",

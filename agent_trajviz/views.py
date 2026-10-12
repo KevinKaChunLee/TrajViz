@@ -464,3 +464,138 @@ def export_json(
                      trajectory_file="trajectory.json")
     _write("index.json", index)
     return written
+
+
+# -- step labels (agent-trajviz-label sidecars) --------------------------------
+
+def _labels_data(source: str | os.PathLike[str] | Mapping[str, Any]) -> dict[str, Any]:
+    from .errors import LoadError
+    from .insight.labels import load_labeled_json
+
+    if isinstance(source, Mapping):
+        return dict(source)
+    path = os.fspath(source)
+    try:
+        return load_labeled_json(path)
+    except (OSError, ValueError) as exc:
+        raise LoadError(f"not a step-labels file: {exc}", code="invalid_labels", path=path) from exc
+
+
+def label_views(source: str | os.PathLike[str] | Mapping[str, Any]) -> dict[str, View]:
+    """Views of a step-labels sidecar written by ``agent-trajviz-label``.
+
+    *source* is the ``*_labeled.json`` path or its parsed content. Steps
+    labelled ``unknown`` count in ``labels_summary`` but are left out of the
+    distributions and the timeline. Raises :class:`LoadError` (code
+    ``"invalid_labels"``) for a file that is not a labels sidecar.
+    """
+    from .insight.labels import aggregate_labels
+
+    agg = aggregate_labels(_labels_data(source))
+    specs: list[tuple[str, ViewKind, str, str, Any]] = [
+        ("labels_summary", "summary", "Labels summary",
+         "Assistant steps labelled, how many were classified, and the taxonomy and model used.",
+         {k: agg.get(k) for k in ("total", "classified", "unknown", "classification_rate",
+                                  "taxonomy_version", "model")} | {"phases": len(agg["phase_counts"])}),
+        ("label_phase_counts", "chart", "Steps by phase",
+         "Classified assistant steps per workflow phase.",
+         {"counts": agg["phase_counts"]}),
+        ("label_action_counts", "chart", "Steps by action",
+         "Classified assistant steps per action, with each action's phase.",
+         {"counts": agg["action_counts"], "action_to_phase": agg["action_to_phase"]}),
+        ("label_phase_durations", "chart", "Time by phase",
+         "Seconds spent in each phase.",
+         {"durations_s": agg["phase_durations"]}),
+        ("label_action_durations", "chart", "Time by action",
+         "Seconds spent in each action, with each action's phase.",
+         {"durations_s": agg["action_durations"], "action_to_phase": agg["action_to_phase"]}),
+        ("label_timeline", "chart", "Label timeline",
+         "Every labelled step in order with its phase, action and duration (user turns included).",
+         {"steps": agg["steps"]}),
+    ]
+    return {vid: View(vid, title, kind, desc, _jsonable(data)) for vid, kind, title, desc, data in specs}
+
+
+def label_comparison_views(
+    reference: str | os.PathLike[str] | Mapping[str, Any],
+    compared: str | os.PathLike[str] | Mapping[str, Any],
+    *,
+    reference_name: str = "reference",
+    compared_name: str = "compared",
+) -> dict[str, View]:
+    """Phase counts and time of two labelled runs side by side."""
+    from .insight.labels import aggregate_labels
+
+    ref, cmp_ = aggregate_labels(_labels_data(reference)), aggregate_labels(_labels_data(compared))
+    return {
+        "label_phase_count_comparison": View(
+            "label_phase_count_comparison", "Steps by phase, compared", "chart",
+            "Classified steps per phase in each run.",
+            _jsonable({"reference": {"name": reference_name, "counts": ref["phase_counts"]},
+                       "compared": {"name": compared_name, "counts": cmp_["phase_counts"]}})),
+        "label_phase_duration_comparison": View(
+            "label_phase_duration_comparison", "Time by phase, compared", "chart",
+            "Seconds per phase in each run.",
+            _jsonable({"reference": {"name": reference_name, "durations_s": ref["phase_durations"]},
+                       "compared": {"name": compared_name, "durations_s": cmp_["phase_durations"]}})),
+    }
+
+
+# -- run groups ------------------------------------------------------------------
+
+def compare_runs(
+    sources: Iterable[Trajectory | str | os.PathLike[str]],
+    *,
+    labels: Iterable[str] | None = None,
+    format: str | None = None,
+    fuzzy_commands: bool = False,
+) -> dict[str, Any]:
+    """Score several runs side by side; the first is the baseline.
+
+    Returns ``{"rows", "behavior", "timelines"}``: one scorecard row per run
+    (a run that cannot be read gets a row with its ``error``), the behavioural
+    comparison (similarity, shared actions, files, tools and skills, patterns
+    against the baseline) and :func:`run_group_views`' timeline data. *labels*
+    names the runs (default: from their file names). Raises
+    :class:`ValueError` for fewer than two runs.
+    """
+    from .api import Trajectory
+    from .insight.run_group import build_run_group_scorecard
+
+    paths = []
+    for src in sources:
+        if isinstance(src, Trajectory):
+            if not src.source:
+                raise ValueError("a Trajectory to compare must have been loaded from a file")
+            paths.append(src.source)
+        else:
+            paths.append(os.fspath(src))
+    result = build_run_group_scorecard(
+        paths, labels=list(labels) if labels is not None else None, format_hint=format, fuzzy=fuzzy_commands,
+    )
+    if not result.get("ok"):
+        raise ValueError(result.get("error") or "the runs could not be compared")
+    return _jsonable({
+        "rows": result["rows"],
+        "behavior": result["behavior"],
+        "timelines": chart_data.run_timelines(result["timeline_runs"]),
+    })
+
+
+def run_group_views(result: Mapping[str, Any]) -> dict[str, View]:
+    """Views of a :func:`compare_runs` result, keyed by id."""
+    return {
+        "run_scorecard": View(
+            "run_scorecard", "Run scorecard", "table",
+            "One row per run: steps, tokens, wall clock, tool calls and success, context peak, compactions.",
+            _jsonable(result["rows"])),
+        "run_behavior": View(
+            "run_behavior", "Behavioural comparison", "summary",
+            "Pairwise similarity, and which actions, files, tools and skills each run used, with "
+            "patterns against the baseline (the first run).",
+            _jsonable(result["behavior"])),
+        "run_timelines": View(
+            "run_timelines", "Agent timeline by run", "chart",
+            "Each run's contiguous agent segments; the same kind of agent shares a colour across runs.",
+            _jsonable(result["timelines"])),
+    }

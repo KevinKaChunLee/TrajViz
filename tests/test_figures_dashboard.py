@@ -37,7 +37,12 @@ class FigureTests(unittest.TestCase):
         charts = {vid for vid, info in tv.VIEW_CATALOG.items() if info["kind"] == "chart"}
         comparison = {vid for vid, v in tv.comparison_views(tv.compare(self.traj, self.traj)).items()
                       if v.kind == "chart"}
-        self.assertEqual(self.figures.FIGURE_VIEWS, charts | comparison)
+        group = {vid for vid, v in tv.run_group_views(tv.compare_runs([CC_RUN, CC_RUN])).items()
+                 if v.kind == "chart"}
+        labels = {"label_phase_counts", "label_action_counts", "label_phase_durations",
+                  "label_action_durations", "label_timeline",
+                  "label_phase_count_comparison", "label_phase_duration_comparison"}
+        self.assertEqual(self.figures.FIGURE_VIEWS, charts | comparison | group | labels)
 
     def test_plan_and_pressure_figures_match_the_dashboard(self):
         from agent_trajviz.insight.charts import activity

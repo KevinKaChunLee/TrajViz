@@ -29,6 +29,7 @@ class ApiSurfaceTests(unittest.TestCase):
             "FORMATS", "SCHEMA_VERSION", "LoadError", "MissingExtraError", "ReportError", "Step",
             "TokenUsage", "ToolCall", "Trajectory", "TrajVizError", "compare", "load", "write_report",
             "VIEWS_SCHEMA_VERSION", "VIEW_CATALOG", "View", "comparison_views", "export_json",
+            "compare_runs", "label_comparison_views", "label_views", "run_group_views",
         ]))
         for name in tv.__all__:
             self.assertTrue(hasattr(tv, name), name)
