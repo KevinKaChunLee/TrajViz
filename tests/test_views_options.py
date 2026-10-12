@@ -46,6 +46,26 @@ class LoadFormatTests(unittest.TestCase):
             tv.load(CC_RUN, format="no-such-format")
 
 
+class CompareAnchorTests(unittest.TestCase):
+    """The Comparison tab's optional anchor patch is `compare(..., anchor_patch=)`."""
+
+    def test_an_anchor_patch_grounds_the_report(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".patch", delete=False) as fh:
+            fh.write("diff --git a/django/core/checks/urls.py b/django/core/checks/urls.py\n"
+                     "--- a/django/core/checks/urls.py\n+++ b/django/core/checks/urls.py\n@@ -1 +1 @@\n-x\n+y\n")
+        plain = tv.compare(CC_RUN, CC_RUN)
+        anchored = tv.compare(CC_RUN, CC_RUN, anchor_patch=fh.name)
+        self.assertIsNone(plain["anchor_analysis"])
+        self.assertIsNotNone(anchored["anchor_analysis"])
+        self.assertNotEqual(anchored["anchor_mode"], plain["anchor_mode"])
+
+    def test_a_missing_anchor_patch_is_an_error(self):
+        with self.assertRaises(FileNotFoundError):
+            tv.compare(CC_RUN, CC_RUN, anchor_patch=FIXTURES / "no_such.patch")
+
+
 class ContextPressureOptionTests(unittest.TestCase):
     def setUp(self):
         self.traj = tv.load(CC_RUN)

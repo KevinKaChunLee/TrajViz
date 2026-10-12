@@ -169,20 +169,31 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
 
 
 def compare(reference: Trajectory | PathLike, compared: Trajectory | PathLike, *,
-            fuzzy_commands: bool = False) -> dict[str, Any]:
+            fuzzy_commands: bool = False, anchor_patch: PathLike | None = None) -> dict[str, Any]:
     """Align two runs of the same task and report where they diverge.
 
     Accepts loaded trajectories or file paths. The report includes the step
     alignment, divergence points, outcome and a confidence label; see the
     ``agent-trajviz-converge`` command for the same report from the shell.
+    *anchor_patch* is a unified diff of the intended change (for example the
+    task's reference patch): the comparison is then grounded on the files it
+    touches, and the report gains an anchor analysis. A patch with no
+    recognizable ``a/``/``b/`` headers leaves the comparison un-anchored.
     """
-    from .converge.alignment import build_comparison_report_from_steps
+    from .converge.alignment import _parse_anchor_files, build_comparison_report_from_steps
 
+    anchor_files = None
+    if anchor_patch is not None:
+        patch = os.fspath(anchor_patch)
+        if not os.path.isfile(patch):
+            raise FileNotFoundError(f"anchor patch not found: {patch}")
+        anchor_files = _parse_anchor_files(patch)
     ref = reference if isinstance(reference, Trajectory) else load(reference)
     cmp = compared if isinstance(compared, Trajectory) else load(compared)
     return build_comparison_report_from_steps(
         ref.raw, cmp.raw, _plain(ref.steps), _plain(cmp.steps),
-        fuzzy_commands=fuzzy_commands, ref_path=ref.source or "", cmp_path=cmp.source or "",
+        fuzzy_commands=fuzzy_commands, anchor_files=anchor_files,
+        ref_path=ref.source or "", cmp_path=cmp.source or "",
     )
 
 

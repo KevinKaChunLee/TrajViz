@@ -38,7 +38,8 @@ class ApiSurfaceTests(unittest.TestCase):
         pinned = {
             "load": "(source: 'PathLike', *, format: 'str | None' = None) -> 'Trajectory'",
             "compare": "(reference: 'Trajectory | PathLike', compared: 'Trajectory | PathLike', *, "
-                       "fuzzy_commands: 'bool' = False) -> 'dict[str, Any]'",
+                       "fuzzy_commands: 'bool' = False, anchor_patch: 'PathLike | None' = None) "
+                       "-> 'dict[str, Any]'",
             "write_report": "(source: 'Trajectory | PathLike', destination: 'PathLike | None' = None, *, "
                             "dark: 'bool' = False, inline_plotly: 'bool' = False) -> 'Path'",
             "export_json": "(source: 'Trajectory | Mapping[str, View]', directory: 'str | os.PathLike[str]', *, "
