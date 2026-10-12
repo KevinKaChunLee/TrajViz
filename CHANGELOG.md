@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/): before 1.0, a minor version may
 change the public API (the names exported from `agent_trajviz`).
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-12
 
 First release as the `agent-trajviz` package.
 
@@ -168,3 +168,5 @@ First release as the `agent-trajviz` package.
   before it leaves: provider API keys, tokens, JWTs, private keys, URL
   passwords, authorization headers and generated-looking values of
   secret-named assignments become `[REDACTED]`.
+
+[0.1.0]: https://github.com/rshu/TrajViz/releases/tag/v0.1.0
