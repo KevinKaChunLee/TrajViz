@@ -1,9 +1,14 @@
-"""Timeline agent identity shared by charts and workflow cards."""
+"""Timeline agent identity: which agent each step belongs to, its label and order.
+
+Shared by the chart data, the workflow cards and the dashboard charts, so a
+step is attributed to the same agent everywhere. No drawing here: callers map
+an agent's order to a colour.
+"""
 
 from collections import Counter, defaultdict
 from collections.abc import Callable
 
-from ..metrics import effective_agent, tagged_subagent_display_label
+from .metrics import effective_agent, tagged_subagent_display_label
 
 
 def _session_primary_agents(steps: list[dict]) -> dict[str, str]:

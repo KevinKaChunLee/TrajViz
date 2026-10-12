@@ -5,8 +5,8 @@ from __future__ import annotations
 from ._layout import _add_dummy_marker_legend, _add_legend_hint, _apply_chart_layout, _apply_dark, _empty_figure
 import plotly.graph_objects as go
 
+from .. import chart_data
 from ..palette import SESSION_COLORS, TOKEN_COLORS
-from ._timeline import _legend_label, bind_timeline_agents
 
 _FILE_INTERACTION_COLORS = {
     "read": "#3b82f6",  # blue
@@ -170,6 +170,15 @@ def build_file_interaction_chart(
 ) -> go.Figure:
     """Build a Plotly scatter chart of file interactions across steps.
 
+    Drawn from :func:`chart_data.file_interactions`; see
+    :func:`draw_file_interactions`.
+    """
+    return draw_file_interactions(chart_data.file_interactions(interactions, target_files, steps), dark=dark)
+
+
+def draw_file_interactions(data: dict, dark: bool = False) -> go.Figure:
+    """Draw :func:`chart_data.file_interactions` output.
+
     x=step index, y=shortened file path (categorical). Color is interaction
     type for single-agent runs, and timeline agent (same palette as the
     swimlane) when more than one agent touched files. Marker shape is always
@@ -177,48 +186,26 @@ def build_file_interaction_chart(
     legend spells those out. Target files are highlighted with a distinct
     marker border. Hover still shows the full path.
     """
-    import os
-
+    interactions = data["interactions"]
     fig = go.Figure()
     if not interactions:
         _apply_chart_layout(fig, "File Interaction Timeline (no data)")
         _apply_dark(fig, dark)
         return fig
 
-    target_files = target_files or set()
+    color_index = {a["id"]: i for i, a in enumerate(data["agents"])}
+    labels = {a["id"]: a["label"] for a in data["agents"]}
 
-    def _norm(p: str) -> str:
-        return os.path.normpath(p) if p else p
+    def _label(aid: str) -> str:
+        return labels.get(aid, aid or "main")
 
-    norm_targets = {_norm(t) for t in target_files}
-
-    color_map: dict[str, int] = {"": 0}
-    labels: dict[str, str] = {"": "main"}
-    agent_id_of = None
-    step_by_idx: dict = {}
-    if steps:
-        color_map, labels, agent_id_of = bind_timeline_agents(steps)
-        step_by_idx = {s["index"]: s for s in steps if isinstance(s, dict) and "index" in s}
-
-    def _interaction_agent(item: dict) -> str:
-        if agent_id_of is None:
-            return ""
-        step = step_by_idx.get(item["step"])
-        return agent_id_of(step) if step else ""
-
-    file_order: list[str] = []
-    seen_files: set[str] = set()
-    for item in interactions:
-        path = item["path"]
-        if path not in seen_files:
-            seen_files.add(path)
-            file_order.append(path)
+    file_order = data["files"]
     display = unique_short_paths(file_order)
 
     agents_present = []
     seen_agents: set[str] = set()
     for item in interactions:
-        aid = _interaction_agent(item)
+        aid = item["agent"]
         if aid not in seen_agents:
             seen_agents.add(aid)
             agents_present.append(aid)
@@ -227,7 +214,7 @@ def build_file_interaction_chart(
     def _add_group(group: list[dict], *, name: str, color: str, symbol=None) -> None:
         x = [i["step"] for i in group]
         y = [display[i["path"]] for i in group]
-        is_target = [_norm(i["path"]) in norm_targets for i in group]
+        is_target = [i["target"] for i in group]
         hover = [f"{name}<br>Step {i['step']}: {i['tool']} ({i['type']})<br>{i['path']}" for i in group]
         border_colors = ["#dc2626" if t else color for t in is_target]
         border_widths = [2 if t else 0 for t in is_target]
@@ -252,22 +239,21 @@ def build_file_interaction_chart(
         )
 
     if has_agents:
-        for agent_id in sorted(color_map.keys(), key=lambda a: color_map[a]):
-            group = [i for i in interactions if _interaction_agent(i) == agent_id]
+        for agent_id in color_index:
+            group = [i for i in interactions if i["agent"] == agent_id]
             if not group:
                 continue
-            label = _legend_label(agent_id, labels)
-            color = SESSION_COLORS[color_map[agent_id] % len(SESSION_COLORS)]
-            _add_group(group, name=label, color=color)
+            color = SESSION_COLORS[color_index[agent_id] % len(SESSION_COLORS)]
+            _add_group(group, name=_label(agent_id), color=color)
         for aid in agents_present:
-            if aid in color_map:
+            if aid in color_index:
                 continue
-            group = [i for i in interactions if _interaction_agent(i) == aid]
+            group = [i for i in interactions if i["agent"] == aid]
             if group:
                 _add_group(
                     group,
-                    name=_legend_label(aid, labels),
-                    color=SESSION_COLORS[len(color_map) % len(SESSION_COLORS)],
+                    name=_label(aid),
+                    color=SESSION_COLORS[len(color_index) % len(SESSION_COLORS)],
                 )
     else:
         for itype, color in _FILE_INTERACTION_COLORS.items():

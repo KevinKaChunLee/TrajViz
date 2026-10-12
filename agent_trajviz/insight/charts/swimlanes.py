@@ -13,82 +13,53 @@ from ._layout import (
 )
 import plotly.graph_objects as go
 
+from .. import chart_data
 from ..palette import SESSION_COLORS, TOOL_OUTCOME_COLORS, USER_SWIMLANE_COLOR
-from ..shell_cmd import tool_call_hint, tool_chart_name
-from ..tool_failure import tool_call_failed
-from ..workflow_role import workflow_role
-from ._timeline import (
+from ..timeline_agents import (
     _disambiguate_timeline_labels,
     _legend_label,
     _timeline_agent_id,
     _timeline_context,
     _timeline_display_label,
-    bind_timeline_agents,
 )
 
-USER_SWIMLANE_ID = "__user__"
-USER_SWIMLANE_LABEL = "user"
+USER_SWIMLANE_ID = chart_data.USER_LANE_ID
+USER_SWIMLANE_LABEL = chart_data.USER_LANE_LABEL
 
 
 def build_agent_swimlane_chart(steps: list[dict], dark: bool = False) -> go.Figure:
     """Horizontal swimlane chart showing each agent's active step ranges and token contribution.
+
+    Drawn from :func:`chart_data.agent_swimlane`; see :func:`draw_agent_swimlane`.
+    """
+    return draw_agent_swimlane(chart_data.agent_swimlane(steps), dark=dark)
+
+
+def draw_agent_swimlane(data: dict, dark: bool = False) -> go.Figure:
+    """Draw :func:`chart_data.agent_swimlane` output.
 
     Human user prompts occupy a dedicated ``user`` lane (top). Main and
     sub-agent lanes sit below, even when only the parent agent is present.
     Task / system / compaction turns that some formats store as ``role=user``
     stay on the agent that owns them.
     """
-    color_map, label_map, agent_id_of = bind_timeline_agents(steps)
-
-    # Group steps by lane and find contiguous runs
-    agent_runs: dict[str, list[tuple[int, int, int, int]]] = defaultdict(list)
-    prev: dict[str, int] = {}
-
-    for s in steps:
-        if not isinstance(s, dict):
-            continue
-        agent = USER_SWIMLANE_ID if workflow_role(s) == "user" else agent_id_of(s)
-        idx = int(s.get("index") if s.get("index") is not None else 0)
-        tok = int((s.get("tokens") or {}).get("total") or 0)
-        tools = int(s.get("tool_call_count") or 0)
-        if agent not in prev:
-            agent_runs[agent].append((idx, idx, tok, tools))
-        else:
-            last = agent_runs[agent][-1]
-            if idx == last[1] + 1:
-                agent_runs[agent][-1] = (last[0], idx, last[2] + tok, last[3] + tools)
-            else:
-                agent_runs[agent].append((idx, idx, tok, tools))
-        prev[agent] = idx
-
-    if not agent_runs:
+    lanes = data["lanes"]
+    if not lanes:
         fig = _empty_figure(180, "No agent activity recorded.")
         _apply_dark(fig, dark)
         return fig
 
     fig = go.Figure()
-
-    # Bottom → top: main, then other agents in palette order, user on top.
-    lane_ids = [
-        aid for aid in sorted(color_map.keys(), key=lambda a: color_map[a])
-        if aid in agent_runs
-    ]
-    if USER_SWIMLANE_ID in agent_runs:
-        lane_ids.append(USER_SWIMLANE_ID)
-
     y_labels: list[str] = []
-    for agent_id in lane_ids:
-        label = (
-            USER_SWIMLANE_LABEL
-            if agent_id == USER_SWIMLANE_ID
-            else _legend_label(agent_id, label_map)
-        )
+    for lane in lanes:
+        label = lane["label"]
         y_labels.append(label)
-        if agent_id == USER_SWIMLANE_ID:
+        if lane["color_index"] is None:
             hex_c = USER_SWIMLANE_COLOR
         else:
-            hex_c = SESSION_COLORS[color_map.get(agent_id, 0) % len(SESSION_COLORS)]
-        for start, end, tok, tools in agent_runs[agent_id]:
+            hex_c = SESSION_COLORS[lane["color_index"] % len(SESSION_COLORS)]
+        for seg in lane["segments"]:
+            start, end, tok, tools = seg["start"], seg["end"], seg["tokens"], seg["tool_calls"]
             width = end - start + 1
             fig.add_trace(
                 go.Bar(
@@ -115,7 +86,7 @@ def build_agent_swimlane_chart(steps: list[dict], dark: bool = False) -> go.Figu
         fig,
         "Agent Swimlane",
         xaxis="Step Index",
-        height=max(160, 80 * max(1, len(lane_ids))),
+        height=max(160, 80 * max(1, len(lanes))),
         barmode="overlay",
         margin=dict(l=100, r=20, t=40, b=30),
     )
@@ -249,39 +220,35 @@ def build_run_group_agent_timeline(
 def build_tool_outcome_timeline(steps: list[dict], dark: bool = False) -> go.Figure:
     """Scatter of tool outcomes: by agent (color) + success/fail (shape) when multi-agent.
 
-    Failures always get a red marker border so they stay visible when fill is
-    an agent color.
+    Drawn from :func:`chart_data.tool_outcomes`; see :func:`draw_tool_outcomes`.
     """
     if not steps:
         fig = _empty_figure(340)
         _apply_dark(fig, dark)
         return fig
+    return draw_tool_outcomes(chart_data.tool_outcomes(steps), dark=dark)
 
-    color_map, labels, agent_id_of = bind_timeline_agents(steps)
+
+def draw_tool_outcomes(data: dict, dark: bool = False) -> go.Figure:
+    """Draw :func:`chart_data.tool_outcomes` output.
+
+    Failures always get a red marker border so they stay visible when fill is
+    an agent color.
+    """
+    color_index = {a["id"]: i for i, a in enumerate(data["agents"])}
+    labels = {a["id"]: a["label"] for a in data["agents"]}
     fail_border = TOOL_OUTCOME_COLORS["failure"]
 
     by_agent: dict[str, list[tuple[int, str, bool, str]]] = defaultdict(list)
     tool_names: set[str] = set()
     saw_ok = saw_fail = False
-    for s in steps:
-        if not isinstance(s, dict):
-            continue
-        agent = agent_id_of(s)
-        idx = int(s.get("index") if s.get("index") is not None else 0)
-        for tc in s.get("tool_calls") or []:
-            if not isinstance(tc, dict):
-                continue
-            tool_name = tool_chart_name(tc)
-            # The shared predicate, so this chart agrees with Tool Success, the
-            # Issues list and the failure patterns (OpenCode marks a call
-            # "completed" whatever its exit code; only the predicate reads it).
-            ok = not tool_call_failed(tc)
-            by_agent[agent].append((idx, tool_name, ok, tool_call_hint(tc)))
-            tool_names.add(tool_name)
-            if ok:
-                saw_ok = True
-            else:
-                saw_fail = True
+    for call in data["calls"]:
+        by_agent[call["agent"]].append((call["step"], call["tool"], call["ok"], call["hint"]))
+        tool_names.add(call["tool"])
+        if call["ok"]:
+            saw_ok = True
+        else:
+            saw_fail = True
 
     if not by_agent:
         fig = _empty_figure(340, "No tool calls recorded in this trajectory.")
@@ -301,10 +268,10 @@ def build_tool_outcome_timeline(steps: list[dict], dark: bool = False) -> go.Fig
     fig = go.Figure()
 
     if has_agents:
-        for agent_id in sorted(by_agent.keys(), key=lambda a: color_map.get(a, 10**9)):
+        for agent_id in sorted(by_agent.keys(), key=lambda a: color_index.get(a, 10**9)):
             group = by_agent[agent_id]
-            color = SESSION_COLORS[color_map.get(agent_id, 0) % len(SESSION_COLORS)]
-            label = _legend_label(agent_id, labels)
+            color = SESSION_COLORS[color_index.get(agent_id, 0) % len(SESSION_COLORS)]
+            label = labels.get(agent_id, agent_id or "main")
             oks = [p[2] for p in group]
             hovers = [
                 ("Success" if p[2] else "Failure") + (f"<br>{p[3]}" if p[3] else "")

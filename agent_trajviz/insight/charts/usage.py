@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import statistics
-from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections import Counter
 
 from ._layout import _add_legend_hint, _apply_chart_layout, _apply_dark, _empty_figure, _truncate_chart_labels
 import plotly.graph_objects as go
 
-from ..parser import token_segments, usable_token_count
+from .. import chart_data
 from ..palette import (
     AGENT_COLORS,
     CHART_ACCENT,
@@ -17,16 +15,6 @@ from ..palette import (
     SESSION_COLORS,
     TOKEN_COLORS,
 )
-from agent_trajviz.tool_vocab import parse_skill_name
-from ._timeline import _legend_label, bind_timeline_agents
-from ..metrics import (
-    TOKEN_FIELDS,
-    spawn_wait_seconds,
-    step_duration_excluding_spawn,
-    tool_call_stats_duration_ms,
-)
-from ..shell_cmd import tool_chart_name
-from ..step_errors import step_error_kind
 
 
 def _add_token_bar_traces(
@@ -74,40 +62,6 @@ def _add_token_bar_traces(
             )
 
 
-def _detect_outliers(values: list[float], threshold: float = 2.0) -> list[tuple[int, float, str]]:
-    """Return (index, value, label) for values exceeding *threshold* σ from mean.
-
-    Returns empty list if fewer than 10 values or no outliers found.
-    """
-    if len(values) < 10:
-        return []
-    clean = [v for v in values if v is not None and v > 0]
-    if len(clean) < 5:
-        return []
-    mean = statistics.mean(clean)
-    stdev = statistics.stdev(clean) if len(clean) > 1 else 0
-    if stdev == 0:
-        return []
-    outliers = []
-    for i, v in enumerate(values):
-        if v is not None and v > 0 and (v - mean) > threshold * stdev:
-            outliers.append((i, v, "spike"))
-    return outliers
-
-
-def _impossible_token_fields(tokens: dict) -> list[tuple[str, object]]:
-    """``(field, reported value)`` for each token value that is not a count.
-
-    The rule is :func:`metrics.sum_usable_tokens`' own, so the steps this chart
-    flags are exactly the steps the Overview's totals call partial.
-    """
-    return [
-        (field, tokens.get(field))
-        for field in TOKEN_FIELDS
-        if tokens.get(field) not in (None, 0) and usable_token_count(tokens.get(field)) is None
-    ]
-
-
 def _describe_impossible(fields: list[tuple[str, object]]) -> str:
     if not fields:
         return ""
@@ -120,6 +74,19 @@ def _describe_impossible(fields: list[tuple[str, object]]) -> str:
 
 def build_token_chart(steps: list[dict], dark: bool = False, *, format: str | None = None) -> go.Figure:
     """Stacked bar of token breakdown over steps (non-overlapping segments).
+
+    Drawn from :func:`chart_data.token_usage`, so the figure and the exported
+    data cannot disagree; see :func:`draw_token_usage` for the drawing rules.
+    """
+    if not steps:
+        fig = _empty_figure(380)
+        _apply_dark(fig, dark)
+        return fig
+    return draw_token_usage(chart_data.token_usage(steps, format), dark=dark)
+
+
+def draw_token_usage(data: dict, dark: bool = False) -> go.Figure:
+    """Draw :func:`chart_data.token_usage` output.
 
     Default segments: fresh_input + cache_read
                       + net_output (output - reasoning) + reasoning = total
@@ -137,56 +104,32 @@ def build_token_chart(steps: list[dict], dark: bool = False, *, format: str | No
     fields overshoot its own total. It is drawn as its reported total in a
     separate hatched series, and the title counts such steps.
     """
-    if not steps:
+    rows = data["steps"]
+    if not rows:
         fig = _empty_figure(380)
         _apply_dark(fig, dark)
         return fig
 
-    indices = list(range(len(steps)))
-    # One reading per step, chosen against that step's own total, so the
-    # stacked segments add up to the reported total whichever way the export
-    # nests its fields (see parser.token_segments).
-    segs = [
-        token_segments(
-            s["tokens"]["total"],
-            s["tokens"]["input"],
-            s["tokens"]["output"],
-            s["tokens"].get("reasoning", 0),
-            s["tokens"]["cache_read"],
-            s["tokens"].get("cache_write", 0) or 0,
-        )
-        for s in steps
-    ]
-    impossible = [_impossible_token_fields(s["tokens"]) for s in steps]
-    for seg, bad in zip(segs, impossible, strict=True):
-        if bad:
-            seg.update(fresh=0, cache_read=0, cache_write=0, output=0, reasoning=0)
-    fresh_input = [g["fresh"] for g in segs]
-    cache_r = [g["cache_read"] for g in segs]
-    output_t = [g["output"] for g in segs]
-    reasoning_t = [g["reasoning"] for g in segs]
-    cache_w = [g["cache_write"] for g in segs]
-
-    # Detect if token breakdown is available (any non-zero input/output/cache)
-    has_breakdown = any(
-        s["tokens"]["input"] > 0 or s["tokens"]["output"] > 0 or s["tokens"]["cache_read"] > 0 for s in steps
-    )
+    indices = [r["position"] for r in rows]
+    impossible = [r["invalid"] for r in rows]
+    fresh_input = [r["fresh_input"] for r in rows]
+    cache_r = [r["cache_read"] for r in rows]
+    output_t = [r["output"] for r in rows]
+    reasoning_t = [r["reasoning"] for r in rows]
+    cache_w = [r["cache_write"] for r in rows]
 
     fig = go.Figure()
-    if has_breakdown:
+    if data["has_breakdown"]:
         # OpenCode / CodeArts force every field into the legend so no legend
         # item disappears between trajectories; the others show only the
         # fields that carry data.
         _add_token_bar_traces(
             fig, indices, fresh_input, cache_r, output_t, reasoning_t,
-            cache_write=cache_w, include_empty=format in ("opencode", "codearts"),
+            cache_write=cache_w, include_empty=data.get("format") in ("opencode", "codearts"),
         )
     else:
         # No breakdown available — single "Total" trace.
-        totals = [
-            0 if bad else s["tokens"]["total"]
-            for s, bad in zip(steps, impossible, strict=True)
-        ]
+        totals = [0 if r["invalid"] else r["total"] for r in rows]
         fig.add_trace(
             go.Bar(
                 x=indices,
@@ -203,10 +146,7 @@ def build_token_chart(steps: list[dict], dark: bool = False, *, format: str | No
         fig.add_trace(
             go.Bar(
                 x=indices,
-                y=[
-                    (usable_token_count(s["tokens"]["total"]) or 0) if bad else 0
-                    for s, bad in zip(steps, impossible, strict=True)
-                ],
+                y=[(r["usable_total"] or 0) if r["invalid"] else 0 for r in rows],
                 name="Total only (invalid breakdown)",
                 marker=dict(
                     color=TOKEN_COLORS["invalid_breakdown"],
@@ -239,6 +179,18 @@ def build_duration_chart(
 ) -> go.Figure:
     """Bar chart of step durations with average line.
 
+    Drawn from :func:`chart_data.step_durations`; see :func:`draw_step_durations`.
+    """
+    if not steps:
+        fig = _empty_figure(380)
+        _apply_dark(fig, dark)
+        return fig
+    return draw_step_durations(chart_data.step_durations(steps), dark=dark)
+
+
+def draw_step_durations(data: dict, dark: bool = False) -> go.Figure:
+    """Draw :func:`chart_data.step_durations` output.
+
     System errors (scaffold tools) and tool errors (agentic/custom) are
     separate legend series. Compactions are drawn on the context-pressure
     chart, which detects them; this chart has no second detector.
@@ -246,23 +198,18 @@ def build_duration_chart(
     Spawn/delegation wait (``task``, ``Agent``, …) is subtracted from each
     bar so parent steps blocked on a child agent do not create false spikes.
     """
-    if not steps:
+    rows = data["steps"]
+    if not rows:
         fig = _empty_figure(380)
         _apply_dark(fig, dark)
         return fig
 
-    chart_durs = [step_duration_excluding_spawn(s) for s in steps]
-    durations = [d if d is not None else 0 for d in chart_durs]
-    spawn_adjusted = [
-        d is not None and spawn_wait_seconds(s) > 0
-        for s, d in zip(steps, chart_durs, strict=True)
-    ]
+    durations = [r["duration_s"] if r["duration_s"] is not None else 0 for r in rows]
+    spawn_adjusted = [r["spawn_adjusted"] for r in rows]
+    avg_d = data["average_s"]
 
-    real_durations = [d for d in chart_durs if d is not None]
-    avg_d = sum(real_durations) / len(real_durations) if real_durations else 0
-
-    kinds = [step_error_kind(s) for s in steps]
-    step_ids = [int(s.get("index", i)) for i, s in enumerate(steps)]
+    kinds = [r["error_kind"] for r in rows]
+    step_ids = [r["step"] for r in rows]
     normal_x = [i for i, k in enumerate(kinds) if k is None]
     normal_y = [durations[i] for i in normal_x]
     system_x = [i for i, k in enumerate(kinds) if k == "system"]
@@ -270,8 +217,7 @@ def build_duration_chart(
     tool_x = [i for i, k in enumerate(kinds) if k == "tool"]
     tool_y = [durations[i] for i in tool_x]
 
-    # Detect outliers — will be added as scatter labels per legend group
-    outlier_set = {idx for idx, _, _ in _detect_outliers(durations)}
+    outlier_set = {i for i, r in enumerate(rows) if r["outlier"]}
 
     bar_width = 0.8
 
@@ -372,7 +318,7 @@ def build_duration_chart(
         legend=dict(orientation="h", yanchor="bottom", y=1.06, xanchor="center", x=0.5, itemclick="toggle", itemdoubleclick="toggleothers"),
     )
     fig.update_layout(margin=dict(t=70), clickmode="event")
-    fig.update_xaxes(range=[-0.5, len(steps) - 0.5])
+    fig.update_xaxes(range=[-0.5, len(rows) - 0.5])
     _add_legend_hint(fig)
 
     _apply_dark(fig, dark)
@@ -380,22 +326,18 @@ def build_duration_chart(
 
 
 def build_tool_chart(steps: list[dict], dark: bool = False) -> go.Figure:
-    """Horizontal bar chart of tool call frequency by name, stacked by agent."""
-    color_map, labels, agent_id_of = bind_timeline_agents(steps)
-    has_agents = len(color_map) > 1
+    """Horizontal bar chart of tool call frequency by name, stacked by agent.
 
-    agent_tool: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    all_tools: dict[str, int] = defaultdict(int)
-    for s in steps:
-        if not isinstance(s, dict):
-            continue
-        agent = agent_id_of(s)
-        for tc in s.get("tool_calls") or []:
-            if not isinstance(tc, dict):
-                continue
-            name = tool_chart_name(tc)
-            agent_tool[agent][name] += 1
-            all_tools[name] += 1
+    Drawn from :func:`chart_data.tool_usage`; see :func:`draw_tool_usage`.
+    """
+    return draw_tool_usage(chart_data.tool_usage(steps), dark=dark)
+
+
+def draw_tool_usage(data: dict, dark: bool = False) -> go.Figure:
+    """Draw :func:`chart_data.tool_usage` output: calls per tool, stacked by agent."""
+    agents = data["agents"]
+    has_agents = len(agents) > 1
+    all_tools = {t["tool"]: t["calls"] for t in data["tools"]}
 
     if not all_tools:
         fig = _empty_figure(300, "No tool calls recorded in this trajectory.")
@@ -404,16 +346,17 @@ def build_tool_chart(steps: list[dict], dark: bool = False) -> go.Figure:
 
     sorted_tools = sorted(all_tools.keys(), key=lambda t: all_tools[t])
     display_names = _truncate_chart_labels(sorted_tools)
+    by_tool = {t["tool"]: t["by_agent"] for t in data["tools"]}
 
     fig = go.Figure()
     if has_agents:
         # Stacked bars per agent, matching swimlane / workflow labeling
-        for agent_id in sorted(color_map.keys(), key=lambda a: color_map[a]):
-            label = _legend_label(agent_id, labels)
-            counts = [agent_tool[agent_id].get(t, 0) for t in sorted_tools]
+        for position, agent in enumerate(agents):
+            label = agent["label"]
+            counts = [by_tool[t].get(agent["id"], 0) for t in sorted_tools]
             if not any(counts):
                 continue
-            color = SESSION_COLORS[color_map[agent_id] % len(SESSION_COLORS)]
+            color = SESSION_COLORS[position % len(SESSION_COLORS)]
             fig.add_trace(
                 go.Bar(
                     y=display_names,
@@ -458,6 +401,14 @@ def build_tool_chart(steps: list[dict], dark: bool = False) -> go.Figure:
 def build_tool_duration_chart(steps: list[dict], dark: bool = False) -> go.Figure:
     """Horizontal bars of tool duration, stacked by individual timed calls.
 
+    Drawn from :func:`chart_data.tool_durations`; see :func:`draw_tool_durations`.
+    """
+    return draw_tool_durations(chart_data.tool_durations(steps), dark=dark)
+
+
+def draw_tool_durations(data: dict, dark: bool = False) -> go.Figure:
+    """Draw :func:`chart_data.tool_durations` output.
+
     Each segment is one tool invocation. Hover shows that segment's duration
     and the step index where it ran (plus the agent label when multiple agents
     are present).
@@ -466,26 +417,12 @@ def build_tool_duration_chart(steps: list[dict], dark: bool = False) -> go.Figur
     is wall-clock for the whole child agent, which swamps real tool timings and
     double-counts work already shown via the child's own calls.
     """
-    color_map, labels, agent_id_of = bind_timeline_agents(steps)
-    has_agents = len(color_map) > 1
-
-    calls_by_tool: dict[str, list[tuple[int, float, str]]] = defaultdict(list)
-    total_secs: dict[str, float] = defaultdict(float)
-    for i, s in enumerate(steps):
-        if not isinstance(s, dict):
-            continue
-        agent = agent_id_of(s)
-        step_idx = int(s.get("index", i))
-        for tc in s.get("tool_calls") or []:
-            if not isinstance(tc, dict):
-                continue
-            ms = tool_call_stats_duration_ms(tc)
-            if ms is None:
-                continue
-            name = tool_chart_name(tc)
-            secs = ms / 1000.0
-            calls_by_tool[name].append((step_idx, secs, agent))
-            total_secs[name] += secs
+    agents = data["agents"]
+    has_agents = len(agents) > 1
+    color_index = {a["id"]: i for i, a in enumerate(agents)}
+    labels = {a["id"]: a["label"] for a in agents}
+    total_secs = {t["tool"]: t["total_s"] for t in data["tools"]}
+    calls_by_tool = {t["tool"]: t["calls"] for t in data["tools"]}
 
     if not total_secs:
         fig = _empty_figure(300, "No tool-call timing recorded in this trajectory.")
@@ -506,10 +443,11 @@ def build_tool_duration_chart(steps: list[dict], dark: bool = False) -> go.Figur
     # agent would have to keep the per-point step index resolvable.
     for tool_name, y_label in zip(sorted_tools, display_names, strict=True):
         base = 0.0
-        for step_idx, secs, agent_id in calls_by_tool[tool_name]:
+        for call in calls_by_tool[tool_name]:
+            step_idx, secs, agent_id = call["step"], call["seconds"], call["agent"]
             if has_agents:
-                color = SESSION_COLORS[color_map.get(agent_id, 0) % len(SESSION_COLORS)]
-                agent_label = _legend_label(agent_id, labels)
+                color = SESSION_COLORS[color_index.get(agent_id, 0) % len(SESSION_COLORS)]
+                agent_label = labels.get(agent_id, agent_id or "main")
                 show_legend = agent_id not in legend_seen
                 if show_legend:
                     legend_seen.add(agent_id)
@@ -602,41 +540,34 @@ def _trunc_skill_label(name: str, limit: int = 28) -> str:
     return name if len(name) <= limit else name[: limit - 3] + "..."
 
 
-def collect_skill_calls(
-    steps: list[dict],
-    agent_id_of: Callable[[dict], str],
-) -> Counter[tuple[str, str]]:
-    """Count ``(agent_id, skill_id)`` pairs from Skill-tool invocations."""
-    counts: Counter[tuple[str, str]] = Counter()
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        agent = agent_id_of(step)
-        for tc in step.get("tool_calls") or []:
-            if not isinstance(tc, dict):
-                continue
-            skill = parse_skill_name(str(tc.get("tool_name") or ""), tc.get("input"))
-            if skill:
-                counts[(agent, skill)] += 1
-    return counts
-
-
 def build_skill_agent_chart(steps: list[dict], dark: bool = False) -> go.Figure:
-    """Sankey diagram of Skill-tool invocations: which agent called which skill."""
-    color_map, labels, agent_id_of = bind_timeline_agents(steps)
-    counts = collect_skill_calls(steps, agent_id_of)
-    if not counts:
+    """Sankey diagram of Skill-tool invocations: which agent called which skill.
+
+    Drawn from :func:`chart_data.skill_calls`; see :func:`draw_skill_calls`.
+    """
+    return draw_skill_calls(chart_data.skill_calls(steps), dark=dark)
+
+
+def draw_skill_calls(data: dict, dark: bool = False) -> go.Figure:
+    """Draw :func:`chart_data.skill_calls` output as an agent → skill Sankey diagram."""
+    links = data["links"]
+    if not links:
         fig = _empty_figure(300, "No Skill-tool invocations recorded in this trajectory.")
         _apply_dark(fig, dark)
         return fig
+    color_index = {a["id"]: i for i, a in enumerate(data["agents"])}
+    labels = {a["id"]: a["label"] for a in data["agents"]}
+
+    def _label(aid: str) -> str:
+        return labels.get(aid, aid or "main")
 
     skill_totals: Counter[str] = Counter()
     agent_totals: Counter[str] = Counter()
-    for (agent, skill), n in counts.items():
-        skill_totals[skill] += n
-        agent_totals[agent] += n
+    for link in links:
+        skill_totals[link["skill"]] += link["calls"]
+        agent_totals[link["agent"]] += link["calls"]
 
-    agent_ids = [aid for aid in sorted(color_map.keys(), key=lambda a: color_map[a]) if agent_totals[aid]]
+    agent_ids = [a["id"] for a in data["agents"] if agent_totals[a["id"]]]
     skills = [name for name, _ in skill_totals.most_common()]
 
     node_labels: list[str] = []
@@ -650,9 +581,8 @@ def build_skill_agent_chart(steps: list[dict], dark: bool = False) -> go.Figure:
     agent_index: dict[str, int] = {}
     for i, aid in enumerate(agent_ids):
         agent_index[aid] = len(node_labels)
-        label = _legend_label(aid, labels)
-        node_labels.append(f"{label} ({agent_totals[aid]})")
-        node_colors.append(SESSION_COLORS[color_map[aid] % len(SESSION_COLORS)])
+        node_labels.append(f"{_label(aid)} ({agent_totals[aid]})")
+        node_colors.append(SESSION_COLORS[color_index[aid] % len(SESSION_COLORS)])
         node_x.append(0.02)
         node_y.append(agent_ys[i])
 
@@ -670,15 +600,15 @@ def build_skill_agent_chart(steps: list[dict], dark: bool = False) -> go.Figure:
     values: list[int] = []
     link_colors: list[str] = []
     hovers: list[str] = []
-    for (agent, skill), n in counts.items():
+    for link in links:
+        agent, skill, n = link["agent"], link["skill"], link["calls"]
         sources.append(agent_index[agent])
         targets.append(skill_index[skill])
         values.append(n)
-        agent_color = SESSION_COLORS[color_map[agent] % len(SESSION_COLORS)]
+        agent_color = SESSION_COLORS[color_index[agent] % len(SESSION_COLORS)]
         link_colors.append(_hex_rgba(agent_color, 0.38))
-        agent_label = _legend_label(agent, labels)
         noun = "call" if n == 1 else "calls"
-        hovers.append(f"{agent_label} → {skill}<br>{n} {noun}")
+        hovers.append(f"{_label(agent)} → {skill}<br>{n} {noun}")
 
     fig = go.Figure(
         data=[
@@ -719,34 +649,33 @@ def build_skill_agent_chart(steps: list[dict], dark: bool = False) -> go.Figure:
 def build_agent_token_chart(agent_summaries: list[dict], dark: bool = False) -> go.Figure:
     """Grouped bar chart showing token breakdown per agent.
 
+    Drawn from :func:`chart_data.agent_tokens`; see :func:`draw_agent_tokens`.
+    """
+    return draw_agent_tokens(chart_data.agent_tokens(agent_summaries), dark=dark)
+
+
+def draw_agent_tokens(data: dict, dark: bool = False) -> go.Figure:
+    """Draw :func:`chart_data.agent_tokens` output.
+
     Uses the same vertical grouped-bar layout for single- and multi-agent
     sessions so the single-agent case still surfaces the four token
     categories (Fresh / Cache Read / Output / Reasoning) — just with one
     cluster instead of many.
     """
-    if not agent_summaries:
+    agents = data["agents"]
+    if not agents:
         fig = _empty_figure(240, "No agent activity recorded.")
         _apply_dark(fig, dark)
         return fig
 
-    labels = [a["label"] for a in agent_summaries]
-    has_breakdown = any(a["input_tokens"] > 0 or a["output_tokens"] > 0 for a in agent_summaries)
+    labels = [a["label"] for a in agents]
+    has_breakdown = any(a["input"] > 0 or a["output"] > 0 for a in agents)
 
     fig = go.Figure()
     if has_breakdown:
         # Schema-tolerant fresh-input: handles both Claude Code (input includes
         # cache) and OpenCode (input is already cache-excluded).
-        segs = [
-            token_segments(
-                a["total_tokens"],
-                a["input_tokens"],
-                a["output_tokens"],
-                a["reasoning_tokens"],
-                a["cache_read_tokens"],
-                a.get("cache_write_tokens", 0) or 0,
-            )
-            for a in agent_summaries
-        ]
+        segs = [a["segments"] for a in agents]
         fresh_input = [g["fresh"] for g in segs]
         cache_read = [g["cache_read"] for g in segs]
         output = [g["output"] for g in segs]
@@ -757,7 +686,7 @@ def build_agent_token_chart(agent_summaries: list[dict], dark: bool = False) -> 
     else:
         # No token breakdown available — show total tokens per agent
         session_palette = AGENT_COLORS  # shared palette so agent colors match across views
-        totals = [a["total_tokens"] for a in agent_summaries]
+        totals = [a["total"] for a in agents]
         colors = [session_palette[i % len(session_palette)] for i in range(len(labels))]
         fig.add_trace(
             go.Bar(
@@ -772,13 +701,13 @@ def build_agent_token_chart(agent_summaries: list[dict], dark: bool = False) -> 
             )
         )
 
-    # Say so when a bar is a partial sum. `compute_agent_summary` drops any step
-    # whose token counts are unusable (OpenCode can report a negative input), so
+    # Say so when a bar is a partial sum. The agent rows drop any step whose
+    # token counts are unusable (OpenCode can report a negative input), so
     # without this the chart presents an incomplete total as a definitive one —
     # and `infer_non_cache_input` clamps at 0, which reads as a confident "no
     # fresh input" rather than "not all of it could be counted". The Overview
     # token chip already carries the same caveat.
-    dropped = sum(a.get("input_tokens_unusable_steps", 0) or 0 for a in agent_summaries)
+    dropped = sum(a["input_unusable_steps"] for a in agents)
     title = "Token Breakdown by Agent" if has_breakdown else "Total Tokens by Agent"
     if dropped:
         title += f" — partial, excludes {dropped} step{'s' if dropped != 1 else ''}"

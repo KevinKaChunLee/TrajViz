@@ -6,7 +6,7 @@ import base64
 import json
 import logging
 
-from ..charts import timeline_agent_id_of
+from ..timeline_agents import timeline_agent_id_of
 from ..rendering import (
     AGENT_ALL_FILTER,
     AGENT_FILTER_PREFIX,
