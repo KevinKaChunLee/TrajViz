@@ -72,7 +72,9 @@ First release as the `agent-trajviz` package.
   chart view with the dashboard's code; `agent_trajviz.dashboard` (app
   extra) launches or embeds the dashboards and turns views into Gradio
   components; `agent_trajviz.llm` (llm extra) is the AI analysis and
-  suggested fixes; `agent_trajviz.attribution` is DECAF attribution.
+  suggested fixes, on the configured endpoint or any chat function you pass
+  (`chat=`), in the reply language you choose (`language=`);
+  `agent_trajviz.attribution` is DECAF attribution.
 - `examples/`: the dashboard rebuilt on the public API alone, and a small
   app of your own, both driven end to end in the test suite.
 
@@ -110,6 +112,12 @@ First release as the `agent-trajviz` package.
   installed.
 - The Converge dashboard listens on port 7861 by default, beside Insight's
   7860.
+- `load()` raises `LoadError` with code `unknown_format` for a file no format
+  recognizes, where it used to return a trajectory of format `"unknown"`
+  when the file happened to parse (the dashboard already refused such a
+  file). On a format mismatch, `LoadError.detected` names what the file is.
+- Views on long runs take linear time: each shell command is lexed once
+  instead of once per chart that names tools.
 - Dependency lower bounds are the oldest releases the suite passes with:
   plotly 5.15, pygments 2.13, requests 2.32.4, pytest 8.0, hypothesis 6.100.
 
@@ -129,6 +137,12 @@ First release as the `agent-trajviz` package.
 - The Converge dashboard resolved a manifest's relative paths against the
   upload's temporary directory, so they could never be found.
 - A cleared Token Rate box in the Converge dashboard raised a `TypeError`.
+- `compare_runs()` refused a trajectory that was not loaded from a file, and
+  read a file only a registered format understands as an error.
+- The anchor patch, the Converge batch manifest and cached attribution
+  verdicts were read in the platform's default encoding, which fails on
+  Windows for UTF-8 files; they are read as UTF-8, and a patch byte that is
+  not UTF-8 no longer drops the anchor.
 - `agent-trajviz-collect opencode` printed usage examples without its
   subcommand.
 - Help and setup text that described a source checkout to installed users,
@@ -145,6 +159,8 @@ First release as the `agent-trajviz` package.
 - Errors shown in the Converge dashboard carry no traceback and no server
   paths.
 - The dashboards no longer send Gradio's usage telemetry.
+- `llm.LLMConfig` no longer shows its API key when printed, logged or
+  shown in a traceback.
 - Every LLM request (AI sidebar, Issues judge, step labeler) is redacted
   before it leaves: provider API keys, tokens, JWTs, private keys, URL
   passwords, authorization headers and generated-looking values of

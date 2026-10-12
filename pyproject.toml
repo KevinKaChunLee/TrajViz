@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 name = "agent-trajviz"
 # Single source: agent_trajviz/__init__.py (see [tool.hatch.version]).
 dynamic = ["version"]
-description = "Offline analytics & visualization for LLM agent trajectories (Claude Code, Cursor, OpenCode, CodeArts, ICode, Codex CLI, Pi, DeepSeek Harness)"
+description = "Parse and analyze LLM agent trajectories (Claude Code, Cursor, OpenCode, CodeArts, ICode, Codex CLI, Pi, DeepSeek Harness): every metric and chart as JSON, with optional figures and dashboards"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -27,6 +27,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Visualization",
     "Topic :: Software Development :: Debuggers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
 # The core (loading, parsing, metrics, context usage, patterns, comparison and
@@ -70,6 +71,7 @@ agent-trajviz-label = "agent_trajviz.labeling.labeler:main"
 
 [project.urls]
 Homepage = "https://github.com/rshu/TrajViz"
+Documentation = "https://github.com/rshu/TrajViz#readme"
 Repository = "https://github.com/rshu/TrajViz"
 Issues = "https://github.com/rshu/TrajViz/issues"
 Changelog = "https://github.com/rshu/TrajViz/blob/main/CHANGELOG.md"
