@@ -127,13 +127,32 @@ class LoadTests(unittest.TestCase):
             not_json.write_text("not json", encoding="utf-8")
             unknown = Path(tmp, "b.json")
             unknown.write_text('{"hello": "world"}', encoding="utf-8")
-            for path, code in ((not_json, None), (unknown, "no_steps"), (Path(tmp, "missing.json"), None)):
+            for path, code in ((not_json, None), (unknown, "unknown_format"), (Path(tmp, "missing.json"), None)):
                 with self.subTest(path=path.name), self.assertRaises(tv.LoadError) as caught:
                     tv.load(path)
                 self.assertEqual(caught.exception.path, str(path))
                 self.assertTrue(caught.exception.code)
                 if code:
                     self.assertEqual(caught.exception.code, code)
+
+
+    def test_a_format_mismatch_names_the_detected_format(self):
+        with self.assertRaises(tv.LoadError) as caught:
+            tv.load(FIXTURES / "codearts_minimal.json", format="ccsession")
+        self.assertEqual((caught.exception.code, caught.exception.detected), ("mismatch", "codearts"))
+
+    def test_an_undetectable_file_with_steps_is_not_guessed_at(self):
+        # OpenCode-shaped messages without the export's markers: readable as
+        # OpenCode when asked, but auto-detection must not pass them as "unknown".
+        doc = {"messages": [{"info": {"role": "user"}, "parts": [{"type": "text", "text": "hi"}]},
+                            {"info": {"role": "assistant"}, "parts": [{"type": "text", "text": "hello"}]}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "run.json")
+            path.write_text(json.dumps(doc), encoding="utf-8")
+            with self.assertRaises(tv.LoadError) as caught:
+                tv.load(path)
+            self.assertEqual(caught.exception.code, "unknown_format")
+            self.assertEqual(len(tv.load(path, format="opencode").steps), 2)
 
 
 class CompareAndReportTests(unittest.TestCase):

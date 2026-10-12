@@ -252,7 +252,10 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
     format raises :class:`LoadError` with code ``"mismatch"``, and a file
     whose format cannot be detected is read as *format*. Raises
     :class:`LoadError` when the file cannot be read, is not a supported
-    format, or holds no steps; :class:`ValueError` for an unknown *format*.
+    format, or holds no steps (see its ``code``); :class:`ValueError` for an
+    unknown *format*. Formats added with :func:`register_format` are detected
+    after the built-in ones, and a :meth:`Trajectory.to_dict` document (such
+    as the ``trajectory.json`` of :func:`export_json`) reloads as it was.
     """
     if format is not None and format not in FORMATS:
         raise ValueError(f"unknown format {format!r}; expected one of: {', '.join(FORMATS)}")
@@ -269,20 +272,25 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
             detected = _detect_registered(path)
             if detected is not None:
                 return detected
-        raise LoadError(str(raw["_error"]), code=raw.get("_error_code") or "load_failed", path=path)
+        raise LoadError(str(raw["_error"]), code=raw.get("_error_code") or "load_failed", path=path,
+                        detected=raw.get("_detected"))
     if raw.get("type") == TRAJECTORY_TYPE:
         # An export written with sorted keys: no format claims it, so the
         # loader hands the document back as parsed.
         return _load_exported(raw, path, format)
     if format is not None and loaders.check_format_selection(loaders.detect_format(raw), format) == "mismatch":
-        raise LoadError(
-            f"the file is {loaders.detect_format(raw)}, not {format}", code="mismatch", path=path,
-        )
+        detected_format = loaders.detect_format(raw)
+        raise LoadError(f"the file is {detected_format}, not {format}", code="mismatch", path=path,
+                        detected=detected_format)
     fmt = raw.get("_source_format") or loaders.detect_format(raw)
     if format is None and fmt == "unknown":
         detected = _detect_registered(path)
         if detected is not None:
             return detected
+        raise LoadError(
+            "could not detect the trajectory format; pass format= to read the file as one of: "
+            + ", ".join(FORMATS), code="unknown_format", path=path,
+        )
     steps = parse_steps(raw)
     if not steps:
         raise LoadError(f"no trajectory steps found (detected format: {fmt})", code="no_steps", path=path)
@@ -347,7 +355,7 @@ def _load_exported(data: Mapping[str, Any], path: str, format: str | None) -> Tr
     except ValueError as exc:
         raise LoadError(str(exc), code="unsupported_schema", path=path) from exc
     if format is not None and run.format != format:
-        raise LoadError(f"the file is {run.format}, not {format}", code="mismatch", path=path)
+        raise LoadError(f"the file is {run.format}, not {format}", code="mismatch", path=path, detected=run.format)
     return run
 
 

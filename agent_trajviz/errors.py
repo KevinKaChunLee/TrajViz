@@ -10,14 +10,22 @@ class TrajVizError(Exception):
 class LoadError(TrajVizError):
     """A file could not be read as a trajectory of any supported format.
 
-    ``code`` is a short machine-readable reason (for example ``"no_steps"`` or
-    the loader's own error code) and ``path`` the file that was read.
+    ``code`` is a short machine-readable reason: ``"unknown_format"`` (no
+    format recognizes the file), ``"mismatch"`` (the file is not the format
+    asked for; ``detected`` names what it is), ``"no_steps"``,
+    ``"parse_failed"`` (a registered format's parser raised),
+    ``"unsupported_schema"`` (an exported trajectory of another version),
+    ``"invalid_labels"``, or ``"load_failed"`` and the loader's own codes for
+    a file that cannot be read. ``path`` is the file that was read.
     """
 
-    def __init__(self, message: str, *, code: str | None = None, path: str | None = None) -> None:
+    def __init__(self, message: str, *, code: str | None = None, path: str | None = None,
+                 detected: str | None = None) -> None:
         super().__init__(message)
         self.code = code
         self.path = path
+        #: The format the file was detected as, when known (set for ``"mismatch"``).
+        self.detected = detected
 
 
 class PluginError(TrajVizError):
