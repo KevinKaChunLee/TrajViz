@@ -1,6 +1,8 @@
 """LLM Issues fix judge — pack, parse, render (mocked chat)."""
 
+import os
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 from agent_trajviz.insight.issue_judge import (
@@ -144,15 +146,16 @@ class JudgeMockTests(unittest.TestCase):
 
         def chat_fn(config, system, messages):
             self.assertIn("fix judge", system.lower())
-            self.assertIn("Simplified Chinese", system)
-            self.assertIn("Simplified Chinese", messages[0]["content"])
+            self.assertIn("Write the values of \"where\", \"fix\", and \"also\" in English", system)
+            self.assertIn("English", messages[0]["content"])
             self.assertEqual(messages[0]["role"], "user")
             return (
-                '{"where":"CLAUDE.md","fix":"Bash 读文件前先确认路径",'
+                '{"where":"CLAUDE.md","fix":"Bash: check the path exists before reading it",'
                 '"also":"","confidence":"high"}'
             )
 
-        j = judge_issue_fix(session, issue, config=_cfg(), chat_fn=chat_fn)
+        with patch.dict(os.environ, {k: v for k, v in os.environ.items() if k != "ANALYZE_LANGUAGE"}, clear=True):
+            j = judge_issue_fix(session, issue, config=_cfg(), chat_fn=chat_fn)
         self.assertEqual(j.where, "CLAUDE.md")
         self.assertIn("Bash", j.fix)
 

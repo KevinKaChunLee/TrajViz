@@ -112,6 +112,9 @@ First release as the `agent-trajviz` package.
   installed.
 - The Converge dashboard listens on port 7861 by default, beside Insight's
   7860.
+- The AI sidebar and the Issues judge reply in English by default (was
+  Simplified Chinese); `ANALYZE_LANGUAGE` still picks any language, and
+  Simplified Chinese keeps its own prompt with Chinese headings.
 - `load()` raises `LoadError` with code `unknown_format` for a file no format
   recognizes, where it used to return a trajectory of format `"unknown"`
   when the file happened to parse (the dashboard already refused such a

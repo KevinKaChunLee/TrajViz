@@ -20,8 +20,9 @@ from .diagnostics import (
 from .formatting import wall_clock_fmt
 from .llm_config import (
     AnalysisLLMConfig,
+    DEFAULT_ANALYSIS_LANGUAGE,
     analysis_language,
-    is_default_language,
+    is_chinese,
     resolve_analysis_config,
     setup_help_text,
 )
@@ -52,12 +53,18 @@ _OUTPUT_CLIP = 180
 _ARG_CLIP = 100
 _HISTORY_TURNS = 12  # user+assistant messages kept
 
+#: The first-pass question sent after a load, in the default reply language.
 AUTO_ANALYSIS_QUESTION = (
+    "Analyse this run from the dashboard statistics: mark the main performance "
+    "bottlenecks (step number, stage, duration and cause), the error patterns, the "
+    "root cause, and actionable optimization suggestions."
+)
+_AUTO_ANALYSIS_QUESTION_CHINESE = (
     "请根据仪表盘统计分析这次轨迹：标出主要性能瓶颈（步骤编号、阶段、耗时与原因）、"
     "错误模式、根因，以及可落地的优化建议。"
 )
 
-SYSTEM_PROMPT = """You are TrajViz's trajectory analyst. You see a structured brief of
+_ANALYST_ROLE = """You are TrajViz's trajectory analyst. You see a structured brief of
 dashboard statistics for one coding-agent run. The user cannot see the brief —
 they see the dashboard.
 
@@ -70,7 +77,45 @@ Your job:
 - If the brief lacks evidence for a claim, say so. Do not invent tool outputs.
 - Do not ask the user to paste the trajectory; you already have the stats.
 
-When the user asks for an overall analysis (including the first pass after load),
+"""
+
+# The report structure, written in the reply language: English by default,
+# any other language translated by the model from these English headings.
+_REPORT_FORMAT = """When the user asks for an overall analysis (including the first pass after load),
+structure the reply in Markdown as:
+
+## Main performance bottlenecks
+1. Step X — [stage] ([severity])
+   Duration: …
+   Problem: …
+   Outcome: …
+   Analysis: … (why it was slow or failed; cite brief metrics such as tool_time_share,
+   tool_wait_pct, p95_tool_duration, max_tool_duration, output_tokens_per_sec,
+   tokens_per_tool)
+2. …
+
+## Error patterns
+Group the main errors by type and name the steps where they occur.
+
+## Root cause
+Explain the root cause from metric and step evidence, not just the symptoms.
+
+## Optimization suggestions
+1. [Direction]: [concrete suggestion]
+2. …
+
+Each bottleneck must cite an exact step number, its duration, and why the approach
+is inefficient. Follow-up questions should be answered directly and conversationally
+in the same language — do not repeat the full report unless asked.
+
+Language:
+- Write the entire reply in {LANGUAGE}, including the section headings.
+- Keep in their original form: code, tool names, file paths, JSON keys, metric keys,
+  model names, and step numbers, so they still match the dashboard.
+"""
+
+# Simplified Chinese prescribes the same structure with Chinese headings.
+_REPORT_FORMAT_CHINESE = """When the user asks for an overall analysis (including the first pass after load),
 structure the reply in Markdown as:
 
 ## 主要性能瓶颈
@@ -102,65 +147,26 @@ Language:
   model names, and step numbers, so they still match the dashboard.
 """
 
-# The default prompt above prescribes its report structure in Chinese. For any
-# other ANALYZE_LANGUAGE the same structure is given with English headings and
-# the reply language is stated explicitly.
-_SYSTEM_PROMPT_OTHER_LANGUAGE = SYSTEM_PROMPT.split("When the user asks for an overall analysis")[0] + """\
-When the user asks for an overall analysis (including the first pass after load),
-structure the reply in Markdown as:
-
-## Main performance bottlenecks
-1. Step X — [stage] ([severity])
-   Duration: …
-   Problem: …
-   Outcome: …
-   Analysis: … (why it was slow or failed; cite brief metrics such as tool_time_share,
-   tool_wait_pct, p95_tool_duration, max_tool_duration, tokens_per_tool)
-2. …
-
-## Error patterns
-Group the main errors by type and name the steps where they occur.
-
-## Root cause
-Explain the root cause from metric and step evidence, not just the symptoms.
-
-## Optimization suggestions
-1. [Direction]: [concrete suggestion]
-2. …
-
-Each bottleneck must cite an exact step number, its duration, and why the approach
-is inefficient. Follow-up questions should be answered directly and conversationally
-in the same language — do not repeat the full report unless asked.
-
-Language:
-- Write the entire reply in {LANGUAGE}, including the section headings.
-- Keep in their original form: code, tool names, file paths, JSON keys, metric keys,
-  model names, and step numbers, so they still match the dashboard.
-"""
-
-_AUTO_ANALYSIS_QUESTION_OTHER_LANGUAGE = (
-    "Analyse this run from the dashboard statistics: mark the main performance "
-    "bottlenecks (step number, stage, duration and cause), the error patterns, the "
-    "root cause, and actionable optimization suggestions."
-)
-
-
 
 def _brief_rate(rate: float | None) -> str:
     return f"{rate}%" if isinstance(rate, (int, float)) else "n/a"
 
 def system_prompt(language: str | None = None) -> str:
-    """The analyst system prompt for *language* (default: ANALYZE_LANGUAGE)."""
+    """The analyst system prompt for *language* (default: ANALYZE_LANGUAGE, else English)."""
     lang = language or analysis_language()
-    if is_default_language(lang):
-        return SYSTEM_PROMPT
-    return _SYSTEM_PROMPT_OTHER_LANGUAGE.replace("{LANGUAGE}", lang)
+    if is_chinese(lang):
+        return _ANALYST_ROLE + _REPORT_FORMAT_CHINESE
+    return _ANALYST_ROLE + _REPORT_FORMAT.replace("{LANGUAGE}", lang)
+
+
+#: The analyst system prompt in the default reply language.
+SYSTEM_PROMPT = system_prompt(DEFAULT_ANALYSIS_LANGUAGE)
 
 
 def auto_analysis_question(language: str | None = None) -> str:
     """The first-pass question sent after load, in the reply language."""
     lang = language or analysis_language()
-    return AUTO_ANALYSIS_QUESTION if is_default_language(lang) else _AUTO_ANALYSIS_QUESTION_OTHER_LANGUAGE
+    return _AUTO_ANALYSIS_QUESTION_CHINESE if is_chinese(lang) else AUTO_ANALYSIS_QUESTION
 
 
 ChatFn = Callable[[AnalysisLLMConfig, str, list[dict[str, str]]], str]
@@ -731,7 +737,7 @@ def answer_question(
     if not question:
         return history
     history.append({"role": "user", "content": question})
-    chinese = is_default_language(language or analysis_language())
+    chinese = is_chinese(language or analysis_language())
 
     if not (brief or "").strip():
         history.append({

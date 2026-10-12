@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import requests
 
 from .assistant import ChatFn, complete_chat, _first_user_task, _public_http_error
-from .llm_config import AnalysisLLMConfig, analysis_language, is_default_language, resolve_analysis_config
+from .llm_config import AnalysisLLMConfig, analysis_language, is_chinese, resolve_analysis_config
 from .presenters.issues import IssueJudgment, OverviewIssue
 from .session import LoadedSession
 
@@ -38,7 +38,7 @@ Language:
 - File/path/tool names may stay in their original Latin spelling when that is clearer.
 
 Rules for "where":
-- Permission/auth/sandbox/cwd runtime failures → 环境 (not instructions).
+- Permission/auth/sandbox/cwd runtime failures → the environment (not instructions).
 - If evidence names a SKILL.md path or skill id → that skill / path.
 - Otherwise → durable agent instructions for the harness (e.g. CLAUDE.md, AGENTS.md,
   OpenCode agent config). Never use this run's one-shot user message as the edit target.
@@ -238,9 +238,9 @@ class JudgeProgress:
 
 
 def _judge_language(language: str | None = None) -> str:
-    """*language* (default ANALYZE_LANGUAGE), with the documented default spelled as before."""
+    """*language* (default: ANALYZE_LANGUAGE, else English); Chinese is spelled out for the model."""
     lang = language or analysis_language()
-    return "Simplified Chinese (Mandarin)" if is_default_language(lang) else lang
+    return "Simplified Chinese (Mandarin)" if is_chinese(lang) else lang
 
 
 def _judge_error_text(exc: BaseException) -> str:

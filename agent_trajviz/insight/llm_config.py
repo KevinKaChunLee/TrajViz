@@ -65,9 +65,9 @@ def load_env_files() -> None:
         _load_dotenv(str(_REPO_ROOT / ".env"))
 
 
-# Reply language of the AI sidebar and the Issues judge. Simplified Chinese is
-# the documented default; ANALYZE_LANGUAGE (any language name) overrides it.
-DEFAULT_ANALYSIS_LANGUAGE = "Simplified Chinese"
+# Reply language of the AI sidebar and the Issues judge: English unless
+# ANALYZE_LANGUAGE (any language name) says otherwise.
+DEFAULT_ANALYSIS_LANGUAGE = "English"
 
 
 def analysis_language() -> str:
@@ -75,8 +75,9 @@ def analysis_language() -> str:
     return _env("ANALYZE_LANGUAGE") or DEFAULT_ANALYSIS_LANGUAGE
 
 
-def is_default_language(language: str) -> bool:
-    return language.strip().lower() in {"simplified chinese", "zh", "zh-cn", "chinese", "简体中文"}
+def is_chinese(language: str) -> bool:
+    """True when *language* names Chinese, which has prompts of its own (Chinese headings)."""
+    return language.strip().lower() in {"simplified chinese", "chinese", "zh", "zh-cn", "zh-hans", "简体中文", "中文"}
 
 
 def _env(name: str, default: str = "") -> str:

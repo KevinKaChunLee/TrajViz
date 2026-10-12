@@ -97,8 +97,8 @@ The **AI Trajectory Analysis** sidebar starts closed; open it from the
 labeled control on the right edge. It runs an automatic analysis
 when a trajectory loads, then answers follow-up questions. It uses the same
 dashboard statistics (health verdicts, bottlenecks, failures, fruitless
-streaks) and replies in Simplified Chinese by default (set `ANALYZE_LANGUAGE`, e.g.
-`English`, to change it — the Issues fix judge follows the same setting). It does not
+streaks) and replies in English by default (set `ANALYZE_LANGUAGE`, e.g.
+`Simplified Chinese` or `German`, to change it — the Issues fix judge follows the same setting). It does not
 re-upload the raw file. Configure the model in `.env`:
 
 ```bash
@@ -115,7 +115,7 @@ cp .env.example .env
 
 Optional: `ANALYZE_PROVIDER` (`openai` \| `anthropic`, default `openai`),
 `ANALYZE_TEMPERATURE` (default `0.2`), `ANALYZE_MAX_TOKENS` (default `2048`),
-`ANALYZE_TIMEOUT` (default `120`), `ANALYZE_LANGUAGE` (default `Simplified Chinese`).
+`ANALYZE_TIMEOUT` (default `120`), `ANALYZE_LANGUAGE` (default `English`).
 `.env` is gitignored, and only `ANALYZE_*` / `LABEL_*` keys are read from it.
 
 Custom port or host (prefix any of these with `uv run` when using uv):

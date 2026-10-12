@@ -1,37 +1,65 @@
-"""The LLM features' reply language is a setting, with the documented default.
+"""The LLM features' reply language is a setting, English by default.
 
-The AI sidebar and the Issues judge were hard-coded to reply in Simplified
-Chinese inside an otherwise English dashboard, with no way to change it.
-``ANALYZE_LANGUAGE`` now selects the language; leaving it unset keeps the
-documented default and the exact prompts that implement it. Any other language
-gets the same report structure with English headings, translated by the model.
+``ANALYZE_LANGUAGE`` selects the language the AI sidebar and the Issues judge
+reply in. Unset, both reply in English. Simplified Chinese keeps a prompt of
+its own, with Chinese section headings; any other language gets the English
+report structure and the model writes it in that language. No prompt carries
+Chinese text unless Chinese was asked for.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import unittest
 from unittest.mock import patch
 
 from agent_trajviz.insight import assistant, issue_judge
 
+CJK = re.compile(r"[\u4e00-\u9fff]")
+
 
 class AnalysisLanguageTests(unittest.TestCase):
-    def test_default_is_unchanged(self):
+    def test_the_default_is_english(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(assistant.system_prompt(), assistant.SYSTEM_PROMPT)
-            self.assertEqual(assistant.auto_analysis_question(), assistant.AUTO_ANALYSIS_QUESTION)
-            self.assertEqual(issue_judge._judge_language(), "Simplified Chinese (Mandarin)")
-
-    def test_another_language_changes_prompt_and_first_question(self):
-        with patch.dict(os.environ, {"ANALYZE_LANGUAGE": "English"}, clear=True):
             prompt = assistant.system_prompt()
+            self.assertEqual(prompt, assistant.SYSTEM_PROMPT)
             self.assertIn("Write the entire reply in English", prompt)
             self.assertIn("## Main performance bottlenecks", prompt)
-            self.assertNotIn("主要性能瓶颈", prompt)
-            self.assertNotIn("简体中文", prompt)
-            self.assertTrue(assistant.auto_analysis_question().startswith("Analyse this run"))
+            self.assertIsNone(CJK.search(prompt))
+            self.assertEqual(assistant.auto_analysis_question(), assistant.AUTO_ANALYSIS_QUESTION)
+            self.assertTrue(assistant.AUTO_ANALYSIS_QUESTION.startswith("Analyse this run"))
             self.assertEqual(issue_judge._judge_language(), "English")
+
+    def test_chinese_keeps_its_own_prompt(self):
+        for name in ("Simplified Chinese", "zh-CN", "简体中文"):
+            with self.subTest(language=name), patch.dict(os.environ, {"ANALYZE_LANGUAGE": name}, clear=True):
+                prompt = assistant.system_prompt()
+                self.assertIn("## 主要性能瓶颈", prompt)
+                self.assertIn("Write the entire reply in Simplified Chinese (简体中文)", prompt)
+                self.assertIsNotNone(CJK.search(assistant.auto_analysis_question()))
+                self.assertEqual(issue_judge._judge_language(), "Simplified Chinese (Mandarin)")
+
+    def test_another_language_changes_prompt_and_first_question(self):
+        with patch.dict(os.environ, {"ANALYZE_LANGUAGE": "German"}, clear=True):
+            prompt = assistant.system_prompt()
+            self.assertIn("Write the entire reply in German", prompt)
+            self.assertIn("## Main performance bottlenecks", prompt)
+            self.assertIsNone(CJK.search(prompt))
+            self.assertTrue(assistant.auto_analysis_question().startswith("Analyse this run"))
+            self.assertEqual(issue_judge._judge_language(), "German")
+
+    def test_the_judge_prompt_carries_no_chinese_for_another_language(self):
+        rendered = issue_judge.JUDGE_SYSTEM_PROMPT.replace("{LANGUAGE}", "English")
+        self.assertIsNone(CJK.search(rendered), "the judge would answer in Chinese inside an English reply")
+
+    def test_fallback_messages_follow_the_language(self):
+        with patch.dict(os.environ, {}, clear=True):
+            reply = assistant.answer_question("Why?", [], "")[-1]["content"]
+        self.assertTrue(reply.startswith("Load a trajectory first"), reply)
+        with patch.dict(os.environ, {"ANALYZE_LANGUAGE": "Simplified Chinese"}, clear=True):
+            reply = assistant.answer_question("为什么?", [], "")[-1]["content"]
+        self.assertIsNotNone(CJK.search(reply), reply)
 
     def test_the_judge_prompt_names_the_configured_language(self):
         captured = {}

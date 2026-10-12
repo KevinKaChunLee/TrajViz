@@ -17,7 +17,7 @@ Any client works: pass ``chat=`` a function ``(system, messages) -> reply``
 (:data:`ChatFunction`) to use your own SDK, gateway or local model. It
 receives the redacted prompt, so the guarantee above still holds, and no
 endpoint configuration is needed. ``language=`` sets the reply language
-(default: ``ANALYZE_LANGUAGE``, itself defaulting to Simplified Chinese).
+(default: ``ANALYZE_LANGUAGE``, else English).
 """
 
 from __future__ import annotations

@@ -170,10 +170,11 @@ class AnalysisChatTests(unittest.TestCase):
             called.append(1)
             raise AssertionError("should not call")
 
-        history = assistant.answer_question("Where did it go wrong?", [], "", chat_fn=boom)
+        with patch.dict(os.environ, {k: v for k, v in os.environ.items() if k != "ANALYZE_LANGUAGE"}, clear=True):
+            history = assistant.answer_question("Where did it go wrong?", [], "", chat_fn=boom)
         self.assertEqual(called, [])
         self.assertEqual(history[0]["role"], "user")
-        self.assertIn("请先加载", history[1]["content"])
+        self.assertIn("Load a trajectory first", history[1]["content"])
 
     def test_missing_config_does_not_call_http(self):
         called = []
@@ -248,32 +249,35 @@ class AnalysisChatTests(unittest.TestCase):
         self.assertEqual(body["messages"][0], {"role": "system", "content": "SYS"})
         self.assertEqual(body["model"], "demo-model")
 
-    def test_system_prompt_requires_simplified_chinese(self):
-        self.assertIn("简体中文", assistant.SYSTEM_PROMPT)
-        self.assertIn("主要性能瓶颈", assistant.SYSTEM_PROMPT)
-        self.assertIn("p95_tool_duration", assistant.SYSTEM_PROMPT)
-        self.assertIn("tool_wait_pct", assistant.SYSTEM_PROMPT)
+    def test_every_prompt_names_the_metrics_to_cite(self):
+        for prompt in (assistant.SYSTEM_PROMPT, assistant.system_prompt("Simplified Chinese"),
+                       assistant.system_prompt("German")):
+            self.assertIn("p95_tool_duration", prompt)
+            self.assertIn("tool_wait_pct", prompt)
+        self.assertIn("## Main performance bottlenecks", assistant.SYSTEM_PROMPT)
+        self.assertIn("## 主要性能瓶颈", assistant.system_prompt("Simplified Chinese"))
 
-    def test_auto_analysis_on_load_sends_chinese_question(self):
+    def test_auto_analysis_on_load_sends_the_first_question(self):
         captured = {}
 
         def fake_chat(_config, system, messages):
             captured["system"] = system
             captured["messages"] = messages
-            return "步骤 1 是瓶颈。"
+            return "Step 1 is the bottleneck."
 
         steps = [
             _step(0, "user", duration=None, tokens=0, preview="Fix login"),
             _step(1, duration=12.0, tokens=100),
         ]
-        brief, history = assistant.analyze_loaded_trajectory(
-            steps, {"metadata": {"title": "run"}}, config=_cfg(), chat_fn=fake_chat,
-        )
+        with patch.dict(os.environ, {k: v for k, v in os.environ.items() if k != "ANALYZE_LANGUAGE"}, clear=True):
+            brief, history = assistant.analyze_loaded_trajectory(
+                steps, {"metadata": {"title": "run"}}, config=_cfg(), chat_fn=fake_chat,
+            )
         self.assertIn("HEALTH", brief)
         self.assertEqual(captured["messages"][-1]["content"], assistant.AUTO_ANALYSIS_QUESTION)
-        self.assertIn("简体中文", captured["system"])
-        self.assertIn("主要性能瓶颈", captured["system"])
-        self.assertEqual(history[-1]["content"], "步骤 1 是瓶颈。")
+        self.assertIn("Write the entire reply in English", captured["system"])
+        self.assertIn("## Main performance bottlenecks", captured["system"])
+        self.assertEqual(history[-1]["content"], "Step 1 is the bottleneck.")
         self.assertTrue(history[-1]["content"])
 
 
