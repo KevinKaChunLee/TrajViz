@@ -130,6 +130,28 @@ def _summary(run: Trajectory, a: Analysis) -> dict[str, Any]:
     }
 
 
+def _session(run: Trajectory, a: Analysis) -> dict[str, Any]:
+    from .insight.formats.common import as_text
+    from .insight.metrics import extract_agent_info
+
+    md = run.raw.get("metadata") if isinstance(run.raw.get("metadata"), dict) else {}
+    timing = run.raw.get("timing") if isinstance(run.raw.get("timing"), dict) else {}
+    model_id, provider_id, agent_id = extract_agent_info(run.steps)
+    return {
+        "model": as_text(model_id) or as_text(md.get("model")) or None,
+        "provider": as_text(provider_id) or None,
+        "agent": as_text(agent_id) or as_text(md.get("agent")) or None,
+        "started_at": as_text(timing.get("started_at")) or None,
+        "finished_at": as_text(timing.get("finished_at")) or None,
+        "session_id": as_text(md.get("session_id")) or None,
+        "title": as_text(md.get("title")) or None,
+        "branch": as_text(md.get("branch")) or None,
+        "directory": as_text(md.get("directory_name")) or None,
+        "platform": as_text(md.get("platform")) or None,
+        "version": as_text(md.get("server_version")) or None,
+    }
+
+
 def _context_pressure(
     run: Trajectory,
     a: Analysis,
@@ -186,6 +208,11 @@ _SPECS: dict[str, _Spec] = {
         "summary", "Summary",
         "Provenance and headline numbers: format, steps, agents, tokens, tool use, health and issue count.",
         _summary),
+    "session": _Spec(
+        "summary", "Session details",
+        "Where and how the run happened: model, provider, agent, start and end, session id, title, "
+        "branch, directory, platform and client version, as the export records them (null if absent).",
+        _session),
     "metrics": _Spec(
         "summary", "Session metrics",
         "Every session metric: tokens by field, timing and latency, throughput, tool use and failures, "
