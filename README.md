@@ -161,6 +161,8 @@ tools = run.view("tool_usage").data           # calls per tool, split by agent
 agent = run.view("context_pressure").data["agents"][-1]["key"]
 ctx = run.view("context_pressure", agent=agent, window_limit=200_000)  # views can take options
 tv.export_json(run, "out/")                   # <id>.json per view + index.json + trajectory.json
+again = tv.load("out/trajectory.json")        # an export reloads to the same views
+data = run.to_dict(include_raw=True)          # or keep it yourself: tv.Trajectory.from_dict(data)
 
 report = tv.compare(run, "other_run.json", anchor_patch="gold.patch")  # two runs of a task
 tv.export_json(tv.comparison_views(report), "out/compare/")

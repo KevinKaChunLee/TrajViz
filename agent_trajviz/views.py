@@ -464,7 +464,8 @@ def export_json(
 
     *source* is a loaded trajectory (all of its views, or those in *only*) or
     a mapping of views such as :func:`comparison_views` returns. For a
-    trajectory, ``trajectory.json`` holds :meth:`Trajectory.to_dict`. The
+    trajectory, ``trajectory.json`` holds :meth:`Trajectory.to_dict` with the
+    raw export, so the directory reloads with :func:`load`. The
     directory is created if needed; existing files of the same names are
     replaced.
     """
@@ -492,7 +493,7 @@ def export_json(
         "views": [{"id": v.id, "title": v.title, "kind": v.kind, "file": f"{v.id}.json"} for v in views.values()],
     }
     if isinstance(source, Trajectory):
-        _write("trajectory.json", _jsonable(source.to_dict()))
+        _write("trajectory.json", source.to_dict(include_raw=True))
         index.update(source=source.source, sha256=source.sha256, format=source.format,
                      trajectory_file="trajectory.json")
     _write("index.json", index)

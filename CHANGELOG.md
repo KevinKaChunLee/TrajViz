@@ -37,6 +37,10 @@ First release as the `agent-trajviz` package.
   and tables, listed in `VIEW_CATALOG`; the dashboard draws its charts from
   exactly this data. `export_json()` writes them (`<id>.json`, `index.json`,
   `trajectory.json`), as does `agent-trajviz --json RUN [-o DIR] [--view ID]`.
+- Round trip: `Trajectory.to_dict(include_raw=True)` keeps the converted
+  export, `Trajectory.from_dict()` rebuilds the trajectory, and `load()`
+  reads such a document (the `trajectory.json` that `export_json()` writes)
+  back to identical views.
 - The dashboard's inputs as API: `load(..., format=)` (the format selector),
   view options for the context-utilization agent, window and snapshot, a
   `workflow` view (the step browser's classification and filters), a

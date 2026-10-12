@@ -33,6 +33,9 @@ FORMATS: Mapping[str, str] = MappingProxyType(dict(loaders.FORMAT_LABELS))
 #: Version of the layout :meth:`Trajectory.to_dict` produces.
 SCHEMA_VERSION = 1
 
+#: The ``type`` field that marks a :meth:`Trajectory.to_dict` document.
+TRAJECTORY_TYPE = "agent-trajviz-trajectory"
+
 PathLike = str | os.PathLike[str]
 
 
@@ -119,9 +122,18 @@ class Trajectory:
 
         return build_view(self, self._analysis, view_id, options)
 
-    def to_dict(self) -> dict[str, Any]:
-        """A JSON-serializable copy: format, provenance, warnings and steps."""
-        return {
+    def to_dict(self, *, include_raw: bool = False) -> dict[str, Any]:
+        """A JSON-serializable copy: format, provenance, warnings and steps.
+
+        ``include_raw=True`` adds the converted export (:attr:`raw`), which
+        some analyses read (session metadata, timing, sub-agent links); the
+        result then reloads with :meth:`from_dict` or :func:`load` to
+        identical views.
+        """
+        from .views import _jsonable
+
+        data: dict[str, Any] = {
+            "type": TRAJECTORY_TYPE,
             "schema_version": SCHEMA_VERSION,
             "format": self.format,
             "format_label": self.format_label,
@@ -131,6 +143,37 @@ class Trajectory:
             "tokens_estimated": self.tokens_estimated,
             "steps": self.steps,
         }
+        if include_raw:
+            data["raw"] = self.raw
+        return cast("dict[str, Any]", _jsonable(data))
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Trajectory:
+        """Rebuild a trajectory from :meth:`to_dict` output (parsed JSON).
+
+        Raises :class:`ValueError` for a document of another layout or
+        version. Without ``raw`` (``to_dict()`` without ``include_raw``) the
+        steps are restored but analyses that read the export's metadata see
+        none.
+        """
+        if not isinstance(data, Mapping) or not isinstance(data.get("steps"), list):
+            raise ValueError("not an agent-trajviz trajectory: no steps")
+        version = data.get("schema_version")
+        if version != SCHEMA_VERSION:
+            raise ValueError(f"unsupported trajectory schema_version {version!r} (expected {SCHEMA_VERSION})")
+        fmt = data.get("format")
+        if not isinstance(fmt, str) or not fmt:
+            raise ValueError("not an agent-trajviz trajectory: no format")
+        raw = data.get("raw")
+        return cls(
+            format=fmt,
+            steps=cast("list[Step]", list(data["steps"])),
+            source=data.get("source"),
+            sha256=data.get("sha256"),
+            warnings=tuple(str(w) for w in data.get("warnings") or ()),
+            tokens_estimated=bool(data.get("tokens_estimated")),
+            raw=dict(raw) if isinstance(raw, Mapping) else {},
+        )
 
 
 def load(source: PathLike, *, format: str | None = None) -> Trajectory:
@@ -146,9 +189,16 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
     if format is not None and format not in FORMATS:
         raise ValueError(f"unknown format {format!r}; expected one of: {', '.join(FORMATS)}")
     path = os.fspath(source)
+    exported = _read_exported(path)
+    if exported is not None:
+        return _load_exported(exported, path, format)
     raw = loaders.load_trajectory(path, format_hint=format)
     if raw.get("_error"):
         raise LoadError(str(raw["_error"]), code=raw.get("_error_code") or "load_failed", path=path)
+    if raw.get("type") == TRAJECTORY_TYPE:
+        # An export written with sorted keys: no format claims it, so the
+        # loader hands the document back as parsed.
+        return _load_exported(raw, path, format)
     if format is not None and loaders.check_format_selection(loaders.detect_format(raw), format) == "mismatch":
         raise LoadError(
             f"the file is {loaders.detect_format(raw)}, not {format}", code="mismatch", path=path,
@@ -166,6 +216,37 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
         tokens_estimated=loaders.tokens_are_estimates(raw),
         raw=raw,
     )
+
+
+def _load_exported(data: Mapping[str, Any], path: str, format: str | None) -> Trajectory:
+    """A :meth:`Trajectory.to_dict` document read back from *path*."""
+    try:
+        run = Trajectory.from_dict(data)
+    except ValueError as exc:
+        raise LoadError(str(exc), code="unsupported_schema", path=path) from exc
+    if format is not None and run.format != format:
+        raise LoadError(f"the file is {run.format}, not {format}", code="mismatch", path=path)
+    return run
+
+
+def _read_exported(path: str) -> dict[str, Any] | None:
+    """The parsed document when *path* is a :meth:`Trajectory.to_dict` export, else ``None``.
+
+    Only a JSON object whose ``type`` is :data:`TRAJECTORY_TYPE` qualifies; a
+    cheap prefix check keeps every other file on the format loaders' path.
+    """
+    import json
+
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(4096)
+            if TRAJECTORY_TYPE.encode() not in head:
+                return None
+            fh.seek(0)
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and data.get("type") == TRAJECTORY_TYPE else None
 
 
 def compare(reference: Trajectory | PathLike, compared: Trajectory | PathLike, *,
