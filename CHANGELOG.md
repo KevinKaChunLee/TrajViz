@@ -32,6 +32,24 @@ First release as the `agent-trajviz` package.
   `TRAJVIZ_AUTH=user:password`. The Converge dashboard takes `--data-root`.
 - `SECURITY.md`: how to report a vulnerability, and the security model.
 - Python 3.14 support.
+- Every chart and table as data: `Trajectory.views()` / `.view(id, **options)`
+  return `View`s (id, title, kind, description, JSON data) for 35 charts
+  and tables, listed in `VIEW_CATALOG`; the dashboard draws its charts from
+  exactly this data. `export_json()` writes them (`<id>.json`, `index.json`,
+  `trajectory.json`), as does `agent-trajviz --json RUN [-o DIR] [--view ID]`.
+- The dashboard's inputs as API: `load(..., format=)` (the format selector),
+  view options for the context-utilization agent, window and snapshot, a
+  `workflow` view (the step browser's classification and filters), a
+  `session` view, `compare(..., anchor_patch=)`, `compare_runs()` with
+  `run_group_views()` (N-run scorecard), and `label_views()` /
+  `label_comparison_views()` (step-label sidecars).
+- Optional public layers: `agent_trajviz.figures` (charts extra) draws any
+  chart view with the dashboard's code; `agent_trajviz.dashboard` (app
+  extra) launches or embeds the dashboards and turns views into Gradio
+  components; `agent_trajviz.llm` (llm extra) is the AI analysis and
+  suggested fixes; `agent_trajviz.attribution` is DECAF attribution.
+- `examples/`: the dashboard rebuilt on the public API alone, and a small
+  app of your own, both driven end to end in the test suite.
 
 ### Changed
 

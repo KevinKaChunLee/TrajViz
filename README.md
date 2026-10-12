@@ -143,32 +143,53 @@ refused.
 
 ## Use it as a library
 
-The core needs no third-party packages (`pip install agent-trajviz`):
+The library parses trajectories and analyzes them; everything it computes is
+plain data. The core needs no third-party packages (`pip install agent-trajviz`):
 
 ```python
 import agent_trajviz as tv
 
-run = tv.load("trajectory.json")           # any supported format, detected from the content
-print(run.format_label, len(run.steps))     # e.g. "Codex CLI", 66
+run = tv.load("trajectory.json")            # any supported format, detected from the content
+run = tv.load("trajectory.json", format="codex")   # or required (LoadError "mismatch" otherwise)
+print(run.format_label, len(run.steps))      # e.g. "Codex CLI", 66
 print(run.metrics["tokens"]["total"], run.metrics["tool_success_rate"])
-for check in run.health:                     # {"metric", "status", "label", "detail"}
-    print(check["metric"], check["status"], check["label"])
 
-pressure = run.context_pressure()["stats"]   # peak_occupancy, peak_pct, compaction_count, window_source, ...
-report = tv.compare(run, "other_run.json")   # alignment, divergence, outcome, confidence
-data = run.to_dict()                         # JSON-serializable, versioned by tv.SCHEMA_VERSION
+# Every chart and table the dashboard shows is a view: id, title, kind, description, JSON data.
+for view_id, info in tv.VIEW_CATALOG.items():  # 35 views: summary, health, issues, agents,
+    print(view_id, info["kind"], info["title"])  # token_usage, tool_usage, workflow, ...
+tools = run.view("tool_usage").data           # calls per tool, split by agent
+agent = run.view("context_pressure").data["agents"][-1]["key"]
+ctx = run.view("context_pressure", agent=agent, window_limit=200_000)  # views can take options
+tv.export_json(run, "out/")                   # <id>.json per view + index.json + trajectory.json
 
-tv.write_report(run, "reports/")             # standalone HTML; needs the `charts` extra
+report = tv.compare(run, "other_run.json", anchor_patch="gold.patch")  # two runs of a task
+tv.export_json(tv.comparison_views(report), "out/compare/")
+group = tv.compare_runs(["a.json", "b.json", "c.json"])   # N runs: scorecard, behaviour, timelines
+labels = tv.label_views("trajectory_labeled.json")       # step labels from agent-trajviz-label
 ```
 
 `tv.load` raises `tv.LoadError` (with `.code` and `.path`) for a file it cannot
 read; every error the package raises on purpose is a `tv.TrajVizError`. Steps
 are plain dicts described by the `tv.Step`, `tv.ToolCall` and `tv.TokenUsage`
-typed records, and the package ships type information (`py.typed`).
+typed records, and the package ships type information (`py.typed`). From the
+shell, `agent-trajviz --json trajectory.json -o out/` writes every view
+(`--list-views` prints the catalog, `--view ID` picks some).
 
-Only the names exported from `agent_trajviz` are public. The `insight`
-(dashboard) and `converge` (comparison) subpackages are internal and may
-change between minor versions.
+Optional layers build on the views:
+
+| Module | Extra | What it adds |
+|---|---|---|
+| `agent_trajviz.figures` | `charts` | `figure(view)`: the dashboard's Plotly figure for any chart view |
+| `agent_trajviz.dashboard` | `app` | the Insight and Converge dashboards (`launch_insight()`, `insight_app()`), and `view_component(view)` for your own Gradio app |
+| `agent_trajviz.llm` | `llm` | `ask(run, question)` and `suggest_fixes(run)`: the AI analysis, on the endpoint you configure, redacted |
+| `agent_trajviz.attribution` | — | `diagnose(run)`: DECAF failure attribution when a DECAF checkout is available |
+
+[`examples/`](examples/) has the dashboard rebuilt on this API alone and a
+small app of your own; both are tested end to end.
+
+Only the names exported from `agent_trajviz` and the modules above are
+public. The `insight` and `converge` subpackages are internal and may change
+between minor versions.
 
 ---
 
@@ -515,9 +536,9 @@ slots to unlock phase-aware analytics and label-phase charts.
 ```bash
 uv sync --extra dev                          # locked environment with every extra
 uv run pytest                                # test suite
-uv run ruff check agent_trajviz tests        # lint
+uv run ruff check agent_trajviz tests examples   # lint
 uv run --with mypy mypy --strict agent_trajviz/__init__.py agent_trajviz/api.py \
-    agent_trajviz/errors.py agent_trajviz/model.py   # the typed public API
+    agent_trajviz/errors.py agent_trajviz/model.py agent_trajviz/views.py   # the typed public API
 uv build                                     # sdist + wheel into dist/
 uv lock --upgrade                            # refresh the locked test environment
 ```

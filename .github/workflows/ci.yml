@@ -39,7 +39,7 @@ jobs:
         run: uv sync --locked --extra dev
       - name: Lint (ruff)
         if: matrix.python == '3.13'
-        run: uv run --locked ruff check agent_trajviz tests
+        run: uv run --locked ruff check agent_trajviz tests examples
       # No PYTHONPATH: `pythonpath = ["."]` in [tool.pytest.ini_options] puts
       # the repo root on sys.path and pins rootdir to this repository.
       - name: Test
@@ -85,6 +85,7 @@ jobs:
         run: >
           uv run --locked --with "mypy>=1.13" mypy --strict
           agent_trajviz/__init__.py agent_trajviz/api.py agent_trajviz/errors.py agent_trajviz/model.py
+          agent_trajviz/views.py
 
   # What a user installs: build the sdist and wheel, check their metadata, and
   # install the wheel into clean environments -- the core alone must pull in

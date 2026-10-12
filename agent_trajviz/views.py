@@ -24,7 +24,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from .insight import chart_data
 from .insight.context_usage import (
@@ -98,6 +98,11 @@ def _jsonable(value: Any) -> Any:
     raise TypeError(f"not JSON data: {type(value).__name__}")
 
 
+def _steps(run: Trajectory) -> list[dict[str, Any]]:
+    """The steps as the analysis modules type them (plain dicts)."""
+    return cast("list[dict[str, Any]]", run.steps)
+
+
 @dataclass(frozen=True)
 class _Spec:
     kind: ViewKind
@@ -134,9 +139,10 @@ def _session(run: Trajectory, a: Analysis) -> dict[str, Any]:
     from .insight.formats.common import as_text
     from .insight.metrics import extract_agent_info
 
-    md = run.raw.get("metadata") if isinstance(run.raw.get("metadata"), dict) else {}
-    timing = run.raw.get("timing") if isinstance(run.raw.get("timing"), dict) else {}
-    model_id, provider_id, agent_id = extract_agent_info(run.steps)
+    md_raw, timing_raw = run.raw.get("metadata"), run.raw.get("timing")
+    md: dict[str, Any] = md_raw if isinstance(md_raw, dict) else {}
+    timing: dict[str, Any] = timing_raw if isinstance(timing_raw, dict) else {}
+    model_id, provider_id, agent_id = extract_agent_info(_steps(run))
     return {
         "model": as_text(model_id) or as_text(md.get("model")) or None,
         "provider": as_text(provider_id) or None,
@@ -164,7 +170,7 @@ def _context_pressure(
     if key == PRESSURE_ALL_AGENTS and window_limit is None:
         series = a.pressure_series
     else:
-        series = context_pressure_series(run.steps, agent_key=key, raw=run.raw, window_limit=window_limit)
+        series = context_pressure_series(_steps(run), agent_key=key, raw=run.raw, window_limit=window_limit)
     return {
         "agent": key,
         "agents": [{"label": label, "key": value} for label, value in a.pressure_choices],
@@ -183,9 +189,9 @@ def _context_usage(
     window_limit: int | float | None = None,
 ) -> dict[str, Any]:
     breakdown = context_usage_breakdown(
-        run.steps, raw=run.raw, agent_key=agent, window_limit=window_limit, snapshot_step=snapshot_step,
+        _steps(run), raw=run.raw, agent_key=agent, window_limit=window_limit, snapshot_step=snapshot_step,
     )
-    snapshots = usage_snapshot_choices(run.steps, agent_key=agent)
+    snapshots = usage_snapshot_choices(_steps(run), agent_key=agent)
     return {**breakdown, "snapshots": [{"label": label, "value": value} for label, value in snapshots]}
 
 
@@ -393,7 +399,7 @@ def build_views(run: Trajectory, analysis: Analysis, only: Iterable[str] | None 
     return {vid: build_view(run, analysis, vid) for vid in ids}
 
 
-_COMPARISON_SPECS: dict[str, tuple[ViewKind, str, str, Callable[[dict], Any]]] = {
+_COMPARISON_SPECS: dict[str, tuple[ViewKind, str, str, Callable[[dict[str, Any]], Any]]] = {
     "comparison_summary": (
         "summary", "Comparison summary",
         "The two runs, their outcomes, alignment scores, confidence and evidence level.",
@@ -602,11 +608,11 @@ def compare_runs(
     )
     if not result.get("ok"):
         raise ValueError(result.get("error") or "the runs could not be compared")
-    return _jsonable({
+    return cast("dict[str, Any]", _jsonable({
         "rows": result["rows"],
         "behavior": result["behavior"],
         "timelines": chart_data.run_timelines(result["timeline_runs"]),
-    })
+    }))
 
 
 def run_group_views(result: Mapping[str, Any]) -> dict[str, View]:
