@@ -32,7 +32,7 @@ from agent_trajviz.insight.context_usage import (
     context_pressure_series,
     context_pressure_stats,
 )
-from agent_trajviz.insight.formatting import wall_clock_fmt
+from agent_trajviz.insight.metrics import wall_clock_fmt
 from agent_trajviz.insight.loaders import FORMAT_LABELS, detect_format, load_trajectory
 from agent_trajviz.insight.metrics import build_message_metrics, compute_metrics
 from agent_trajviz.insight.parser import parse_steps

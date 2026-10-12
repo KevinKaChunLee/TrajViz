@@ -331,6 +331,13 @@ def non_spawn_tool_seconds(step: dict) -> float:
     return total
 
 
+def wall_clock_fmt(metrics: dict) -> tuple[float, str]:
+    """Return (wall_seconds, formatted_string) for wall-clock time."""
+    wall = metrics["wall_clock"] if isinstance(metrics["wall_clock"], (int, float)) else metrics["total_duration"]
+    fmt = f"{wall:.0f}s" if wall < 3600 else f"{wall / 60:.1f}m"
+    return wall, fmt
+
+
 def generation_seconds(step: dict) -> tuple[float, float] | None:
     """Return ``(generation_s, capped_tool_wait_s)`` excluding spawn wait.
 

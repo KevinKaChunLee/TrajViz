@@ -19,9 +19,8 @@ from typing import Any, cast
 from ._extras import require
 from .errors import LoadError, ReportError
 from .insight import loaders
-from .insight.analytics import compute_step_analytics
+from .insight.analysis import Analysis
 from .insight.context_usage import context_pressure_series, context_pressure_stats
-from .insight.metrics import build_message_metrics, compute_agent_summary, compute_health_verdict, compute_metrics
 from .insight.parser import parse_steps
 from .model import Step
 
@@ -67,20 +66,24 @@ class Trajectory:
         return FORMATS.get(self.format, self.format)
 
     @cached_property
+    def _analysis(self) -> Analysis:
+        # The one orchestration of every analysis; views and properties share it.
+        return Analysis(_plain(self.steps), self.raw, self.format)
+
+    @property
     def metrics(self) -> dict[str, Any]:
         """Session metrics: tokens, timing, tool use, finish reasons, throughput."""
-        steps = _plain(self.steps)
-        return compute_metrics(steps, self.raw, build_message_metrics(steps))
+        return self._analysis.metrics
 
-    @cached_property
+    @property
     def health(self) -> list[dict[str, Any]]:
         """Health verdicts, one per check, each with a status and an explanation."""
-        return compute_health_verdict(self.metrics, compute_step_analytics(_plain(self.steps)))
+        return self._analysis.verdicts
 
-    @cached_property
+    @property
     def agents(self) -> list[dict[str, Any]]:
         """Per-agent summary rows (the main agent and each sub-agent)."""
-        return compute_agent_summary(_plain(self.steps), self.raw)
+        return self._analysis.agent_summaries
 
     def context_pressure(self, window_limit: int | None = None) -> dict[str, Any]:
         """Context-window occupancy per agent and its summary statistics.

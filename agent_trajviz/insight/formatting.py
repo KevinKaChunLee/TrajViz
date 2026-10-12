@@ -3,6 +3,8 @@
 import html
 import re
 
+from .metrics import wall_clock_fmt  # noqa: F401  (re-exported: the display layer's callers import it here)
+
 
 _VERDICT_STYLES = {
     "good": ("var(--ov-success, #16a34a)",
@@ -407,13 +409,6 @@ def format_behavioral_md(metrics: dict, diag_metrics: dict | None = None) -> str
                                   verdict="bad"))
 
     return _metric_grid(chips, "Behavioral Diagnostics")
-
-
-def wall_clock_fmt(metrics: dict) -> tuple[float, str]:
-    """Return (wall_seconds, formatted_string) for wall-clock time."""
-    wall = metrics["wall_clock"] if isinstance(metrics["wall_clock"], (int, float)) else metrics["total_duration"]
-    fmt = f"{wall:.0f}s" if wall < 3600 else f"{wall / 60:.1f}m"
-    return wall, fmt
 
 
 def format_banner_html(filename: str, metrics: dict, wall_fmt: str) -> str:

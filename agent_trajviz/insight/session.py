@@ -7,45 +7,9 @@ import logging
 from dataclasses import dataclass
 from typing import Literal
 
-from .analytics import compute_step_analytics
-from .context_usage import (
-    PRESSURE_ALL_AGENTS,
-    context_pressure_series,
-    detect_premature_compactions,
-    pressure_agent_choices,
-)
-from .diagnostics import (
-    annotate_clusters_with_agents,
-    cluster_errors,
-    compute_failure_chain_metrics,
-    detect_failure_chains,
-    detect_performance_bottlenecks,
-    extract_file_interactions,
-    identify_target_files,
-    link_chains_to_agents,
-)
+from .analysis import NOISY_ROOT_CAUSE_FORMATS, Analysis
 from .loaders import check_format_selection, detect_format, load_trajectory
-from .formatting import wall_clock_fmt
-from .metrics import (
-    build_message_metrics,
-    compute_agent_summary,
-    compute_diagnostic_metrics,
-    compute_health_verdict,
-    compute_metrics,
-)
 from .parser import parse_steps
-from .patterns import (
-    build_structural_phase_segments,
-    compute_plan_metrics,
-    detect_edit_thrash,
-    detect_failure_patterns,
-    detect_fruitless_streaks,
-    detect_phase_anomalies,
-    detect_repeated_searches,
-    detect_tool_selection_antipatterns,
-    detect_tool_sequences,
-    extract_plan_history,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +18,7 @@ MAX_STEPS = 2000
 
 LoadErrorCode = Literal["not_found", "mismatch", "unknown", "read_error", "analysis_error"]
 
-_NOISY_ROOT_CAUSE_FORMATS = frozenset({"opencode", "codearts", "codex"})
+_NOISY_ROOT_CAUSE_FORMATS = NOISY_ROOT_CAUSE_FORMATS  # kept for importers of the old name
 
 
 @dataclass(frozen=True)
@@ -178,43 +142,8 @@ def build_loaded_session(path: str, raw: dict, *, detected: str | None = None) -
         steps = steps[:MAX_STEPS]
         truncated = True
 
-    message_rows = build_message_metrics(steps)
-    metrics = compute_metrics(steps, raw, message_rows=message_rows)
-    _, wfmt = wall_clock_fmt(metrics)
-
-    step_analytics = compute_step_analytics(steps)
-    verdicts = compute_health_verdict(metrics, step_analytics if steps else [])
-    agent_summaries = compute_agent_summary(steps, raw)
-
-    interactions = extract_file_interactions(steps)
-    target_files = identify_target_files(steps)
-    chains = detect_failure_chains(steps)
-    chains = link_chains_to_agents(chains, steps, agent_summaries)
-    chain_metrics = compute_failure_chain_metrics(
-        chains, sum(1 for s in steps if s.get("role") == "assistant")
-    )
-    clusters = cluster_errors(steps)
-    clusters = annotate_clusters_with_agents(clusters, steps, agent_summaries)
-    performance_bottlenecks = detect_performance_bottlenecks(steps, step_analytics)
-    traj = raw.get("trajectory") or raw.get("messages") or []
-    diagnostic_metrics = compute_diagnostic_metrics(
-        steps,
-        traj if isinstance(traj, list) else [],
-        tool_fail=metrics.get("tool_fail"),
-    )
-    pressure_series = context_pressure_series(
-        steps,
-        agent_key=PRESSURE_ALL_AGENTS,
-        raw=raw,
-    )
-    pressure_choices = pressure_agent_choices(steps)
-    plan_history = extract_plan_history(steps)
-    plan_metrics = compute_plan_metrics(plan_history)
-    structural_phases = build_structural_phase_segments(steps)
-    phase_regressions = [
-        a for a in detect_phase_anomalies(steps, structural_phases)
-        if a.get("category") == "unintentional_drift"
-    ]
+    # One orchestration for every consumer: see analysis.Analysis.
+    a = Analysis(steps, raw, detected)
 
     return LoadedSession(
         path=path,
@@ -222,31 +151,31 @@ def build_loaded_session(path: str, raw: dict, *, detected: str | None = None) -
         steps=steps,
         steps_total=steps_total,
         format=detected,
-        message_rows=message_rows,
-        metrics=metrics,
-        verdicts=verdicts,
-        agent_summaries=agent_summaries,
-        step_analytics=step_analytics,
-        wall_clock=wfmt,
-        tool_sequences=detect_tool_sequences(steps),
-        failure_patterns=detect_failure_patterns(steps),
-        file_interactions=interactions,
-        target_files=target_files,
-        failure_chains=chains,
-        chain_metrics=chain_metrics,
-        clusters=clusters,
-        performance_bottlenecks=performance_bottlenecks,
-        diagnostic_metrics=diagnostic_metrics,
-        pressure_series=pressure_series,
-        pressure_choices=pressure_choices,
-        show_root_cause=detected not in _NOISY_ROOT_CAUSE_FORMATS,
-        plan_history=plan_history,
-        plan_metrics=plan_metrics,
-        fruitless_streaks=detect_fruitless_streaks(steps),
-        tool_selection=detect_tool_selection_antipatterns(steps),
-        edit_thrash=detect_edit_thrash(steps),
-        repeated_searches=detect_repeated_searches(steps),
-        phase_regressions=phase_regressions,
-        premature_compactions=detect_premature_compactions(steps, raw),
+        message_rows=a.message_rows,
+        metrics=a.metrics,
+        verdicts=a.verdicts,
+        agent_summaries=a.agent_summaries,
+        step_analytics=a.step_analytics,
+        wall_clock=a.wall_clock,
+        tool_sequences=a.tool_sequences,
+        failure_patterns=a.failure_patterns,
+        file_interactions=a.file_interactions,
+        target_files=a.target_files,
+        failure_chains=a.failure_chains,
+        chain_metrics=a.chain_metrics,
+        clusters=a.clusters,
+        performance_bottlenecks=a.performance_bottlenecks,
+        diagnostic_metrics=a.diagnostic_metrics,
+        pressure_series=a.pressure_series,
+        pressure_choices=a.pressure_choices,
+        show_root_cause=a.show_root_cause,
+        plan_history=a.plan_history,
+        plan_metrics=a.plan_metrics,
+        fruitless_streaks=a.fruitless_streaks,
+        tool_selection=a.tool_selection,
+        edit_thrash=a.edit_thrash,
+        repeated_searches=a.repeated_searches,
+        phase_regressions=a.phase_regressions,
+        premature_compactions=a.premature_compactions,
         truncated=truncated,
     )
