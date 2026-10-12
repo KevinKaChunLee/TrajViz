@@ -4,22 +4,9 @@ from __future__ import annotations
 
 import html
 
+from ..issues import count_tool_errors  # noqa: F401  (re-exported for importers of the old path)
 from ..rendering import _step_link_chip, build_antipattern_summary_html
 from ..session import LoadedSession
-from ..tool_failure import tool_call_failed
-
-
-def count_tool_errors(steps: list[dict]) -> tuple[int, list[int]]:
-    """Return ``(failed_call_count, step_indices)`` using :func:`tool_call_failed`."""
-    error_steps: list[int] = []
-    error_count = 0
-    for step in steps:
-        failed = [tc for tc in (step.get("tool_calls") or []) if tool_call_failed(tc)]
-        if not failed:
-            continue
-        error_count += len(failed)
-        error_steps.append(int(step.get("index", 0)))
-    return error_count, error_steps
 
 
 def build_antipattern_html(session: LoadedSession) -> str:

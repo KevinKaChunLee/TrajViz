@@ -186,6 +186,14 @@ class Analysis:
     def repeated_searches(self) -> list:
         return detect_repeated_searches(self.steps)
 
+    # -- triage -------------------------------------------------------------
+    @cached_property
+    def issues(self) -> list:
+        """Ranked issues (see :mod:`.issues`): errors, then waste, then latency."""
+        from .issues import collect_overview_issues, rank_issues
+
+        return rank_issues(collect_overview_issues(self))
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         computed: list[Any] = [k for k in vars(self) if k not in ("steps", "raw", "format")]
         return f"Analysis(format={self.format!r}, steps={len(self.steps)}, computed={computed})"

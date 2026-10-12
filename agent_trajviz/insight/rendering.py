@@ -10,6 +10,7 @@ from pygments.formatters import HtmlFormatter as _HtmlFormatter
 from pygments.lexers import get_lexer_by_name as _get_lexer, TextLexer as _TextLexer
 
 from .timeline_agents import bind_timeline_agents
+from .issues import _indices_for_step_range
 from .formats.common import as_text
 from .context_usage import PRESSURE_MAIN_AGENT, pressure_agent_key
 from .metrics import tool_call_duration_ms
@@ -1278,20 +1279,6 @@ def _step_link_chips(indices: list[int], *, limit: int = 8) -> str:
             f"+{extra} more</span>"
         )
     return f"<div style='margin-top:4px;'>{chips}</div>"
-
-
-def _indices_for_step_range(start: int | None, end: int | None, *, max_span: int = 5) -> list[int]:
-    """Expand a streak range to chips; long ranges keep only endpoints."""
-    if start is None:
-        return []
-    if end is None or end == start:
-        return [int(start)]
-    lo, hi = int(start), int(end)
-    if hi < lo:
-        lo, hi = hi, lo
-    if hi - lo + 1 <= max_span:
-        return list(range(lo, hi + 1))
-    return [lo, hi]
 
 
 def _antipattern_card(

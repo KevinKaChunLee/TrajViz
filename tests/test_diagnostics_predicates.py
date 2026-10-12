@@ -152,19 +152,28 @@ class SessionFieldAccessTests(unittest.TestCase):
     def test_no_defensive_getattr_on_session_remains(self):
         # The `or []` / `or ""` guards stay; the dead default must not, because
         # every name these modules read is a non-defaulted LoadedSession field.
-        for rel in ("presenters/issues.py", "issue_judge.py"):
+        for rel in ("issues.py", "issue_judge.py"):
             text = (_SRC_ROOT / rel).read_text()
             self.assertEqual(
                 re.findall(r"getattr\(\s*session\s*,", text), [], f"{rel} still guesses",
             )
 
     def test_every_session_name_read_is_a_dataclass_field(self):
+        # Issue collection (insight/issues.py) accepts the dashboard's
+        # LoadedSession and the library's Analysis alike, so every name it
+        # reads must exist on both.
+        from agent_trajviz.insight.analysis import Analysis
+
         declared = {f.name for f in dataclasses.fields(LoadedSession)}
-        for rel in ("presenters/issues.py", "issue_judge.py"):
+        for rel in ("issues.py", "issue_judge.py"):
             text = (_SRC_ROOT / rel).read_text()
             names = set(re.findall(r"\bsession\.([a-z_][a-z0-9_]*)", text))
             self.assertTrue(names, f"{rel} reads nothing off session?")
             self.assertEqual(names - declared, set(), f"{rel} reads a non-field")
+            if rel == "issues.py":
+                provided = set(vars(Analysis([], {}, ""))) | set(dir(Analysis))
+                self.assertEqual(names - provided, set(),
+                                 "issue collection reads a name Analysis does not provide")
 
 
 class _Resp:
