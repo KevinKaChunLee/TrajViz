@@ -616,6 +616,10 @@ Linux (Python 3.11 to 3.14) and macOS, and the public API from the installed
 wheel on Windows (`.github/scripts/smoke_core.py`). Releases are published
 to PyPI from a `v*` tag by `.github/workflows/release.yml`.
 
+[CONTRIBUTING.md](https://github.com/rshu/TrajViz/blob/main/CONTRIBUTING.md)
+has the ground rules (fixtures, the pinned API, view schemas) and the release
+steps.
+
 CI builds the same API reference from the docstrings on every push and keeps
 it as the `api-reference` artifact; a test holds every public name to having a
 docstring.
