@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tool outcomes",
+  "description": "Every tool call with its step, agent and success.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "tool_outcomes"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "agents",
+        "calls"
+      ],
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "agent",
+              "hint",
+              "ok",
+              "step",
+              "tool"
+            ],
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "hint": {
+                "type": "string"
+              },
+              "ok": {
+                "type": "boolean"
+              },
+              "step": {
+                "type": "integer"
+              },
+              "tool": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

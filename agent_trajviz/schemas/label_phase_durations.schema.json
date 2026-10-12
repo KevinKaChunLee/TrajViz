@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Time by phase",
+  "description": "Seconds spent in each phase.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "label_phase_durations"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "durations_s"
+      ],
+      "properties": {
+        "durations_s": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

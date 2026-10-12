@@ -30,6 +30,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write a standalone HTML report for TRAJECTORY and exit (no dashboard)",
     )
     mode.add_argument("--list-views", action="store_true", help="List the view ids --json can write, and exit")
+    mode.add_argument(
+        "--schemas",
+        metavar="DIR",
+        help="Write the JSON Schema of every view to DIR as <id>.schema.json, print DIR and exit",
+    )
     parser.add_argument(
         "-o",
         "--output",
@@ -74,6 +79,23 @@ def _export_json(parser: argparse.ArgumentParser, args: argparse.Namespace) -> i
     return 0
 
 
+def _write_schemas(directory: Path) -> int:
+    import json
+
+    from ..views import view_schemas
+
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        for vid, schema in view_schemas().items():
+            (directory / f"{vid}.schema.json").write_text(
+                json.dumps(schema, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(f"agent-trajviz: {exc}", file=sys.stderr)
+        return 1
+    print(directory)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -95,6 +117,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"{vid:24} {info['kind']:8} {info['title']}")
         return 0
 
+    if args.schemas:
+        return _write_schemas(Path(args.schemas))
     if args.json:
         return _export_json(parser, args)
     if args.view:

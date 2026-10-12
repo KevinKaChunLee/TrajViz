@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Performance bottlenecks",
+  "description": "Steps that are outliers in duration with a clear cause (tool wait, idle gap, generation).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "bottlenecks"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "cause",
+          "decomposition",
+          "detail",
+          "duration",
+          "explanation",
+          "step_idx",
+          "title",
+          "why"
+        ],
+        "properties": {
+          "cause": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "tool",
+              "context",
+              "inference"
+            ]
+          },
+          "decomposition": {
+            "type": "object",
+            "required": [
+              "dominant_tool",
+              "idle_pct",
+              "idle_s",
+              "inference_pct",
+              "inference_s",
+              "timing_incomplete",
+              "tool_pct",
+              "tool_s"
+            ],
+            "properties": {
+              "dominant_tool": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "required": [
+                  "duration_s",
+                  "name",
+                  "target"
+                ],
+                "properties": {
+                  "duration_s": {
+                    "type": "number"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "string"
+                  }
+                }
+              },
+              "idle_pct": {
+                "type": "number"
+              },
+              "idle_s": {
+                "type": "number"
+              },
+              "inference_pct": {
+                "type": "number"
+              },
+              "inference_s": {
+                "type": "number"
+              },
+              "timing_incomplete": {
+                "type": "boolean"
+              },
+              "tool_pct": {
+                "type": "number"
+              },
+              "tool_s": {
+                "type": "number"
+              }
+            }
+          },
+          "detail": {
+            "type": "string"
+          },
+          "duration": {
+            "type": "number"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "step_idx": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

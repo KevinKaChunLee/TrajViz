@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "File interactions",
+  "description": "Every file read, write, search or skill load by step and agent; `target` marks files the run edited.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "file_interactions"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "agents",
+        "files",
+        "interactions"
+      ],
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "interactions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "agent",
+              "path",
+              "step",
+              "target",
+              "tool",
+              "type"
+            ],
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "step": {
+                "type": "integer"
+              },
+              "target": {
+                "type": "boolean"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

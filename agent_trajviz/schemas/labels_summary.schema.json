@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Labels summary",
+  "description": "Assistant steps labelled, how many were classified, and the taxonomy and model used.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "labels_summary"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "summary"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "classification_rate",
+        "classified",
+        "model",
+        "phases",
+        "taxonomy_version",
+        "total",
+        "unknown"
+      ],
+      "properties": {
+        "classification_rate": {
+          "type": "number"
+        },
+        "classified": {
+          "type": "integer"
+        },
+        "model": {
+          "type": "string"
+        },
+        "phases": {
+          "type": "integer"
+        },
+        "taxonomy_version": {
+          "type": "string"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "unknown": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

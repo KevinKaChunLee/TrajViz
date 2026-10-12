@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Skill calls",
+  "description": "Which agent invoked which skill, and how often.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "skill_calls"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "agents",
+        "links"
+      ],
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "agent",
+              "calls",
+              "skill"
+            ],
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "calls": {
+                "type": "integer"
+              },
+              "skill": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

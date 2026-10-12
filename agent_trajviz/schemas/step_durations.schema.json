@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Step durations",
+  "description": "Per-step duration without sub-agent spawn wait, its error kind, and whether it is a spike.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "step_durations"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "average_s",
+        "steps"
+      ],
+      "properties": {
+        "average_s": {
+          "type": "number"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "duration_s",
+              "error_kind",
+              "outlier",
+              "position",
+              "spawn_adjusted",
+              "step"
+            ],
+            "properties": {
+              "duration_s": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "error_kind": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "enum": [
+                  null,
+                  "system",
+                  "tool"
+                ]
+              },
+              "outlier": {
+                "type": "boolean"
+              },
+              "position": {
+                "type": "integer"
+              },
+              "spawn_adjusted": {
+                "type": "boolean"
+              },
+              "step": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

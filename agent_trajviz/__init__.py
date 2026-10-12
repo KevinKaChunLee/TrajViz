@@ -38,6 +38,8 @@ from .views import (
     label_views,
     register_view,
     run_group_views,
+    view_schema,
+    view_schemas,
 )
 
 __version__ = "0.1.0"
@@ -72,5 +74,7 @@ __all__ = [
     "register_format",
     "register_view",
     "run_group_views",
+    "view_schema",
+    "view_schemas",
     "write_report",
 ]

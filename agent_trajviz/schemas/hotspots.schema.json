@@ -1,0 +1,374 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hotspots",
+  "description": "The slowest steps, the most token-heavy steps and the assistant steps with the least cache reuse.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "hotspots"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "heaviest",
+        "lowest_cache_read",
+        "slowest"
+      ],
+      "properties": {
+        "heaviest": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "agent",
+              "cache_ratio",
+              "cache_read",
+              "duration",
+              "errors",
+              "finish",
+              "index",
+              "model_id",
+              "non_cache_per_sec",
+              "non_cache_tokens",
+              "output_input_ratio",
+              "patch_parts",
+              "reasoning_parts",
+              "role",
+              "text_parts",
+              "tokens_input",
+              "tokens_output",
+              "tokens_per_sec",
+              "tokens_total",
+              "tool_calls",
+              "tool_time_share",
+              "tool_time_sum"
+            ],
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "cache_ratio": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "cache_read": {
+                "type": "integer"
+              },
+              "duration": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "errors": {
+                "type": "integer"
+              },
+              "finish": {
+                "type": "string"
+              },
+              "index": {
+                "type": "integer"
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "non_cache_per_sec": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "non_cache_tokens": {
+                "type": "integer"
+              },
+              "output_input_ratio": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "patch_parts": {
+                "type": "integer"
+              },
+              "reasoning_parts": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string"
+              },
+              "text_parts": {
+                "type": "integer"
+              },
+              "tokens_input": {
+                "type": "integer"
+              },
+              "tokens_output": {
+                "type": "integer"
+              },
+              "tokens_per_sec": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "tokens_total": {
+                "type": "integer"
+              },
+              "tool_calls": {
+                "type": "integer"
+              },
+              "tool_time_share": {
+                "type": "number"
+              },
+              "tool_time_sum": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "lowest_cache_read": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "agent",
+              "cache_ratio",
+              "cache_read",
+              "duration",
+              "errors",
+              "finish",
+              "index",
+              "model_id",
+              "non_cache_per_sec",
+              "non_cache_tokens",
+              "output_input_ratio",
+              "patch_parts",
+              "reasoning_parts",
+              "role",
+              "text_parts",
+              "tokens_input",
+              "tokens_output",
+              "tokens_per_sec",
+              "tokens_total",
+              "tool_calls",
+              "tool_time_share",
+              "tool_time_sum"
+            ],
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "cache_ratio": {
+                "type": "number"
+              },
+              "cache_read": {
+                "type": "integer"
+              },
+              "duration": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "errors": {
+                "type": "integer"
+              },
+              "finish": {
+                "type": "string"
+              },
+              "index": {
+                "type": "integer"
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "non_cache_per_sec": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "non_cache_tokens": {
+                "type": "integer"
+              },
+              "output_input_ratio": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "patch_parts": {
+                "type": "integer"
+              },
+              "reasoning_parts": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string"
+              },
+              "text_parts": {
+                "type": "integer"
+              },
+              "tokens_input": {
+                "type": "integer"
+              },
+              "tokens_output": {
+                "type": "integer"
+              },
+              "tokens_per_sec": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "tokens_total": {
+                "type": "integer"
+              },
+              "tool_calls": {
+                "type": "integer"
+              },
+              "tool_time_share": {
+                "type": "number"
+              },
+              "tool_time_sum": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "slowest": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "agent",
+              "cache_ratio",
+              "cache_read",
+              "duration",
+              "errors",
+              "finish",
+              "index",
+              "model_id",
+              "non_cache_per_sec",
+              "non_cache_tokens",
+              "output_input_ratio",
+              "patch_parts",
+              "reasoning_parts",
+              "role",
+              "text_parts",
+              "tokens_input",
+              "tokens_output",
+              "tokens_per_sec",
+              "tokens_total",
+              "tool_calls",
+              "tool_time_share",
+              "tool_time_sum"
+            ],
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "cache_ratio": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "cache_read": {
+                "type": "integer"
+              },
+              "duration": {
+                "type": "number"
+              },
+              "errors": {
+                "type": "integer"
+              },
+              "finish": {
+                "type": "string"
+              },
+              "index": {
+                "type": "integer"
+              },
+              "model_id": {
+                "type": "string"
+              },
+              "non_cache_per_sec": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "non_cache_tokens": {
+                "type": "integer"
+              },
+              "output_input_ratio": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "patch_parts": {
+                "type": "integer"
+              },
+              "reasoning_parts": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string"
+              },
+              "text_parts": {
+                "type": "integer"
+              },
+              "tokens_input": {
+                "type": "integer"
+              },
+              "tokens_output": {
+                "type": "integer"
+              },
+              "tokens_per_sec": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "tokens_total": {
+                "type": "integer"
+              },
+              "tool_calls": {
+                "type": "integer"
+              },
+              "tool_time_share": {
+                "type": "number"
+              },
+              "tool_time_sum": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

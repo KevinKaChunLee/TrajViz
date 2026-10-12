@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Context window pressure",
+  "description": "Context-window occupancy per agent by step, compaction events, and the window it is measured against (with how that window was determined). `agents` lists the agent keys it can show.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "context_pressure"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "agent",
+        "agents",
+        "highlight_step",
+        "series",
+        "stats"
+      ],
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "label"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "highlight_step": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "series": {
+          "type": "object",
+          "required": [
+            "agent_key",
+            "agents",
+            "compactions",
+            "events",
+            "window_limit",
+            "window_note",
+            "window_source"
+          ],
+          "properties": {
+            "agent_key": {
+              "type": "string"
+            },
+            "agents": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "agent_id",
+                  "compactions",
+                  "key",
+                  "label",
+                  "points"
+                ],
+                "properties": {
+                  "agent_id": {
+                    "type": "string"
+                  },
+                  "compactions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "agent",
+                        "dropped",
+                        "kind",
+                        "occupancy_after",
+                        "occupancy_before",
+                        "step"
+                      ],
+                      "properties": {
+                        "agent": {
+                          "type": "string"
+                        },
+                        "dropped": {
+                          "type": [
+                            "null",
+                            "integer"
+                          ]
+                        },
+                        "kind": {
+                          "type": "string"
+                        },
+                        "occupancy_after": {
+                          "type": "integer"
+                        },
+                        "occupancy_before": {
+                          "type": [
+                            "null",
+                            "integer"
+                          ]
+                        },
+                        "step": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "points": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "cache_read",
+                        "fresh",
+                        "local_turn",
+                        "occupancy",
+                        "step"
+                      ],
+                      "properties": {
+                        "cache_read": {
+                          "type": "integer"
+                        },
+                        "fresh": {
+                          "type": "integer"
+                        },
+                        "local_turn": {
+                          "type": "integer"
+                        },
+                        "occupancy": {
+                          "type": "integer"
+                        },
+                        "step": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "compactions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "agent",
+                  "dropped",
+                  "kind",
+                  "occupancy_after",
+                  "occupancy_before",
+                  "step"
+                ],
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "dropped": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "occupancy_after": {
+                    "type": "integer"
+                  },
+                  "occupancy_before": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "step": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "agent",
+                  "dropped",
+                  "kind",
+                  "occupancy_after",
+                  "occupancy_before",
+                  "step"
+                ],
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "dropped": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "occupancy_after": {
+                    "type": "integer"
+                  },
+                  "occupancy_before": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "step": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "window_limit": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "window_note": {
+              "type": "string"
+            },
+            "window_source": {
+              "type": "string"
+            }
+          }
+        },
+        "stats": {
+          "type": "object",
+          "required": [
+            "compaction_count",
+            "largest_drop",
+            "peak_occupancy",
+            "peak_pct",
+            "window_limit",
+            "window_note",
+            "window_source"
+          ],
+          "properties": {
+            "compaction_count": {
+              "type": "integer"
+            },
+            "largest_drop": {
+              "type": "integer"
+            },
+            "peak_occupancy": {
+              "type": "integer"
+            },
+            "peak_pct": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "window_limit": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "window_note": {
+              "type": "string"
+            },
+            "window_source": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

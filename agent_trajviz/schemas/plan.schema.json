@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plan progress",
+  "description": "The agent's todo items with the steps they started and finished on, stalled items, and every plan snapshot.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "plan"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "history",
+        "metrics"
+      ],
+      "properties": {
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "items",
+              "step"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "content",
+                    "status"
+                  ],
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "step": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "required": [
+            "items",
+            "plan_resets",
+            "stalled",
+            "total_items"
+          ],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "content",
+                  "duration_steps",
+                  "end_step",
+                  "start_step"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "duration_steps": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "end_step": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "start_step": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  }
+                }
+              }
+            },
+            "plan_resets": {
+              "type": "integer"
+            },
+            "stalled": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "content",
+                  "duration_steps",
+                  "end_step",
+                  "start_step"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "duration_steps": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "end_step": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "start_step": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "total_items": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  }
+}

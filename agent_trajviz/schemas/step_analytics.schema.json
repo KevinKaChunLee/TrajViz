@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Per-step analytics",
+  "description": "One row per step: tool-time share, token rate, cache ratio, output/input ratio and idle gap.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "step_analytics"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "agent",
+          "cache_ratio",
+          "duration_s",
+          "finish",
+          "idle_before_s",
+          "index",
+          "model_id",
+          "non_cache_tok",
+          "out_in_ratio",
+          "part_mix",
+          "role",
+          "tok_per_s",
+          "tok_total",
+          "tool_calls",
+          "tool_time_ms",
+          "tool_time_share"
+        ],
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "cache_ratio": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "duration_s": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "finish": {
+            "type": "string"
+          },
+          "idle_before_s": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "index": {
+            "type": "integer"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "non_cache_tok": {
+            "type": "integer"
+          },
+          "out_in_ratio": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "part_mix": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "tok_per_s": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "tok_total": {
+            "type": "integer"
+          },
+          "tool_calls": {
+            "type": "integer"
+          },
+          "tool_time_ms": {
+            "type": "number"
+          },
+          "tool_time_share": {
+            "type": [
+              "null",
+              "number"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

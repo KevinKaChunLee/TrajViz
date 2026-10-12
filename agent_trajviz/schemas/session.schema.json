@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Session details",
+  "description": "Where and how the run happened: model, provider, agent, start and end, session id, title, branch, directory, platform and client version, as the export records them (null if absent).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "session"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "summary"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "agent",
+        "branch",
+        "directory",
+        "finished_at",
+        "model",
+        "platform",
+        "provider",
+        "session_id",
+        "started_at",
+        "title",
+        "version"
+      ],
+      "properties": {
+        "agent": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "branch": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "directory": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "finished_at": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "model": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "platform": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "provider": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "session_id": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "started_at": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "title": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "version": {
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      }
+    }
+  }
+}

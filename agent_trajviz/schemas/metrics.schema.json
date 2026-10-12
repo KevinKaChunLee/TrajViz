@@ -1,0 +1,561 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Session metrics",
+  "description": "Every session metric: tokens by field, timing and latency, throughput, tool use and failures, finish reasons. A rate is null when its denominator is empty.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "metrics"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "summary"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "additions",
+        "agent_breakdown",
+        "agent_labels",
+        "assistant_steps",
+        "assistant_turns",
+        "autonomy_ratio",
+        "avg_cache_ratio",
+        "avg_duration",
+        "avg_tokens_per_assistant_step",
+        "avg_tokens_per_step",
+        "avg_tool_duration",
+        "cache_dominant_steps",
+        "cache_ratio_unusable_steps",
+        "cache_read_tokens",
+        "churn",
+        "command_call_count",
+        "command_failures",
+        "command_success_rate",
+        "delegated_call_count",
+        "delegation_time_total",
+        "deletions",
+        "files_changed",
+        "finish_breakdown",
+        "has_patch",
+        "input_tokens",
+        "input_tokens_unusable_steps",
+        "max_duration",
+        "max_tool_duration",
+        "median_duration",
+        "median_step_tokens",
+        "median_tokens_per_second",
+        "messages_breakdown",
+        "model_breakdown",
+        "multi_tool_steps",
+        "net_change",
+        "no_tool_assistant_steps",
+        "non_cache_ratio",
+        "non_cache_tokens",
+        "output_input_ratio",
+        "output_throughput_coverage_pct",
+        "output_throughput_incomplete",
+        "output_throughput_timed_seconds",
+        "output_throughput_timed_steps",
+        "output_throughput_timed_tokens",
+        "output_throughput_tool_wait_seconds",
+        "output_throughput_total_steps",
+        "output_tokens",
+        "output_tokens_per_sec",
+        "p50_duration",
+        "p90_duration",
+        "p95_duration",
+        "p95_step_tokens",
+        "p95_tool_duration",
+        "p99_duration",
+        "patch_error",
+        "patch_lines",
+        "patch_steps",
+        "plan_completion_ratio",
+        "plan_items",
+        "plan_update_count",
+        "reasoning_parts",
+        "reasoning_tokens_reported",
+        "snapshot_parts",
+        "text_parts",
+        "time_to_first_token",
+        "time_to_last_token",
+        "token_unusable_steps",
+        "tokens",
+        "tokens_per_churn_line",
+        "tokens_per_patch_line",
+        "tokens_per_second",
+        "tokens_per_tool",
+        "tool_breakdown",
+        "tool_call_count",
+        "tool_calls_per_min",
+        "tool_fail",
+        "tool_status_breakdown",
+        "tool_success",
+        "tool_success_rate",
+        "tool_system_failure_rate",
+        "tool_time_fraction",
+        "tool_time_total",
+        "tool_wait_share",
+        "total_duration",
+        "total_steps",
+        "user_steps",
+        "user_turns",
+        "wall_clock"
+      ],
+      "properties": {
+        "additions": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "agent_breakdown": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "agent_labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "assistant_steps": {
+          "type": "integer"
+        },
+        "assistant_turns": {
+          "type": "integer"
+        },
+        "autonomy_ratio": {
+          "type": "number"
+        },
+        "avg_cache_ratio": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "avg_duration": {
+          "type": "number"
+        },
+        "avg_tokens_per_assistant_step": {
+          "type": "integer"
+        },
+        "avg_tokens_per_step": {
+          "type": "integer"
+        },
+        "avg_tool_duration": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "cache_dominant_steps": {
+          "type": "integer"
+        },
+        "cache_ratio_unusable_steps": {
+          "type": "integer"
+        },
+        "cache_read_tokens": {
+          "type": "integer"
+        },
+        "churn": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "command_call_count": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "command_failures": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "command_success_rate": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "delegated_call_count": {
+          "type": "integer"
+        },
+        "delegation_time_total": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "deletions": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "files_changed": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "finish_breakdown": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "has_patch": {
+          "type": "boolean"
+        },
+        "input_tokens": {
+          "type": "integer"
+        },
+        "input_tokens_unusable_steps": {
+          "type": "integer"
+        },
+        "max_duration": {
+          "type": "number"
+        },
+        "max_tool_duration": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "median_duration": {
+          "type": "number"
+        },
+        "median_step_tokens": {
+          "type": "integer"
+        },
+        "median_tokens_per_second": {
+          "type": "number"
+        },
+        "messages_breakdown": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "model_breakdown": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "multi_tool_steps": {
+          "type": "integer"
+        },
+        "net_change": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "no_tool_assistant_steps": {
+          "type": "integer"
+        },
+        "non_cache_ratio": {
+          "type": "number"
+        },
+        "non_cache_tokens": {
+          "type": "integer"
+        },
+        "output_input_ratio": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "output_throughput_coverage_pct": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "output_throughput_incomplete": {
+          "type": "boolean"
+        },
+        "output_throughput_timed_seconds": {
+          "type": "number"
+        },
+        "output_throughput_timed_steps": {
+          "type": "integer"
+        },
+        "output_throughput_timed_tokens": {
+          "type": "number"
+        },
+        "output_throughput_tool_wait_seconds": {
+          "type": "number"
+        },
+        "output_throughput_total_steps": {
+          "type": "integer"
+        },
+        "output_tokens": {
+          "type": "integer"
+        },
+        "output_tokens_per_sec": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "p50_duration": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "p90_duration": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "p95_duration": {
+          "type": "number"
+        },
+        "p95_step_tokens": {
+          "type": "integer"
+        },
+        "p95_tool_duration": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "p99_duration": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "patch_error": {},
+        "patch_lines": {
+          "type": "integer"
+        },
+        "patch_steps": {
+          "type": "integer"
+        },
+        "plan_completion_ratio": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "plan_items": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "plan_update_count": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "reasoning_parts": {
+          "type": "integer"
+        },
+        "reasoning_tokens_reported": {
+          "type": "boolean"
+        },
+        "snapshot_parts": {
+          "type": "integer"
+        },
+        "text_parts": {
+          "type": "integer"
+        },
+        "time_to_first_token": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "time_to_last_token": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "token_unusable_steps": {
+          "type": "object",
+          "required": [
+            "cache_read",
+            "cache_write",
+            "input",
+            "output",
+            "reasoning",
+            "total"
+          ],
+          "properties": {
+            "cache_read": {
+              "type": "integer"
+            },
+            "cache_write": {
+              "type": "integer"
+            },
+            "input": {
+              "type": "integer"
+            },
+            "output": {
+              "type": "integer"
+            },
+            "reasoning": {
+              "type": "integer"
+            },
+            "total": {
+              "type": "integer"
+            }
+          }
+        },
+        "tokens": {
+          "type": "object",
+          "required": [
+            "cache_read",
+            "cache_write",
+            "input",
+            "output",
+            "reasoning",
+            "total"
+          ],
+          "properties": {
+            "cache_read": {
+              "type": "integer"
+            },
+            "cache_write": {
+              "type": "integer"
+            },
+            "input": {
+              "type": "integer"
+            },
+            "output": {
+              "type": "integer"
+            },
+            "reasoning": {
+              "type": "integer"
+            },
+            "total": {
+              "type": "integer"
+            }
+          }
+        },
+        "tokens_per_churn_line": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "tokens_per_patch_line": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "tokens_per_second": {
+          "type": "number"
+        },
+        "tokens_per_tool": {
+          "type": "integer"
+        },
+        "tool_breakdown": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "tool_call_count": {
+          "type": "integer"
+        },
+        "tool_calls_per_min": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "tool_fail": {
+          "type": "integer"
+        },
+        "tool_status_breakdown": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "tool_success": {
+          "type": "integer"
+        },
+        "tool_success_rate": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "tool_system_failure_rate": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "tool_time_fraction": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "tool_time_total": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "tool_wait_share": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "total_duration": {
+          "type": "number"
+        },
+        "total_steps": {
+          "type": "integer"
+        },
+        "user_steps": {
+          "type": "integer"
+        },
+        "user_turns": {
+          "type": "integer"
+        },
+        "wall_clock": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

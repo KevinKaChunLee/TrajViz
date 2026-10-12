@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Time by phase, compared",
+  "description": "Seconds per phase in each run.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "label_phase_duration_comparison"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "compared",
+        "reference"
+      ],
+      "properties": {
+        "compared": {
+          "type": "object",
+          "required": [
+            "durations_s",
+            "name"
+          ],
+          "properties": {
+            "durations_s": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              }
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        },
+        "reference": {
+          "type": "object",
+          "required": [
+            "durations_s",
+            "name"
+          ],
+          "properties": {
+            "durations_s": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              }
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

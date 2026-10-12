@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Summary",
+  "description": "Provenance and headline numbers: format, steps, agents, tokens, tool use, health and issue count.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "summary"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "summary"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "agents",
+        "assistant_steps",
+        "format",
+        "format_label",
+        "health",
+        "issues",
+        "output_tokens_per_sec",
+        "sha256",
+        "source",
+        "steps",
+        "tokens",
+        "tokens_estimated",
+        "tool_calls",
+        "tool_success_rate",
+        "wall_clock_s",
+        "warnings"
+      ],
+      "properties": {
+        "agents": {
+          "type": "integer"
+        },
+        "assistant_steps": {
+          "type": "integer"
+        },
+        "format": {
+          "type": "string"
+        },
+        "format_label": {
+          "type": "string"
+        },
+        "health": {
+          "type": "object",
+          "required": [
+            "Cache Efficiency",
+            "Errors",
+            "Throughput",
+            "Tool Success"
+          ],
+          "properties": {
+            "Cache Efficiency": {
+              "type": "string",
+              "enum": [
+                "good",
+                "warn",
+                "bad"
+              ]
+            },
+            "Errors": {
+              "type": "string",
+              "enum": [
+                "good",
+                "warn",
+                "bad"
+              ]
+            },
+            "Throughput": {
+              "type": "string",
+              "enum": [
+                "good",
+                "warn",
+                "bad"
+              ]
+            },
+            "Tool Success": {
+              "type": "string",
+              "enum": [
+                "good",
+                "warn",
+                "bad"
+              ]
+            }
+          }
+        },
+        "issues": {
+          "type": "integer"
+        },
+        "output_tokens_per_sec": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "sha256": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "source": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "steps": {
+          "type": "integer"
+        },
+        "tokens": {
+          "type": "object",
+          "required": [
+            "cache_read",
+            "cache_write",
+            "input",
+            "output",
+            "reasoning",
+            "total"
+          ],
+          "properties": {
+            "cache_read": {
+              "type": "integer"
+            },
+            "cache_write": {
+              "type": "integer"
+            },
+            "input": {
+              "type": "integer"
+            },
+            "output": {
+              "type": "integer"
+            },
+            "reasoning": {
+              "type": "integer"
+            },
+            "total": {
+              "type": "integer"
+            }
+          }
+        },
+        "tokens_estimated": {
+          "type": "boolean"
+        },
+        "tool_calls": {
+          "type": "integer"
+        },
+        "tool_success_rate": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "wall_clock_s": {
+          "type": "number"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

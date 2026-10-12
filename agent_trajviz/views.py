@@ -16,11 +16,14 @@ turns a :func:`compare` report into views the same way.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
+import functools
 import json
 import math
 import os
 import re
+from importlib import resources
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,6 +115,8 @@ class _Spec:
     build: Callable[..., Any]
     #: Keyword options ``build`` accepts (documented in the catalog).
     options: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    #: JSON Schema of a registered view's data (built-in views ship theirs as files).
+    schema: Mapping[str, Any] | None = None
 
 
 def _summary(run: Trajectory, a: Analysis) -> dict[str, Any]:
@@ -396,6 +401,7 @@ def register_view(
     kind: ViewKind = "table",
     description: str = "",
     options: Mapping[str, str] | None = None,
+    schema: Mapping[str, Any] | None = None,
     replace: bool = False,
 ) -> None:
     """Add a view of your own: ``build(run, **options)`` returns its JSON data.
@@ -405,6 +411,7 @@ def register_view(
     views, so :meth:`Trajectory.views`, :func:`export_json`, ``agent-trajviz
     --json`` and the dashboards' view lists include it. *options* maps each
     keyword *build* accepts to its meaning; :meth:`Trajectory.view` passes them.
+    *schema* is the JSON Schema of the data, returned within :func:`view_schema`.
 
         >>> tv.register_view("edits", lambda run: {"count": sum(...)}, title="Edits")
         >>> run.view("edits").data
@@ -424,13 +431,77 @@ def register_view(
         raise ValueError(f"unknown view kind {kind!r}; expected one of: {', '.join(sorted(_VIEW_KINDS))}")
     if not callable(build):
         raise TypeError("build must be callable: build(run, **options) -> data")
+    if schema is not None and not isinstance(schema, Mapping):
+        raise TypeError("schema must be a JSON Schema object (a mapping)")
 
     def run_build(run: Trajectory, analysis: Analysis, **opts: Any) -> Any:
         return build(run, **opts)
 
-    spec = _Spec(kind, title, description, run_build, dict(options or {}))
+    spec = _Spec(kind, title, description, run_build, dict(options or {}),
+                 None if schema is None else copy.deepcopy(dict(schema)))
     _SPECS[view_id] = spec
     _CATALOG[view_id] = _catalog_entry(spec)
+
+
+def _document_schema(view_id: str, title: str, kind: str, description: str, data: Any) -> dict[str, Any]:
+    """The schema of a view document (:meth:`View.to_dict`) whose ``data`` has schema *data*."""
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": title,
+        "description": description,
+        "type": "object",
+        "required": ["schema_version", "id", "title", "kind", "description", "data"],
+        "properties": {
+            "schema_version": {"const": VIEWS_SCHEMA_VERSION},
+            "id": {"const": view_id},
+            "title": {"type": "string"},
+            "kind": {"const": kind},
+            "description": {"type": "string"},
+            "data": data,
+        },
+    }
+
+
+@functools.cache
+def _shipped_schema_text(view_id: str) -> str | None:
+    resource = resources.files(__package__) / "schemas" / f"{view_id}.schema.json"
+    return resource.read_text(encoding="utf-8") if resource.is_file() else None
+
+
+def _shipped_view_ids() -> list[str]:
+    suffix = ".schema.json"
+    names = (entry.name for entry in (resources.files(__package__) / "schemas").iterdir())
+    return sorted(name[: -len(suffix)] for name in names if name.endswith(suffix))
+
+
+def view_schema(view_id: str) -> dict[str, Any]:
+    """The JSON Schema (draft 2020-12) of a view, as :meth:`View.to_dict` and :func:`export_json` write it.
+
+    Every view has one: the single-run views of :data:`VIEW_CATALOG`, the
+    comparison, label and run-group views, and views added with
+    :func:`register_view` (described by the schema given there; without one,
+    their ``data`` may be anything). The schema's ``data`` property describes
+    the view's data. Records allow fields the schema does not list, so data
+    from a newer release still validates. Returns a copy; raises
+    :class:`KeyError` for an unknown id.
+
+        >>> import jsonschema                         # any JSON Schema validator
+        >>> jsonschema.validate(view.to_dict(), tv.view_schema(view.id))
+    """
+    spec = _SPECS.get(view_id)
+    if spec is not None and view_id not in _BUILT_IN_VIEWS:
+        data = copy.deepcopy(dict(spec.schema)) if spec.schema is not None else {}
+        return _document_schema(view_id, spec.title, spec.kind, spec.description, data)
+    text = _shipped_schema_text(view_id) if isinstance(view_id, str) and _VIEW_ID.fullmatch(view_id) else None
+    if text is None:
+        raise KeyError(f"no view {view_id!r}; see agent_trajviz.view_schemas()")
+    return cast("dict[str, Any]", json.loads(text))
+
+
+def view_schemas() -> dict[str, dict[str, Any]]:
+    """:func:`view_schema` of every view, keyed by id: :data:`VIEW_CATALOG` order first, then the others."""
+    ids = list(_CATALOG) + [vid for vid in _shipped_view_ids() if vid not in _CATALOG]
+    return {vid: view_schema(vid) for vid in ids}
 
 
 def build_view(run: Trajectory, analysis: Analysis, view_id: str, options: Mapping[str, Any] | None = None) -> View:

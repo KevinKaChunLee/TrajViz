@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Edit thrash",
+  "description": "Files edited repeatedly in a short span.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "edit_thrash"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "count",
+          "end_step",
+          "fail_count",
+          "path",
+          "start_step",
+          "steps"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "end_step": {
+            "type": "integer"
+          },
+          "fail_count": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "start_step": {
+            "type": "integer"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  }
+}

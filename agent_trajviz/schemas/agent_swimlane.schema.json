@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent swimlane",
+  "description": "Each agent's contiguous step ranges with their tokens and tool calls; the user has a lane of its own.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "agent_swimlane"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "lanes"
+      ],
+      "properties": {
+        "lanes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "color_index",
+              "id",
+              "label",
+              "segments"
+            ],
+            "properties": {
+              "color_index": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "segments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "end",
+                    "start",
+                    "steps",
+                    "tokens",
+                    "tool_calls"
+                  ],
+                  "properties": {
+                    "end": {
+                      "type": "integer"
+                    },
+                    "start": {
+                      "type": "integer"
+                    },
+                    "steps": {
+                      "type": "integer"
+                    },
+                    "tokens": {
+                      "type": "integer"
+                    },
+                    "tool_calls": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

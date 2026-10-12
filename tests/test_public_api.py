@@ -31,6 +31,7 @@ class ApiSurfaceTests(unittest.TestCase):
             "VIEWS_SCHEMA_VERSION", "VIEW_CATALOG", "View", "comparison_views", "export_json",
             "compare_runs", "label_comparison_views", "label_views", "run_group_views",
             "Format", "PluginError", "load_plugins", "register_format", "register_view",
+            "view_schema", "view_schemas",
         ]))
         for name in tv.__all__:
             self.assertTrue(hasattr(tv, name), name)
@@ -49,7 +50,10 @@ class ApiSurfaceTests(unittest.TestCase):
             "register_format": "(fmt: 'Format', *, replace: 'bool' = False) -> 'None'",
             "register_view": "(view_id: 'str', build: 'Callable[..., Any]', *, title: 'str', "
                              "kind: 'ViewKind' = 'table', description: 'str' = '', "
-                             "options: 'Mapping[str, str] | None' = None, replace: 'bool' = False) -> 'None'",
+                             "options: 'Mapping[str, str] | None' = None, "
+                             "schema: 'Mapping[str, Any] | None' = None, replace: 'bool' = False) -> 'None'",
+            "view_schema": "(view_id: 'str') -> 'dict[str, Any]'",
+            "view_schemas": "() -> 'dict[str, dict[str, Any]]'",
             "load_plugins": "() -> 'list[str]'",
         }
         for name, signature in pinned.items():

@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Run scorecard",
+  "description": "One row per run: steps, tokens, wall clock, tool calls and success, context peak, compactions.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "run_scorecard"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "compactions",
+          "error",
+          "finished",
+          "format",
+          "label",
+          "path",
+          "peak_occupancy",
+          "peak_pct",
+          "run_id",
+          "steps",
+          "tokens",
+          "tool_calls",
+          "tool_success_pct",
+          "wall_clock_fmt",
+          "wall_clock_s"
+        ],
+        "properties": {
+          "compactions": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "finished": {
+            "type": "boolean"
+          },
+          "format": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "peak_occupancy": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "peak_pct": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "steps": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "tokens": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "tool_calls": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "tool_success_pct": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "wall_clock_fmt": {
+            "type": "string"
+          },
+          "wall_clock_s": {
+            "type": [
+              "null",
+              "number"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

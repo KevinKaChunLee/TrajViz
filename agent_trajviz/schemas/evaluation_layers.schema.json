@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Evaluation layers",
+  "description": "File selection, edit stability and completion quality, each with what it measures.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "evaluation_layers"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "completion_quality",
+        "edit_stability",
+        "file_selection"
+      ],
+      "properties": {
+        "completion_quality": {
+          "type": "object",
+          "required": [
+            "description",
+            "intervention_targets",
+            "metrics",
+            "verdict"
+          ],
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "intervention_targets": {
+              "type": "string"
+            },
+            "metrics": {
+              "type": "object",
+              "required": [
+                "anchor_write_recall",
+                "dead_end_branch_count"
+              ],
+              "properties": {
+                "anchor_write_recall": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                },
+                "dead_end_branch_count": {
+                  "type": "integer"
+                }
+              }
+            },
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "strong",
+                "moderate",
+                "weak",
+                "n/a"
+              ]
+            }
+          }
+        },
+        "edit_stability": {
+          "type": "object",
+          "required": [
+            "description",
+            "intervention_targets",
+            "metrics",
+            "verdict"
+          ],
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "intervention_targets": {
+              "type": "string"
+            },
+            "metrics": {
+              "type": "object",
+              "required": [
+                "error_recovery_count",
+                "iterative_refinement_count",
+                "reverted_and_rewritten_count"
+              ],
+              "properties": {
+                "error_recovery_count": {
+                  "type": "integer"
+                },
+                "iterative_refinement_count": {
+                  "type": "integer"
+                },
+                "reverted_and_rewritten_count": {
+                  "type": "integer"
+                }
+              }
+            },
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "strong",
+                "moderate",
+                "weak",
+                "n/a"
+              ]
+            }
+          }
+        },
+        "file_selection": {
+          "type": "object",
+          "required": [
+            "description",
+            "intervention_targets",
+            "metrics",
+            "verdict"
+          ],
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "intervention_targets": {
+              "type": "string"
+            },
+            "metrics": {
+              "type": "object",
+              "required": [
+                "anchor_write_precision",
+                "broad_exploration_count",
+                "off_patch_write_ratio"
+              ],
+              "properties": {
+                "anchor_write_precision": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                },
+                "broad_exploration_count": {
+                  "type": "integer"
+                },
+                "off_patch_write_ratio": {
+                  "type": [
+                    "null",
+                    "number"
+                  ]
+                }
+              }
+            },
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "strong",
+                "moderate",
+                "weak",
+                "n/a"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

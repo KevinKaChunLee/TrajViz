@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Phase regressions",
+  "description": "Unintended returns to an earlier workflow phase.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "phase_regressions"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "category",
+          "explanation",
+          "from_phase",
+          "span_fraction",
+          "step_idx",
+          "to_phase"
+        ],
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "from_phase": {
+            "type": "string"
+          },
+          "span_fraction": {
+            "type": "number"
+          },
+          "step_idx": {
+            "type": "integer"
+          },
+          "to_phase": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

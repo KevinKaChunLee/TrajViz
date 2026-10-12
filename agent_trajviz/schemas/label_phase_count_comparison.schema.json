@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Steps by phase, compared",
+  "description": "Classified steps per phase in each run.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "label_phase_count_comparison"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "compared",
+        "reference"
+      ],
+      "properties": {
+        "compared": {
+          "type": "object",
+          "required": [
+            "counts",
+            "name"
+          ],
+          "properties": {
+            "counts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        },
+        "reference": {
+          "type": "object",
+          "required": [
+            "counts",
+            "name"
+          ],
+          "properties": {
+            "counts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer"
+              }
+            },
+            "name": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

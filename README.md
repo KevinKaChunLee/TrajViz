@@ -170,6 +170,12 @@ group = tv.compare_runs(["a.json", "b.json", "c.json"])   # N runs: scorecard, b
 labels = tv.label_views("trajectory_labeled.json")       # step labels from agent-trajviz-label
 ```
 
+Every view's data has a JSON Schema (draft 2020-12) in the package:
+`tv.view_schema("tool_usage")` returns one, `tv.view_schemas()` all of them, and
+`agent-trajviz --schemas DIR` writes them out for consumers in other languages.
+A view written by `export_json()` validates against its schema with any JSON
+Schema validator.
+
 `tv.load` raises `tv.LoadError` (with `.code` and `.path`) for a file it cannot
 read; every error the package raises on purpose is a `tv.TrajVizError`. Steps
 are plain dicts described by the `tv.Step`, `tv.ToolCall` and `tv.TokenUsage`

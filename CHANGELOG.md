@@ -37,6 +37,10 @@ First release as the `agent-trajviz` package.
   and tables, listed in `VIEW_CATALOG`; the dashboard draws its charts from
   exactly this data. `export_json()` writes them (`<id>.json`, `index.json`,
   `trajectory.json`), as does `agent-trajviz --json RUN [-o DIR] [--view ID]`.
+- A JSON Schema (draft 2020-12) for every view's data, shipped in the package:
+  `view_schema()`, `view_schemas()` and `agent-trajviz --schemas DIR`;
+  `register_view(..., schema=)` describes a view of your own. The test suite
+  validates every view strictly against its schema.
 - Extension points: `Trajectory.from_steps()` analyzes steps parsed by the
   caller (missing keys are filled as for a format that does not record
   them); `register_format()` with `Format` teaches `load()` a format of your

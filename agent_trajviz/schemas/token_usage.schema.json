@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Token usage by step",
+  "description": "Per-step tokens in disjoint segments (fresh input, cache read, cache write, output, reasoning) that add up to the step total; steps with an impossible count list it under `invalid`.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "token_usage"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "format",
+        "has_breakdown",
+        "steps"
+      ],
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "has_breakdown": {
+          "type": "boolean"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "cache_read",
+              "cache_write",
+              "fresh_input",
+              "invalid",
+              "output",
+              "position",
+              "reasoning",
+              "step",
+              "total",
+              "usable_total"
+            ],
+            "properties": {
+              "cache_read": {
+                "type": "integer"
+              },
+              "cache_write": {
+                "type": "integer"
+              },
+              "fresh_input": {
+                "type": "integer"
+              },
+              "invalid": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  }
+                }
+              },
+              "output": {
+                "type": "integer"
+              },
+              "position": {
+                "type": "integer"
+              },
+              "reasoning": {
+                "type": "integer"
+              },
+              "step": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "usable_total": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

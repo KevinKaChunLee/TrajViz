@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Comparison summary",
+  "description": "The two runs, their outcomes, alignment scores, confidence and evidence level.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "comparison_summary"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "summary"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "alignment",
+        "anchor_mode",
+        "compared_agent",
+        "confidence",
+        "evidence_level",
+        "notes",
+        "outcome",
+        "reference_agent",
+        "task_id"
+      ],
+      "properties": {
+        "alignment": {
+          "type": "object",
+          "required": [
+            "alignment_f1",
+            "behavioral_precision",
+            "harmful_cost",
+            "harmful_ratio",
+            "overhead_ratio",
+            "reference_recall"
+          ],
+          "properties": {
+            "alignment_f1": {
+              "type": "number"
+            },
+            "behavioral_precision": {
+              "type": "number"
+            },
+            "harmful_cost": {
+              "type": "object",
+              "required": [
+                "latency_ms",
+                "tokens"
+              ],
+              "properties": {
+                "latency_ms": {
+                  "type": "integer"
+                },
+                "tokens": {
+                  "type": "integer"
+                }
+              }
+            },
+            "harmful_ratio": {
+              "type": "number"
+            },
+            "overhead_ratio": {
+              "type": "number"
+            },
+            "reference_recall": {
+              "type": "number"
+            }
+          }
+        },
+        "anchor_mode": {
+          "type": "string",
+          "enum": [
+            "external",
+            "self"
+          ]
+        },
+        "compared_agent": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "object",
+          "required": [
+            "alignment",
+            "divergence",
+            "milestones",
+            "outcome",
+            "segments"
+          ],
+          "properties": {
+            "alignment": {
+              "type": "string"
+            },
+            "divergence": {
+              "type": "string"
+            },
+            "milestones": {
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "segments": {
+              "type": "string"
+            }
+          }
+        },
+        "evidence_level": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "outcome": {
+          "type": "object",
+          "required": [
+            "compared_duration_s",
+            "compared_filename",
+            "compared_format",
+            "compared_steps",
+            "compared_success",
+            "compared_tokens",
+            "compared_tool_calls",
+            "reference_duration_s",
+            "reference_filename",
+            "reference_format",
+            "reference_steps",
+            "reference_success",
+            "reference_tokens",
+            "reference_tool_calls",
+            "success_detection"
+          ],
+          "properties": {
+            "compared_duration_s": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "compared_filename": {
+              "type": "string"
+            },
+            "compared_format": {
+              "type": "string"
+            },
+            "compared_steps": {
+              "type": "integer"
+            },
+            "compared_success": {
+              "type": "boolean"
+            },
+            "compared_tokens": {
+              "type": "integer"
+            },
+            "compared_tool_calls": {
+              "type": "integer"
+            },
+            "reference_duration_s": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "reference_filename": {
+              "type": "string"
+            },
+            "reference_format": {
+              "type": "string"
+            },
+            "reference_steps": {
+              "type": "integer"
+            },
+            "reference_success": {
+              "type": "boolean"
+            },
+            "reference_tokens": {
+              "type": "integer"
+            },
+            "reference_tool_calls": {
+              "type": "integer"
+            },
+            "success_detection": {
+              "type": "string"
+            }
+          }
+        },
+        "reference_agent": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Issues",
+  "description": "Ranked triage of what went wrong: errors, then wasted work, then latency; each issue names its steps.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "issues"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "detail",
+          "judgment",
+          "kind",
+          "source_id",
+          "steps",
+          "title",
+          "why"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "judgment": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "required": [
+              "where",
+              "fix",
+              "also",
+              "confidence"
+            ],
+            "properties": {
+              "where": {
+                "type": "string"
+              },
+              "fix": {
+                "type": "string"
+              },
+              "also": {
+                "type": "string"
+              },
+              "confidence": {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              }
+            }
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "error",
+              "antipattern",
+              "bottleneck"
+            ]
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

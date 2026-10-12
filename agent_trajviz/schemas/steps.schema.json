@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Per-step metrics",
+  "description": "One row per step: role, agent, finish, duration, tokens, cache share, fresh input and tool calls.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "steps"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "agent",
+          "cache_ratio",
+          "cache_read",
+          "duration",
+          "errors",
+          "finish",
+          "index",
+          "model_id",
+          "non_cache_per_sec",
+          "non_cache_tokens",
+          "output_input_ratio",
+          "patch_parts",
+          "reasoning_parts",
+          "role",
+          "text_parts",
+          "tokens_input",
+          "tokens_output",
+          "tokens_per_sec",
+          "tokens_total",
+          "tool_calls",
+          "tool_time_share",
+          "tool_time_sum"
+        ],
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "cache_ratio": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "cache_read": {
+            "type": "integer"
+          },
+          "duration": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "errors": {
+            "type": "integer"
+          },
+          "finish": {
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "non_cache_per_sec": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "non_cache_tokens": {
+            "type": "integer"
+          },
+          "output_input_ratio": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "patch_parts": {
+            "type": "integer"
+          },
+          "reasoning_parts": {
+            "type": "integer"
+          },
+          "role": {
+            "type": "string"
+          },
+          "text_parts": {
+            "type": "integer"
+          },
+          "tokens_input": {
+            "type": "integer"
+          },
+          "tokens_output": {
+            "type": "integer"
+          },
+          "tokens_per_sec": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "tokens_total": {
+            "type": "integer"
+          },
+          "tool_calls": {
+            "type": "integer"
+          },
+          "tool_time_share": {
+            "type": "number"
+          },
+          "tool_time_sum": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Behavioural comparison",
+  "description": "Pairwise similarity, and which actions, files, tools and skills each run used, with patterns against the baseline (the first run).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "run_behavior"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "summary"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "action_matrix",
+        "action_matrix_total",
+        "baseline_run_id",
+        "consensus_threshold",
+        "file_matrix",
+        "file_matrix_total",
+        "labels",
+        "patterns_vs_baseline",
+        "run_ids",
+        "similarity",
+        "skill_matrix",
+        "skill_matrix_total",
+        "tool_matrix",
+        "tool_matrix_total"
+      ],
+      "properties": {
+        "action_matrix": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "cells",
+              "kind",
+              "label",
+              "n_runs",
+              "short_target",
+              "target",
+              "type"
+            ],
+            "properties": {
+              "cells": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "required": [
+                    "count",
+                    "present"
+                  ],
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "present": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "consensus",
+                  "partial",
+                  "unique"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "n_runs": {
+                "type": "integer"
+              },
+              "short_target": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "action_matrix_total": {
+          "type": "integer"
+        },
+        "baseline_run_id": {
+          "type": "string"
+        },
+        "consensus_threshold": {
+          "type": "integer"
+        },
+        "file_matrix": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "cells",
+              "kind",
+              "n_runs",
+              "path",
+              "short"
+            ],
+            "properties": {
+              "cells": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "required": [
+                    "read",
+                    "write"
+                  ],
+                  "properties": {
+                    "read": {
+                      "type": "integer"
+                    },
+                    "write": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "consensus",
+                  "partial",
+                  "unique"
+                ]
+              },
+              "n_runs": {
+                "type": "integer"
+              },
+              "path": {
+                "type": "string"
+              },
+              "short": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "file_matrix_total": {
+          "type": "integer"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "patterns_vs_baseline": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "count",
+                "label",
+                "type"
+              ],
+              "properties": {
+                "count": {
+                  "type": "integer"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "run_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "similarity": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        },
+        "skill_matrix": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "cells",
+              "key",
+              "kind",
+              "n_runs",
+              "short"
+            ],
+            "properties": {
+              "cells": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "required": [
+                    "count",
+                    "present"
+                  ],
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "present": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              "key": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "consensus",
+                  "partial",
+                  "unique"
+                ]
+              },
+              "n_runs": {
+                "type": "integer"
+              },
+              "short": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "skill_matrix_total": {
+          "type": "integer"
+        },
+        "tool_matrix": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "cells",
+              "key",
+              "kind",
+              "n_runs",
+              "short"
+            ],
+            "properties": {
+              "cells": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "required": [
+                    "count",
+                    "present"
+                  ],
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "present": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              "key": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "consensus",
+                  "partial",
+                  "unique"
+                ]
+              },
+              "n_runs": {
+                "type": "integer"
+              },
+              "short": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "tool_matrix_total": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Diagnostic metrics",
+  "description": "Derived diagnostics: error recovery, retries, exploration ratio and related measures.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "diagnostics"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "summary"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "classified_error_count",
+        "edit_precision",
+        "edit_success",
+        "edit_total",
+        "subagent_session_count",
+        "subagent_total_steps",
+        "subagent_total_tokens"
+      ],
+      "properties": {
+        "classified_error_count": {
+          "type": "integer"
+        },
+        "edit_precision": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "edit_success": {
+          "type": "integer"
+        },
+        "edit_total": {
+          "type": "integer"
+        },
+        "subagent_session_count": {
+          "type": "integer"
+        },
+        "subagent_total_steps": {
+          "type": "integer"
+        },
+        "subagent_total_tokens": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

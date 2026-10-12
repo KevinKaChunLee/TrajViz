@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Error clusters",
+  "description": "Errors clustered by message into candidate root causes; `reliable` is false for formats whose error text is too uniform to cluster.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "error_clusters"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "clusters",
+        "reliable"
+      ],
+      "properties": {
+        "clusters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "count",
+              "error_class",
+              "first_step",
+              "last_step",
+              "pattern",
+              "steps",
+              "tool"
+            ],
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "error_class": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "tool"
+                ]
+              },
+              "first_step": {
+                "type": "integer"
+              },
+              "last_step": {
+                "type": "integer"
+              },
+              "parent_agent": {
+                "type": "string"
+              },
+              "parent_step": {
+                "type": "integer"
+              },
+              "pattern": {
+                "type": "string"
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "tool": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "reliable": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

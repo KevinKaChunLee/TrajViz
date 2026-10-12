@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Workflow",
+  "description": "One entry per step for a step browser: workflow role, what the step leads with, its agent, and the filter labels it matches. Step contents are in Trajectory.steps.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "workflow"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "agents",
+        "filters",
+        "steps"
+      ],
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "filters": {
+          "type": "object",
+          "required": [
+            "features",
+            "roles"
+          ],
+          "properties": {
+            "features": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "agent",
+              "category",
+              "duration_s",
+              "error_kind",
+              "filters",
+              "finish",
+              "position",
+              "reasoning",
+              "role",
+              "step",
+              "tokens",
+              "tool_calls"
+            ],
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "duration_s": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
+              "error_kind": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "enum": [
+                  null,
+                  "system",
+                  "tool"
+                ]
+              },
+              "filters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "finish": {
+                "type": "string"
+              },
+              "position": {
+                "type": "integer"
+              },
+              "reasoning": {
+                "type": "boolean"
+              },
+              "role": {
+                "type": "string"
+              },
+              "step": {
+                "type": "integer"
+              },
+              "tokens": {
+                "type": "integer"
+              },
+              "tool_calls": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

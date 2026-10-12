@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agents",
+  "description": "One row per agent (main and sub-agents): steps, tokens, duration, tool calls, errors, cache share and generation rate.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "agents"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "agent_id",
+          "cache_efficiency_pct",
+          "cache_read_tokens",
+          "cache_write_tokens",
+          "error_count",
+          "input_tokens",
+          "input_tokens_unusable_steps",
+          "label",
+          "output_throughput_timed_steps",
+          "output_tokens",
+          "output_tokens_per_sec",
+          "reasoning_tokens",
+          "spawned_by_step",
+          "step_count",
+          "token_unusable_steps",
+          "tool_call_count",
+          "total_duration_s",
+          "total_tokens"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "cache_efficiency_pct": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "cache_read_tokens": {
+            "type": "integer"
+          },
+          "cache_write_tokens": {
+            "type": "integer"
+          },
+          "error_count": {
+            "type": "integer"
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "input_tokens_unusable_steps": {
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "output_throughput_timed_steps": {
+            "type": "integer"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "output_tokens_per_sec": {
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "reasoning_tokens": {
+            "type": "integer"
+          },
+          "spawned_by_step": {
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "step_count": {
+            "type": "integer"
+          },
+          "token_unusable_steps": {
+            "type": "object",
+            "required": [
+              "cache_read",
+              "cache_write",
+              "input",
+              "output",
+              "reasoning",
+              "total"
+            ],
+            "properties": {
+              "cache_read": {
+                "type": "integer"
+              },
+              "cache_write": {
+                "type": "integer"
+              },
+              "input": {
+                "type": "integer"
+              },
+              "output": {
+                "type": "integer"
+              },
+              "reasoning": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            }
+          },
+          "tool_call_count": {
+            "type": "integer"
+          },
+          "total_duration_s": {
+            "type": "number"
+          },
+          "total_tokens": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}

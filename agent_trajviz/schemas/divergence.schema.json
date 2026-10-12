@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Divergence patterns",
+  "description": "Where and how the compared run diverged from the reference, with cost.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "divergence"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "confidence",
+          "estimated_extra_cost",
+          "evidence",
+          "evidence_level",
+          "steps",
+          "type"
+        ],
+        "properties": {
+          "confidence": {
+            "type": "number"
+          },
+          "estimated_extra_cost": {
+            "type": "object",
+            "required": [
+              "steps",
+              "tokens"
+            ],
+            "properties": {
+              "steps": {
+                "type": "integer"
+              },
+              "tokens": {
+                "type": "integer"
+              }
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_level": {
+            "type": "string"
+          },
+          "parent_type": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

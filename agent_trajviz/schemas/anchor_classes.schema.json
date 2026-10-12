@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Anchor write recall",
+  "description": "Recall of the anchor patch's files by class; null without an anchor patch.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "anchor_classes"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "required": [
+        "compared",
+        "file_classes",
+        "reference",
+        "total_anchor_files"
+      ],
+      "properties": {
+        "compared": {
+          "type": "object",
+          "required": [
+            "anchor_files_written",
+            "files_written",
+            "off_patch_write_ratio",
+            "time_to_first_anchor_read",
+            "time_to_first_anchor_write",
+            "write_precision",
+            "write_recall",
+            "write_recall_by_class"
+          ],
+          "properties": {
+            "anchor_files_written": {
+              "type": "integer"
+            },
+            "files_written": {
+              "type": "integer"
+            },
+            "off_patch_write_ratio": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "time_to_first_anchor_read": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "time_to_first_anchor_write": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "write_precision": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "write_recall": {
+              "type": "number"
+            },
+            "write_recall_by_class": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "file_classes": {
+          "type": "object",
+          "required": [
+            "fixture",
+            "generated",
+            "source",
+            "spec",
+            "test"
+          ],
+          "properties": {
+            "fixture": {
+              "type": "integer"
+            },
+            "generated": {
+              "type": "integer"
+            },
+            "source": {
+              "type": "integer"
+            },
+            "spec": {
+              "type": "integer"
+            },
+            "test": {
+              "type": "integer"
+            }
+          }
+        },
+        "reference": {
+          "type": "object",
+          "required": [
+            "anchor_files_written",
+            "files_written",
+            "off_patch_write_ratio",
+            "time_to_first_anchor_read",
+            "time_to_first_anchor_write",
+            "write_precision",
+            "write_recall",
+            "write_recall_by_class"
+          ],
+          "properties": {
+            "anchor_files_written": {
+              "type": "integer"
+            },
+            "files_written": {
+              "type": "integer"
+            },
+            "off_patch_write_ratio": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "time_to_first_anchor_read": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "time_to_first_anchor_write": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "write_precision": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "write_recall": {
+              "type": "number"
+            },
+            "write_recall_by_class": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "total_anchor_files": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

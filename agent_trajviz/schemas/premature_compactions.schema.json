@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Premature compactions",
+  "description": "Context compactions that happened well before the window was full.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "premature_compactions"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "table"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "agent",
+          "before_pct",
+          "grew",
+          "kind",
+          "occupancy_after",
+          "occupancy_before",
+          "reason",
+          "step",
+          "window_limit"
+        ],
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "before_pct": {
+            "type": "number"
+          },
+          "grew": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "occupancy_after": {
+            "type": "number"
+          },
+          "occupancy_before": {
+            "type": "number"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "step": {
+            "type": "number"
+          },
+          "window_limit": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

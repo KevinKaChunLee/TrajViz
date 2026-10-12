@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Milestones",
+  "description": "The step each run reached each milestone (first relevant file, first edit, passing validation, final patch) and the difference.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "milestone_timeline"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "compared",
+        "deltas",
+        "reference"
+      ],
+      "properties": {
+        "compared": {
+          "type": "object",
+          "required": [
+            "final_patch",
+            "first_edit",
+            "first_passing_validation",
+            "first_relevant_file",
+            "first_surviving_edit"
+          ],
+          "properties": {
+            "final_patch": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_edit": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_passing_validation": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_relevant_file": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_surviving_edit": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            }
+          }
+        },
+        "deltas": {
+          "type": "object",
+          "required": [
+            "final_patch_delta",
+            "first_edit_delta",
+            "first_passing_validation_delta",
+            "first_relevant_file_delta",
+            "first_surviving_edit_delta"
+          ],
+          "properties": {
+            "final_patch_delta": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_edit_delta": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_passing_validation_delta": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_relevant_file_delta": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_surviving_edit_delta": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            }
+          }
+        },
+        "reference": {
+          "type": "object",
+          "required": [
+            "final_patch",
+            "first_edit",
+            "first_passing_validation",
+            "first_relevant_file",
+            "first_surviving_edit"
+          ],
+          "properties": {
+            "final_patch": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_edit": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_passing_validation": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_relevant_file": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "first_surviving_edit": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

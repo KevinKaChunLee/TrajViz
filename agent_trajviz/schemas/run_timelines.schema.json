@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent timeline by run",
+  "description": "Each run's contiguous agent segments; the same kind of agent shares a colour across runs.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "run_timelines"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "buckets",
+        "runs"
+      ],
+      "properties": {
+        "buckets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "run_id",
+              "segments"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "run_id": {
+                "type": "string"
+              },
+              "segments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "agent",
+                    "agent_label",
+                    "bucket",
+                    "end",
+                    "start",
+                    "steps",
+                    "tokens",
+                    "tool_calls"
+                  ],
+                  "properties": {
+                    "agent": {
+                      "type": "string"
+                    },
+                    "agent_label": {
+                      "type": "string"
+                    },
+                    "bucket": {
+                      "type": "string"
+                    },
+                    "end": {
+                      "type": "integer"
+                    },
+                    "start": {
+                      "type": "integer"
+                    },
+                    "steps": {
+                      "type": "integer"
+                    },
+                    "tokens": {
+                      "type": "integer"
+                    },
+                    "tool_calls": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

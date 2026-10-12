@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Segment costs",
+  "description": "Cost of each stretch between milestones in both runs.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "segment_costs"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "milestone_order_matches"
+      ],
+      "properties": {
+        "compared_segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "segment",
+              "steps",
+              "tokens"
+            ],
+            "properties": {
+              "segment": {
+                "type": "string"
+              },
+              "steps": {
+                "type": "integer"
+              },
+              "tokens": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "milestone_order_matches": {
+          "type": "boolean"
+        },
+        "reference_segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "segment",
+              "steps",
+              "tokens"
+            ],
+            "properties": {
+              "segment": {
+                "type": "string"
+              },
+              "steps": {
+                "type": "integer"
+              },
+              "tokens": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "segment_comparison": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "overhead",
+              "precision",
+              "recall",
+              "segment"
+            ],
+            "properties": {
+              "overhead": {
+                "type": "number"
+              },
+              "precision": {
+                "type": "number"
+              },
+              "recall": {
+                "type": "number"
+              },
+              "segment": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

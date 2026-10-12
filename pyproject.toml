@@ -54,6 +54,8 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.16",
     "hypothesis>=6.100",
+    # Validates every view against its shipped JSON Schema.
+    "jsonschema>=4.18",
 ]
 # DECAF (the Attribution tab) is not on PyPI, so it has no extra: clone it and
 # set AWE_DECAF_PATH (default: a sibling ../DECAF checkout).

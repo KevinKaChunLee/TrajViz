@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tokens by agent",
+  "description": "Token totals per agent with the segments that add up to them.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "agent_tokens"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "agents"
+      ],
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "agent_id",
+              "cache_read",
+              "cache_write",
+              "input",
+              "input_unusable_steps",
+              "label",
+              "output",
+              "reasoning",
+              "segments",
+              "total"
+            ],
+            "properties": {
+              "agent_id": {
+                "type": "string"
+              },
+              "cache_read": {
+                "type": "integer"
+              },
+              "cache_write": {
+                "type": "integer"
+              },
+              "input": {
+                "type": "integer"
+              },
+              "input_unusable_steps": {
+                "type": "integer"
+              },
+              "label": {
+                "type": "string"
+              },
+              "output": {
+                "type": "integer"
+              },
+              "reasoning": {
+                "type": "integer"
+              },
+              "segments": {
+                "type": "object",
+                "required": [
+                  "cache_read",
+                  "cache_write",
+                  "fresh",
+                  "output",
+                  "reasoning"
+                ],
+                "properties": {
+                  "cache_read": {
+                    "type": "integer"
+                  },
+                  "cache_write": {
+                    "type": "integer"
+                  },
+                  "fresh": {
+                    "type": "integer"
+                  },
+                  "output": {
+                    "type": "integer"
+                  },
+                  "reasoning": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "total": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

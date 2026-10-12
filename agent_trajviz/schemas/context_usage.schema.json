@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Context composition",
+  "description": "What fills one agent's context window, by category, at the latest occupancy point or a snapshot. `snapshots` lists the selectable pre-compaction points.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "kind",
+    "description",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "const": "context_usage"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "chart"
+    },
+    "description": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "agent_id",
+        "agent_key",
+        "buckets",
+        "loaded_pct",
+        "occupancy",
+        "peak_occupancy",
+        "peak_step",
+        "scaled",
+        "snapshots",
+        "step",
+        "window_limit"
+      ],
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "agent_key": {
+          "type": "string"
+        },
+        "buckets": {
+          "type": "object",
+          "required": [
+            "conversation",
+            "mcp",
+            "rules",
+            "skills",
+            "subagents",
+            "summarized",
+            "system",
+            "tool_outputs",
+            "tools",
+            "unattributed"
+          ],
+          "properties": {
+            "conversation": {
+              "type": "integer"
+            },
+            "mcp": {
+              "type": "integer"
+            },
+            "rules": {
+              "type": "integer"
+            },
+            "skills": {
+              "type": "integer"
+            },
+            "subagents": {
+              "type": "integer"
+            },
+            "summarized": {
+              "type": "integer"
+            },
+            "system": {
+              "type": "integer"
+            },
+            "tool_outputs": {
+              "type": "integer"
+            },
+            "tools": {
+              "type": "integer"
+            },
+            "unattributed": {
+              "type": "integer"
+            }
+          }
+        },
+        "loaded_pct": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "occupancy": {
+          "type": "integer"
+        },
+        "peak_occupancy": {
+          "type": "integer"
+        },
+        "peak_step": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "scaled": {
+          "type": "boolean"
+        },
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "value"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "step": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "window_limit": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

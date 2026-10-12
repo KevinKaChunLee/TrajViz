@@ -114,6 +114,9 @@ jobs:
           import agent_trajviz as tv
           run = tv.load("tests/fixtures/codearts_minimal.json")
           assert run.steps and run.metrics["tokens"]["total"] > 0
+          # The view schemas are package data: every view must find its own.
+          schemas = tv.view_schemas()
+          assert set(tv.VIEW_CATALOG) <= set(schemas) and len(schemas) > len(tv.VIEW_CATALOG), len(schemas)
           PY
           /tmp/core/bin/agent-trajviz --version
           # Without the app extra the dashboard must refuse with exit 2 and a hint.
