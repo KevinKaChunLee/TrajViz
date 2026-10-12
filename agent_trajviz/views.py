@@ -643,26 +643,31 @@ def compare_runs(
 ) -> dict[str, Any]:
     """Score several runs side by side; the first is the baseline.
 
-    Returns ``{"rows", "behavior", "timelines"}``: one scorecard row per run
-    (a run that cannot be read gets a row with its ``error``), the behavioural
+    *sources* are trajectories (from :func:`load`, :meth:`Trajectory.from_steps`
+    or :meth:`Trajectory.from_dict`) or files, read with :func:`load` and
+    *format*. Returns ``{"rows", "behavior", "timelines"}``: one scorecard row
+    per run (a file that cannot be read gets a row with its ``error``), the behavioural
     comparison (similarity, shared actions, files, tools and skills, patterns
     against the baseline) and :func:`run_group_views`' timeline data. *labels*
     names the runs (default: from their file names). Raises
     :class:`ValueError` for fewer than two runs.
     """
-    from .api import Trajectory
-    from .insight.run_group import build_run_group_scorecard
+    from .api import Trajectory, load
+    from .errors import LoadError
+    from .insight.run_group import LoadedRun, build_run_group_scorecard
 
-    paths = []
+    runs: list[str | LoadedRun] = []
     for src in sources:
-        if isinstance(src, Trajectory):
-            if not src.source:
-                raise ValueError("a Trajectory to compare must have been loaded from a file")
-            paths.append(src.source)
-        else:
-            paths.append(os.fspath(src))
+        if not isinstance(src, Trajectory):
+            path = os.fspath(src)
+            try:
+                src = load(path, format=format)
+            except LoadError as exc:
+                runs.append(LoadedRun(path, {"_error": str(exc)}))
+                continue
+        runs.append(LoadedRun(src.source or "", src.raw, _steps(src), src.format))
     result = build_run_group_scorecard(
-        paths, labels=list(labels) if labels is not None else None, format_hint=format, fuzzy=fuzzy_commands,
+        runs, labels=list(labels) if labels is not None else None, fuzzy=fuzzy_commands,
     )
     if not result.get("ok"):
         raise ValueError(result.get("error") or "the runs could not be compared")

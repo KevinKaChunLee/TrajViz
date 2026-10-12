@@ -85,6 +85,11 @@ def register_format(fmt: Format, *, replace: bool = False) -> None:
     _LABELS[fmt.key] = fmt.label
 
 
+def format_label(key: str) -> str:
+    """Display name of format *key* (built in or registered); the key itself when unknown."""
+    return _LABELS.get(key, key)
+
+
 def registered_format(key: str | None) -> Format | None:
     """The registered (not built-in) format *key*, or ``None``."""
     return _CUSTOM.get(key) if key else None

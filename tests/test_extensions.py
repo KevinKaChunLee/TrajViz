@@ -119,6 +119,34 @@ class FromStepsTests(unittest.TestCase):
             tv.Trajectory.from_steps([{"role": "user"}, "not a step"])
 
 
+class OwnRunsCompareTests(unittest.TestCase):
+    """Runs that were never files (or files only a registered format reads) compare like any other."""
+
+    def test_runs_built_from_steps_compare_and_group(self):
+        a = tv.Trajectory.from_steps(STEPS, format="myagent")
+        b = tv.Trajectory.from_steps(STEPS[:3], format="myagent")
+        before = copy.deepcopy(a.steps)
+        for view in tv.comparison_views(tv.compare(a, b)).values():
+            json.loads(view.to_json())
+        group = tv.compare_runs([a, b, FIXTURES / "missing.json"], labels=["a", "b", "gone"])
+        self.assertEqual([r["label"] for r in group["rows"]], ["a", "b", "gone"])
+        self.assertEqual([r["format"] for r in group["rows"][:2]], ["myagent", "myagent"])
+        self.assertEqual([bool(r["error"]) for r in group["rows"]], [False, False, True])
+        for view in tv.run_group_views(group).values():
+            json.loads(view.to_json())
+        self.assertEqual(a.steps, before, "comparing must not modify a trajectory")
+
+    def test_files_of_a_registered_format_join_a_group(self):
+        with _isolated_registries(), tempfile.TemporaryDirectory() as tmp:
+            tv.register_format(TOY)
+            paths = []
+            for name in ("one", "two"):
+                paths.append(Path(tmp) / f"{name}.json")
+                paths[-1].write_text(json.dumps(TOY_DOC), encoding="utf-8")
+            group = tv.compare_runs(paths)
+        self.assertEqual([(r["format"], r["error"]) for r in group["rows"]], [("toy", None), ("toy", None)])
+
+
 class FormatRegistryTests(unittest.TestCase):
     def setUp(self):
         self.enterContext(_isolated_registries())

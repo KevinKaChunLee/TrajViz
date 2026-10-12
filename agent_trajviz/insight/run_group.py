@@ -14,6 +14,7 @@ import os
 import logging
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from agent_trajviz.converge.alignment import (
@@ -36,6 +37,7 @@ from agent_trajviz.insight.metrics import wall_clock_fmt
 from agent_trajviz.insight.loaders import FORMAT_LABELS, detect_format, load_trajectory
 from agent_trajviz.insight.metrics import build_message_metrics, compute_metrics
 from agent_trajviz.insight.parser import parse_steps
+from agent_trajviz.plugins import format_label
 from agent_trajviz.tool_vocab import parse_skill_name as _parse_skill_name
 
 logger = logging.getLogger(__name__)
@@ -93,7 +95,22 @@ def _run_model(raw: dict) -> str:
     return model if isinstance(model, str) else ""
 
 
-def _distinct_run_ids(entries: list[tuple[str, dict]]) -> list[str]:
+@dataclass(frozen=True)
+class LoadedRun:
+    """A run already loaded and parsed, for :func:`build_run_group_scorecard`: no file is read.
+
+    ``raw`` is the converted export (``{}`` for steps built by the caller, or
+    ``{"_error": message}`` for a run that could not be read); ``format`` its
+    format id.
+    """
+
+    path: str
+    raw: dict
+    steps: list[dict] | None = None
+    format: str | None = None
+
+
+def _distinct_run_ids(entries: list[tuple[str, dict]], formats: Sequence[str | None] | None = None) -> list[str]:
     """Run ids for ``(path, raw)`` pairs: the file stem, made distinct by content.
 
     Comparing one task across harnesses is the common case, and those files
@@ -106,11 +123,12 @@ def _distinct_run_ids(entries: list[tuple[str, dict]]) -> list[str]:
     """
     stems = [default_run_label(path) or "run" for path, _ in entries]
     stem_counts = Counter(stems)
+    known = list(formats) if formats is not None else [None] * len(entries)
     ids: list[str] = []
-    for (_, raw), stem in zip(entries, stems, strict=True):
+    for (_, raw), stem, fmt in zip(entries, stems, known, strict=True):
         if stem_counts[stem] > 1 and isinstance(raw, dict) and "_error" not in raw:
-            fmt = detect_format(raw)
-            ids.append(f"{stem} · {FORMAT_LABELS.get(fmt, fmt)}")
+            fmt = fmt or detect_format(raw)
+            ids.append(f"{stem} · {format_label(fmt)}")
         else:
             ids.append(stem)
     id_counts = Counter(ids)
@@ -412,8 +430,9 @@ def build_run_scorecard_row(
     label: str | None = None,
     run_id: str | None = None,
     steps: list[dict] | None = None,
+    fmt: str | None = None,
 ) -> dict:
-    """Compute one scorecard row from an already-loaded trajectory dict."""
+    """Compute one scorecard row from an already-loaded trajectory dict (*fmt*: its known format)."""
     if "_error" in raw:
         return {
             "run_id": run_id or default_run_label(path) or "run",
@@ -441,7 +460,7 @@ def build_run_scorecard_row(
     pressure = context_pressure_stats(
         context_pressure_series(steps, raw=raw),
     )
-    fmt = detect_format(raw)
+    fmt = fmt or detect_format(raw)
     rid = run_id or default_run_label(path) or "run"
     return {
         "run_id": rid,
@@ -646,7 +665,7 @@ def build_behavioral_comparison(
 
 
 def build_run_group_scorecard(
-    paths: list[str],
+    paths: Sequence[str | LoadedRun],
     *,
     labels: list[str] | None = None,
     format_hint: str | None = None,
@@ -661,7 +680,8 @@ def build_run_group_scorecard(
     ``paths`` are additional comparison runs — only one upload is required
     in that case.
 
-    Returns ``{"rows", "behavior", "timeline_runs", "ok", "error"}``.
+    A :class:`LoadedRun` in *paths* is used as loaded (*format_hint* does not
+    apply to it). Returns ``{"rows", "behavior", "timeline_runs", "ok", "error"}``.
     """
     paths = list(paths or [])
     has_baseline = isinstance(baseline_raw, dict) and baseline_raw and "_error" not in baseline_raw
@@ -705,6 +725,8 @@ def build_run_group_scorecard(
         path: str,
         label: str | None,
         prefer_id: str | None = None,
+        steps: list[dict] | None = None,
+        fmt: str | None = None,
     ) -> None:
         base_id = prefer_id or default_run_label(path) or f"run-{len(used_ids) + 1}"
         run_id = base_id
@@ -730,7 +752,8 @@ def build_run_group_scorecard(
                                                 label=label or run_id, run_id=run_id))
 
         try:
-            steps = parse_steps(raw)
+            if steps is None:
+                steps = parse_steps(raw)
             if not steps:
                 # An unrecognised JSON object reaches here with no `_error` and
                 # no steps; scoring it as a run gave it 0 of everything and
@@ -747,6 +770,7 @@ def build_run_group_scorecard(
                 label=label or run_id,
                 run_id=run_id,
                 steps=steps,
+                fmt=fmt,
             )
             actions = canonicalize_steps(steps)
             assign_effect_labels(actions, steps, None)
@@ -765,10 +789,15 @@ def build_run_group_scorecard(
         )
 
     # Load everything first, so run ids can be made distinct by content.
-    uploads = [(path, load_trajectory(path, format_hint=format_hint)) for path in paths]
+    uploads = [
+        (p.path, p.raw, p.steps, p.format) if isinstance(p, LoadedRun)
+        else (p, load_trajectory(p, format_hint=format_hint), None, None)
+        for p in paths
+    ]
     src = str(baseline_raw.get("_source_path") or "") if has_baseline else ""
-    entries = ([(src or "overview", baseline_raw)] if has_baseline else []) + uploads
-    run_ids = _distinct_run_ids(entries)
+    entries = ([(src or "overview", baseline_raw)] if has_baseline else []) + [(p, r) for p, r, _, _ in uploads]
+    formats = ([None] if has_baseline else []) + [fmt for *_, fmt in uploads]
+    run_ids = _distinct_run_ids(entries, formats)
 
     if has_baseline:
         # The baseline is always first in `entries`; pop its id unconditionally
@@ -788,12 +817,12 @@ def build_run_group_scorecard(
             prefer_id=baseline_id,
         )
 
-    for i, ((path, raw), run_id) in enumerate(zip(uploads, run_ids, strict=True)):
+    for i, ((path, raw, steps, fmt), run_id) in enumerate(zip(uploads, run_ids, strict=True)):
         label = None
         # labels list aligns with uploaded paths only (not baseline)
         if labels and i < len(labels) and labels[i]:
             label = labels[i]
-        _append_raw(raw, path=path, label=label, prefer_id=run_id)
+        _append_raw(raw, path=path, label=label, prefer_id=run_id, steps=steps, fmt=fmt)
 
     if not loaded_runs:
         return {
