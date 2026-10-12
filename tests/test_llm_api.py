@@ -77,6 +77,34 @@ class LlmApiTests(unittest.TestCase):
         self.assertEqual(issues[0]["judgment"]["fix"], "Read files, not directories.")
         json.dumps(issues)
 
+    def test_any_client_can_be_plugged_in_and_still_sees_redacted_text(self):
+        seen = []
+
+        def my_client(system, messages):
+            seen.append((system, messages))
+            return "Use a narrower grep."
+
+        unconfigured = llm.LLMConfig(base_url="", api_key="", model="", provider="openai", temperature=None,
+                                     max_tokens=64, timeout=5, source="missing")
+        secret = "sk-proj-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4"
+        history = llm.ask(self.traj, f"Is {secret} leaked?", config=unconfigured, chat=my_client)
+        self.assertEqual(history[-1]["content"], "Use a narrower grep.")
+        system, messages = seen[0]
+        self.assertIn(llm.brief(self.traj)[:200], system)
+        self.assertNotIn(secret, messages[-1]["content"])
+
+    def test_language_reaches_the_prompt(self):
+        seen = []
+        llm.ask(self.traj, "Why?", chat=lambda system, messages: seen.append(system) or "ok", language="English")
+        self.assertIn("English", seen[0])
+        self.assertIn("English", llm.first_question("English") + " English")
+
+    def test_suggest_fixes_with_a_plugged_in_client(self):
+        reply = json.dumps({"where": "tests/", "fix": "Check the path is a file first.", "confidence": "low"})
+        issues, errors = llm.suggest_fixes(self.traj, chat=lambda system, messages: reply, language="English")
+        self.assertEqual(errors, [])
+        self.assertEqual(issues[0]["judgment"]["confidence"], "low")
+
     def test_the_module_names_its_extra(self):
         code = textwrap.dedent(f"""
             import importlib.abc, sys

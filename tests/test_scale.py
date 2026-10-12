@@ -31,10 +31,14 @@ def replayed(copies: int, directory: Path) -> Path:
     template = json.dumps(body)
     entries = list(head)
     for k in range(copies):
-        text = _ID.sub(lambda m: f'"{m.group(1)}-c{k}"', template)
-        text = _TS.sub(lambda m: '"timestamp": "%sZ"' % (
-            datetime.fromisoformat(m.group(1)) + timedelta(seconds=110 * k)).isoformat(timespec="milliseconds"), text)
-        entries.extend(json.loads(text))
+        def new_id(m: re.Match[str], k: int = k) -> str:
+            return f'"{m.group(1)}-c{k}"'
+
+        def shifted(m: re.Match[str], k: int = k) -> str:
+            stamp = datetime.fromisoformat(m.group(1)) + timedelta(seconds=110 * k)
+            return f'"timestamp": "{stamp.isoformat(timespec="milliseconds")}Z"'
+
+        entries.extend(json.loads(_TS.sub(shifted, _ID.sub(new_id, template))))
     for i, entry in enumerate(entries):
         entry["index"] = i
     data["trajectory"] = entries

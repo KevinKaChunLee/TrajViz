@@ -199,21 +199,27 @@ def judge_issue_fix(
     *,
     config: AnalysisLLMConfig | None = None,
     chat_fn: ChatFn | None = None,
+    language: str | None = None,
+    require_config: bool = True,
 ) -> IssueJudgment:
-    """Ask the analysis LLM for a structured Fix for *issue*."""
+    """Ask the analysis LLM for a structured Fix for *issue*.
+
+    ``require_config=False`` skips the endpoint check (a caller-supplied client).
+    """
     cfg = config or resolve_analysis_config()
-    if not cfg.ready:
+    if require_config and not cfg.ready:
         missing = ", ".join(cfg.missing) or "ANALYZE_* / LABEL_*"
         raise ValueError(f"Analysis LLM not configured ({missing})")
 
     context = pack_issue_judge_context(session, issue)
+    lang = _judge_language(language)
     user_msg = (
         "Judge a fix for this TrajViz issue. Return ONLY the JSON object. "
-        f"where / fix / also must be {_judge_language()}.\n\n"
+        f"where / fix / also must be {lang}.\n\n"
         f"{context}"
     )
     fn: ChatFn = chat_fn or complete_chat
-    system = JUDGE_SYSTEM_PROMPT.replace("{LANGUAGE}", _judge_language())
+    system = JUDGE_SYSTEM_PROMPT.replace("{LANGUAGE}", lang)
     raw = fn(cfg, system, [{"role": "user", "content": user_msg}])
     return parse_issue_judgment(raw)
 
@@ -231,9 +237,9 @@ class JudgeProgress:
     finished: bool
 
 
-def _judge_language() -> str:
-    """ANALYZE_LANGUAGE, with the documented default spelled as before."""
-    lang = analysis_language()
+def _judge_language(language: str | None = None) -> str:
+    """*language* (default ANALYZE_LANGUAGE), with the documented default spelled as before."""
+    lang = language or analysis_language()
     return "Simplified Chinese (Mandarin)" if is_default_language(lang) else lang
 
 
@@ -264,6 +270,8 @@ def iter_judge_overview_issues(
     config: AnalysisLLMConfig | None = None,
     chat_fn: ChatFn | None = None,
     limit: int = JUDGE_ISSUE_CAP,
+    language: str | None = None,
+    require_config: bool = True,
 ):
     """Yield :class:`JudgeProgress` before each call and once at the end.
 
@@ -286,7 +294,8 @@ def iter_judge_overview_issues(
         )
         try:
             judgment = judge_issue_fix(
-                session, working[i], config=cfg, chat_fn=chat_fn,
+                session, working[i], config=cfg, chat_fn=chat_fn, language=language,
+                require_config=require_config,
             )
             working[i] = working[i].with_judgment(judgment)
         except Exception as exc:  # noqa: BLE001 — keep other issues judging
@@ -309,12 +318,15 @@ def judge_overview_issues(
     config: AnalysisLLMConfig | None = None,
     chat_fn: ChatFn | None = None,
     limit: int = JUDGE_ISSUE_CAP,
+    language: str | None = None,
+    require_config: bool = True,
 ) -> tuple[list[OverviewIssue], list[str]]:
     """Judge up to *limit* issues; return updated issues and error notes."""
     out: list[OverviewIssue] = []
     errors: list[str] = []
     for progress in iter_judge_overview_issues(
-        session, issues, config=config, chat_fn=chat_fn, limit=limit,
+        session, issues, config=config, chat_fn=chat_fn, limit=limit, language=language,
+        require_config=require_config,
     ):
         out = progress.issues
         errors = progress.errors

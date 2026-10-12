@@ -717,28 +717,37 @@ def answer_question(
     *,
     config: AnalysisLLMConfig | None = None,
     chat_fn: ChatFn | None = None,
+    language: str | None = None,
+    require_config: bool = True,
 ) -> list[dict]:
-    """Append the user question and an assistant reply to *history*."""
+    """Append the user question and an assistant reply to *history*.
+
+    *language* is the reply language (default: ``ANALYZE_LANGUAGE``).
+    ``require_config=False`` skips the endpoint check: for a caller-supplied
+    client that makes the request itself.
+    """
     history = [dict(message) for message in (history or []) if isinstance(message, dict)]
     question = (question or "").strip()
     if not question:
         return history
     history.append({"role": "user", "content": question})
+    chinese = is_default_language(language or analysis_language())
 
     if not (brief or "").strip():
         history.append({
             "role": "assistant",
-            "content": "请先加载一条轨迹。我会使用当前运行的仪表盘统计来分析。",
+            "content": ("请先加载一条轨迹。我会使用当前运行的仪表盘统计来分析。" if chinese
+                        else "Load a trajectory first; I analyse it from the dashboard's statistics."),
         })
         return history
 
     cfg = config or resolve_analysis_config()
-    if not cfg.ready:
+    if require_config and not cfg.ready:
         history.append({"role": "assistant", "content": setup_help_text(cfg)})
         return history
 
     api_messages = _history_for_api(history)
-    system = system_prompt() + "\n\n" + brief
+    system = system_prompt(language) + "\n\n" + brief
     try:
         if chat_fn is not None:
             reply = chat_fn(cfg, system, api_messages)
@@ -747,7 +756,7 @@ def answer_question(
     except Exception as exc:  # noqa: BLE001 — surface a safe message in the panel
         reply = _public_http_error(exc)
     if not reply:
-        reply = "(模型返回了空回复。)"
+        reply = "(模型返回了空回复。)" if chinese else "(The model returned an empty reply.)"
     history.append({"role": "assistant", "content": reply})
     return history
 
