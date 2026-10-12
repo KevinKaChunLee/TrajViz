@@ -1,7 +1,7 @@
-"""A small Gradio app built only on the public agent_trajviz API.
+"""A small Gradio app of your own, built from the JSON views.
 
     pip install "agent-trajviz[app]"
-    python examples/gradio_app.py            # http://127.0.0.1:7870
+    python examples/views_app.py             # http://127.0.0.1:7871
 
 Load a trajectory to see its summary, health checks and issues; pick any chart
 or table to see it drawn and as JSON; download every view as JSON; compare
@@ -139,10 +139,12 @@ def build_app() -> gr.Blocks:
                 divergence = gr.Plot(show_label=False)
             compare_btn.click(compare_runs, inputs=[ref_file, cmp_file],
                               outputs=[comparison, milestones, divergence], api_name="compare")
-        with gr.Tab("All views"):
+        with gr.Tab("All views") as all_views_tab:
             gr.Markdown("Every view of the loaded trajectory, rendered by `agent_trajviz.dashboard`.")
 
-            @gr.render(inputs=state)
+            # Rendered when the tab is opened, not on every load: a re-render
+            # inside a tab would otherwise pull the browser onto that tab.
+            @gr.render(inputs=state, triggers=[all_views_tab.select])
             def render_all(run):
                 if run is None:
                     gr.Markdown("Load a trajectory in the Analyze tab.")
@@ -153,4 +155,4 @@ def build_app() -> gr.Blocks:
 
 
 if __name__ == "__main__":
-    build_app().launch(server_name="127.0.0.1", server_port=7870)
+    build_app().launch(server_name="127.0.0.1", server_port=7871)
