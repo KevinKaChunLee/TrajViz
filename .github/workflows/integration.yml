@@ -9,9 +9,12 @@ name: DECAF integration (trusted)
 # Configuration:
 #   vars.DECAF_REPO          — owner/name of the repository carrying DECAF/awe.
 #   secrets.DECAF_REPO_TOKEN — a read-only fine-grained token for it.
-# Until both are set the job fails at its preflight below, and the DECAF-gated
-# tests skip in the `CI / test` jobs. TRAJVIZ_REQUIRE_ATTRIBUTION=1 turns a missing
-# environment into a hard failure, so this workflow is never green by skipping.
+# Until vars.DECAF_REPO is set the job is skipped (shown grey, never green):
+# DECAF is not public, so a clone or fork of this repository has nothing to run
+# it against, and the DECAF-gated tests skip in the `CI / test` jobs. Once the
+# variable is set, a missing token fails the preflight below, and
+# TRAJVIZ_REQUIRE_ATTRIBUTION=1 turns a missing environment into a hard failure,
+# so this workflow is never green without running the integration tests.
 
 on:
   push:
@@ -23,8 +26,9 @@ permissions:
 
 jobs:
   integration:
-    # Trusted main code ONLY — a dispatch from any other ref runs nothing.
-    if: github.ref == 'refs/heads/main'
+    # Trusted main code ONLY — a dispatch from any other ref runs nothing — and
+    # only where DECAF is configured (see Configuration above).
+    if: github.ref == 'refs/heads/main' && vars.DECAF_REPO != ''
     runs-on: ubuntu-latest
     steps:
       # Fail here, not at actions/checkout. Without this, missing configuration
