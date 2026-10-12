@@ -1,5 +1,12 @@
 # TrajViz
 
+[![CI](https://github.com/rshu/TrajViz/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rshu/TrajViz/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/agent-trajviz)](https://pypi.org/project/agent-trajviz/)
+[![Python](https://img.shields.io/pypi/pyversions/agent-trajviz)](https://pypi.org/project/agent-trajviz/)
+[![License](https://img.shields.io/pypi/l/agent-trajviz)](https://github.com/rshu/TrajViz/blob/main/LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
+
 **Parse and analyze LLM agent trajectories: as a Python library, as JSON, or in a dashboard.**
 
 `agent-trajviz` reads the trajectories coding agents record, normalizes them
