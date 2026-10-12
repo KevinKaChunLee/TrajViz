@@ -302,7 +302,7 @@ def _llm_layer_policy(agent: str, instance_id: str, canon_sha: str):
                       + list(adir.glob(f"{instance_id}__*.json")))
         for f in candidates:
             try:
-                rec = _json.loads(f.read_text())
+                rec = _json.loads(f.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 # Unreadable or malformed candidate file — skip it; provenance
                 # verification below decides whether the arbiter stays enabled.

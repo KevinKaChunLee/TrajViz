@@ -44,7 +44,7 @@ def parse_manifest(
     on the server. Confined entries carry the resolved path, so the file that
     is read is the file that was checked.
     """
-    with open(manifest_path) as f:
+    with open(manifest_path, encoding="utf-8") as f:
         data = json.load(f)
 
     if not isinstance(data, list):

@@ -174,6 +174,15 @@ class AnchorPatchParsingTests(unittest.TestCase):
             "--- src/app.py\n+++ src/app.py\n@@ -1 +1 @@\n-x\n+y\n")
         self.assertIsNone(_parse_anchor_files(path))
 
+    def test_a_patch_with_bytes_that_are_not_utf8_keeps_its_files(self):
+        # A Latin-1 source line used to raise UnicodeDecodeError, which the
+        # parser swallowed: the comparison then ran un-anchored without saying so.
+        fd, path = tempfile.mkstemp(suffix=".patch")
+        with os.fdopen(fd, "wb") as f:
+            f.write(b"--- a/src/app.py\n+++ b/src/app.py\n@@ -1 +1 @@\n-x = '\xff'\n+x = 1\n")
+        self.addCleanup(os.unlink, path)
+        self.assertEqual(_parse_anchor_files(path), {"src/app.py"})
+
     def test_missing_patch_returns_none(self):
         self.assertIsNone(_parse_anchor_files(None))
         self.assertIsNone(_parse_anchor_files("/nonexistent/anchor.patch"))

@@ -253,7 +253,9 @@ def _parse_anchor_files(patch_path: str | None) -> set[str] | None:
     if not patch_path:
         return None
     try:
-        with open(patch_path) as f:
+        # Only the a/ b/ headers matter; a stray undecodable byte elsewhere in
+        # the diff must not lose them.
+        with open(patch_path, encoding="utf-8", errors="replace") as f:
             content = f.read()
     except Exception:
         return None
