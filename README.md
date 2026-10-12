@@ -1,18 +1,35 @@
 # TrajViz
 
-**Offline analytics & visualization for LLM agent trajectories.**
+**Parse and analyze LLM agent trajectories: as a Python library, as JSON, or in a dashboard.**
 
-TrajViz loads a single agent trajectory (or compares two), parses it into a normalized step model, and renders an interactive Gradio + Plotly dashboard covering tokens, timing, tool-use patterns, phase composition, anti-pattern detections, step-label analysis, and cross-trajectory divergence.
+`agent-trajviz` reads the trajectories coding agents record, normalizes them
+into one step model, and computes tokens, timing, tool use, health checks,
+failure and anti-pattern detections, step labels and run-to-run comparisons.
+Every chart and table is a *view*: plain JSON data with a published schema,
+which your own code, the optional Plotly figures and HTML report, and the
+Gradio dashboards all draw from. The core needs only the standard library.
 
-Supports trajectories from **Claude Code**, **Cursor**, **OpenCode**, **CodeArts**, **ICode**, **Codex CLI**, **Pi**, and **DeepSeek Harness** out of the box.
+Supports trajectories from **Claude Code**, **Cursor**, **OpenCode**, **CodeArts**, **ICode**, **Codex CLI**, **Pi**, and **DeepSeek Harness** out of the box, and formats of your own through a plugin hook.
+
+```python
+import agent_trajviz as tv
+
+run = tv.load("trajectory.json")            # the format is detected from the content
+print(run.format_label, run.metrics["tokens"]["total"])
+print(run.view("tool_usage").data)          # any chart or table, as JSON data
+tv.export_json(run, "out/")                 # every view, plus trajectory.json to reload
+```
 
 ---
 
 ## Architecture
 
-TrajViz ingests raw agent-trajectory JSON, normalizes it into a shared step model, runs single- and cross-trajectory analysis over that model, and renders the results in a Gradio + Plotly dashboard.
+TrajViz ingests raw agent-trajectory JSON, normalizes it into a shared step
+model, runs single- and cross-trajectory analysis over that model, and exposes
+the results through its public API as views. The optional layers (figures, the
+HTML report, the dashboards) are built on the same views.
 
-![TrajViz architecture](architecture.svg)
+![TrajViz architecture](https://raw.githubusercontent.com/rshu/TrajViz/main/architecture.svg)
 
 ---
 
@@ -41,7 +58,7 @@ with a traceback.
 git clone https://github.com/rshu/TrajViz.git
 cd TrajViz
 uv sync --extra app          # or: pip install -e ".[app]"
-uv sync --extra dev          # contributors: everything plus pytest, ruff, hypothesis
+uv sync --extra dev          # contributors: everything plus the test and lint tools
 ```
 
 ---
@@ -192,7 +209,7 @@ Optional layers build on the views:
 | `agent_trajviz.llm` | `llm` | `ask(run, question)` and `suggest_fixes(run)`: the AI analysis, on the endpoint you configure, redacted |
 | `agent_trajviz.attribution` | — | `diagnose(run)`: DECAF failure attribution when a DECAF checkout is available |
 
-[`examples/`](examples/) has the dashboard rebuilt on this API alone and a
+[`examples/`](https://github.com/rshu/TrajViz/tree/main/examples) has the dashboard rebuilt on this API alone and a
 small app of your own; both are tested end to end.
 
 **Extending.** For an agent TrajViz does not read, parse the file yourself
@@ -532,7 +549,7 @@ Installed with the package (each takes `--help`):
 
 The labeler needs three config values — provide them via a `.env` file (in
 the repo root or CWD) or as CLI flags. A sample
-[`.env.example`](./.env.example) ships with the repo; copy it and fill in
+[`.env.example`](https://github.com/rshu/TrajViz/blob/main/.env.example) ships with the repo; copy it and fill in
 your own key:
 
 ```bash
@@ -602,11 +619,11 @@ it as the `api-reference` artifact; a test holds every public name to having a
 docstring.
 
 Tests that need the optional DECAF checkout skip when it is absent. Changes
-are recorded in [CHANGELOG.md](./CHANGELOG.md); see [SECURITY.md](./SECURITY.md)
+are recorded in [CHANGELOG.md](https://github.com/rshu/TrajViz/blob/main/CHANGELOG.md); see [SECURITY.md](https://github.com/rshu/TrajViz/blob/main/SECURITY.md)
 for reporting vulnerabilities.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT — see [LICENSE](https://github.com/rshu/TrajViz/blob/main/LICENSE).
