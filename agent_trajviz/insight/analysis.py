@@ -56,6 +56,30 @@ from .patterns import (
 NOISY_ROOT_CAUSE_FORMATS = frozenset({"opencode", "codearts", "codex"})
 
 
+def hotspots(message_rows: list[dict], limit: int = 5) -> dict[str, list[dict]]:
+    """The steps worth looking at first, from the per-step metrics rows.
+
+    ``slowest`` and ``heaviest`` are the *limit* longest and most token-heavy
+    steps. ``lowest_cache_read`` is the *limit* assistant steps with the
+    smallest cache-read share -- empty when no step reports any cache read,
+    because a ranking of zeros points at nothing. Rows whose cache share is
+    unknown (a self-inconsistent record) are never ranked by it.
+    """
+    with_duration = [r for r in message_rows if r.get("duration") is not None]
+    with_cache = [
+        r for r in message_rows
+        if r.get("role") == "assistant" and r["tokens_total"] > 0 and r["cache_ratio"] is not None
+    ]
+    return {
+        "slowest": sorted(with_duration, key=lambda r: r["duration"], reverse=True)[:limit],
+        "heaviest": sorted(message_rows, key=lambda r: r["tokens_total"], reverse=True)[:limit],
+        "lowest_cache_read": (
+            sorted(with_cache, key=lambda r: r["cache_ratio"])[:limit]
+            if with_cache and any(r["cache_ratio"] > 0 for r in with_cache) else []
+        ),
+    }
+
+
 class Analysis:
     """Lazily computed analyses of *steps* (parsed) from the export *raw*."""
 
@@ -88,6 +112,10 @@ class Analysis:
     @cached_property
     def agent_summaries(self) -> list[dict]:
         return compute_agent_summary(self.steps, self.raw)
+
+    @cached_property
+    def hotspots(self) -> dict[str, list[dict]]:
+        return hotspots(self.message_rows)
 
     # -- diagnostics ------------------------------------------------------
     @cached_property

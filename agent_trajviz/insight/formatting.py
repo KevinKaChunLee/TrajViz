@@ -3,6 +3,7 @@
 import html
 import re
 
+from .analysis import hotspots
 from .metrics import wall_clock_fmt  # noqa: F401  (re-exported: the display layer's callers import it here)
 
 
@@ -109,9 +110,8 @@ def _friendly_finish(raw: str | None) -> str:
 
 def _build_hotspots_md(rows: list[dict]) -> str:
     """Build markdown tables for top latency/token/cache-miss hotspots."""
-    with_dur = [r for r in rows if r.get("duration") is not None]
-    top_d = sorted(with_dur, key=lambda r: r["duration"], reverse=True)[:5]
-    top_t = sorted(rows, key=lambda r: r["tokens_total"], reverse=True)[:5]
+    picked = hotspots(rows)
+    top_d, top_t = picked["slowest"], picked["heaviest"]
 
     def fmt_table(items: list[dict], value_field: str, value_header: str,
                   value_fmt: str, extra_cols: list[tuple[str, str, str]] | None = None) -> str:
@@ -149,11 +149,8 @@ def _build_hotspots_md(rows: list[dict]) -> str:
     # provider doesn't emit cache metrics (e.g., some Codex sessions).
     # `cache_ratio` is None for a self-inconsistent record; such a row has no
     # place in a table ranked by cache share.
-    asst_with_tok = [r for r in rows
-                     if r.get("role") == "assistant" and r["tokens_total"] > 0
-                     and r["cache_ratio"] is not None]
-    if asst_with_tok and any(r["cache_ratio"] > 0 for r in asst_with_tok):
-        low_cache = sorted(asst_with_tok, key=lambda r: r["cache_ratio"])[:5]
+    low_cache = picked["lowest_cache_read"]
+    if low_cache:
         lines = [
             "| Step | Role | Cache Read % | Fresh Input | Tokens |",
             "|---:|---|---:|---:|---:|",

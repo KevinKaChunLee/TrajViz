@@ -1,0 +1,401 @@
+"""Every chart and table TrajViz computes, as JSON-serializable views.
+
+A :class:`View` is one chart's or table's data with an id, a title, a kind
+(``"chart"``, ``"table"`` or ``"summary"``) and a description. Views carry
+data, never figures or HTML: the dashboard draws its charts from exactly
+these numbers, so an application can render them any way it likes, or write
+them out with :func:`export_json`.
+
+    >>> run = tv.load("trajectory.json")
+    >>> run.view("tool_usage").data["tools"][0]
+    >>> tv.export_json(run, "out/")          # one <id>.json per view + index.json
+
+:data:`VIEW_CATALOG` lists the single-run views; :func:`comparison_views`
+turns a :func:`compare` report into views the same way.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import json
+import math
+import os
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Literal
+
+from .insight import chart_data
+from .insight.context_usage import context_pressure_stats, context_usage_breakdown
+
+if TYPE_CHECKING:
+    from .api import Trajectory
+    from .insight.analysis import Analysis
+
+#: Version of the layout of :meth:`View.to_dict` and the files :func:`export_json` writes.
+VIEWS_SCHEMA_VERSION = 1
+
+ViewKind = Literal["chart", "table", "summary"]
+
+
+@dataclass(frozen=True)
+class View:
+    """One chart's or table's data, ready to serialize."""
+
+    #: Stable identifier, a key of :data:`VIEW_CATALOG` (or of :func:`comparison_views`).
+    id: str
+    title: str
+    kind: ViewKind
+    #: What the view shows and how it was computed, in plain words.
+    description: str
+    #: JSON-serializable: dicts, lists, strings, numbers, booleans and None.
+    data: Any
+
+    def to_dict(self) -> dict[str, Any]:
+        """The view as one JSON object."""
+        return {
+            "schema_version": VIEWS_SCHEMA_VERSION,
+            "id": self.id,
+            "title": self.title,
+            "kind": self.kind,
+            "description": self.description,
+            "data": self.data,
+        }
+
+    def to_json(self, **kwargs: Any) -> str:
+        """:meth:`to_dict` as JSON text; keyword arguments go to :func:`json.dumps`."""
+        kwargs.setdefault("ensure_ascii", False)
+        return json.dumps(self.to_dict(), allow_nan=False, **kwargs)
+
+
+def _jsonable(value: Any) -> Any:
+    """*value* as plain JSON types. Sets become sorted lists, NaN/inf become None.
+
+    Raises :class:`TypeError` for anything else: a view that is not data is a
+    bug to fix, not a value to stringify.
+    """
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Mapping):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, (set, frozenset)):
+        return [_jsonable(v) for v in sorted(value, key=str)]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _jsonable(dataclasses.asdict(value))
+    if isinstance(value, os.PathLike):
+        return os.fspath(value)
+    raise TypeError(f"not JSON data: {type(value).__name__}")
+
+
+@dataclass(frozen=True)
+class _Spec:
+    kind: ViewKind
+    title: str
+    description: str
+    build: Callable[[Trajectory, Analysis], Any]
+
+
+def _summary(run: Trajectory, a: Analysis) -> dict[str, Any]:
+    m = a.metrics
+    return {
+        "format": run.format,
+        "format_label": run.format_label,
+        "source": run.source,
+        "sha256": run.sha256,
+        "warnings": list(run.warnings),
+        "tokens_estimated": run.tokens_estimated,
+        "steps": m.get("total_steps"),
+        "assistant_steps": m.get("assistant_steps"),
+        "agents": len(a.agent_summaries),
+        "wall_clock_s": m.get("wall_clock"),
+        "tokens": m.get("tokens"),
+        "tool_calls": m.get("tool_call_count"),
+        "tool_success_rate": m.get("tool_success_rate"),
+        "output_tokens_per_sec": m.get("output_tokens_per_sec"),
+        "health": {v["metric"]: v["status"] for v in a.verdicts},
+        "issues": len(a.issues),
+    }
+
+
+def _context_pressure(run: Trajectory, a: Analysis) -> dict[str, Any]:
+    return {"stats": context_pressure_stats(a.pressure_series), "series": a.pressure_series}
+
+
+def _plan(run: Trajectory, a: Analysis) -> dict[str, Any]:
+    return {"metrics": a.plan_metrics, "history": a.plan_history}
+
+
+def _failure_chains(run: Trajectory, a: Analysis) -> dict[str, Any]:
+    return {"metrics": a.chain_metrics, "chains": a.failure_chains}
+
+
+def _error_clusters(run: Trajectory, a: Analysis) -> dict[str, Any]:
+    # Clustering names root causes poorly on formats whose error text is
+    # uniform; the dashboard hides the panel there, the data says so.
+    return {"reliable": a.show_root_cause, "clusters": a.clusters}
+
+
+_SPECS: dict[str, _Spec] = {
+    "summary": _Spec(
+        "summary", "Summary",
+        "Provenance and headline numbers: format, steps, agents, tokens, tool use, health and issue count.",
+        _summary),
+    "metrics": _Spec(
+        "summary", "Session metrics",
+        "Every session metric: tokens by field, timing and latency, throughput, tool use and failures, "
+        "finish reasons. A rate is null when its denominator is empty.",
+        lambda run, a: a.metrics),
+    "health": _Spec(
+        "table", "Health checks",
+        "One verdict per check (good/warn/bad) with the value it judged and why.",
+        lambda run, a: a.verdicts),
+    "issues": _Spec(
+        "table", "Issues",
+        "Ranked triage of what went wrong: errors, then wasted work, then latency; each issue names its steps.",
+        lambda run, a: a.issues),
+    "agents": _Spec(
+        "table", "Agents",
+        "One row per agent (main and sub-agents): steps, tokens, duration, tool calls, errors, cache share "
+        "and generation rate.",
+        lambda run, a: a.agent_summaries),
+    "steps": _Spec(
+        "table", "Per-step metrics",
+        "One row per step: role, agent, finish, duration, tokens, cache share, fresh input and tool calls.",
+        lambda run, a: a.message_rows),
+    "step_analytics": _Spec(
+        "table", "Per-step analytics",
+        "One row per step: tool-time share, token rate, cache ratio, output/input ratio and idle gap.",
+        lambda run, a: a.step_analytics),
+    "hotspots": _Spec(
+        "table", "Hotspots",
+        "The slowest steps, the most token-heavy steps and the assistant steps with the least cache reuse.",
+        lambda run, a: a.hotspots),
+    "token_usage": _Spec(
+        "chart", "Token usage by step",
+        "Per-step tokens in disjoint segments (fresh input, cache read, cache write, output, reasoning) that "
+        "add up to the step total; steps with an impossible count list it under `invalid`.",
+        lambda run, a: chart_data.token_usage(run.steps, run.format)),
+    "step_durations": _Spec(
+        "chart", "Step durations",
+        "Per-step duration without sub-agent spawn wait, its error kind, and whether it is a spike.",
+        lambda run, a: chart_data.step_durations(run.steps)),
+    "tool_usage": _Spec(
+        "chart", "Tool calls",
+        "Calls per tool, split by agent.",
+        lambda run, a: chart_data.tool_usage(run.steps)),
+    "tool_durations": _Spec(
+        "chart", "Tool call durations",
+        "Every timed tool call per tool; parallel calls each count. Spawn tools are left out.",
+        lambda run, a: chart_data.tool_durations(run.steps)),
+    "tool_outcomes": _Spec(
+        "chart", "Tool outcomes",
+        "Every tool call with its step, agent and success.",
+        lambda run, a: chart_data.tool_outcomes(run.steps)),
+    "skill_calls": _Spec(
+        "chart", "Skill calls",
+        "Which agent invoked which skill, and how often.",
+        lambda run, a: chart_data.skill_calls(run.steps)),
+    "agent_tokens": _Spec(
+        "chart", "Tokens by agent",
+        "Token totals per agent with the segments that add up to them.",
+        lambda run, a: chart_data.agent_tokens(a.agent_summaries)),
+    "agent_swimlane": _Spec(
+        "chart", "Agent swimlane",
+        "Each agent's contiguous step ranges with their tokens and tool calls; the user has a lane of its own.",
+        lambda run, a: chart_data.agent_swimlane(run.steps)),
+    "file_interactions": _Spec(
+        "chart", "File interactions",
+        "Every file read, write, search or skill load by step and agent; `target` marks files the run edited.",
+        lambda run, a: chart_data.file_interactions(a.file_interactions, a.target_files, run.steps)),
+    "plan": _Spec(
+        "chart", "Plan progress",
+        "The agent's todo items with the steps they started and finished on, stalled items, and every "
+        "plan snapshot.",
+        _plan),
+    "context_pressure": _Spec(
+        "chart", "Context window pressure",
+        "Context-window occupancy per agent by step, compaction events, and the window it is measured "
+        "against (with how that window was determined).",
+        _context_pressure),
+    "context_usage": _Spec(
+        "chart", "Context composition",
+        "What fills the current context window, by category, at the latest occupancy point.",
+        lambda run, a: context_usage_breakdown(run.steps, raw=run.raw)),
+    "phases": _Spec(
+        "table", "Workflow phases",
+        "Contiguous structural phases of the run (exploration, editing, validation, ...).",
+        lambda run, a: a.structural_phases),
+    "tool_sequences": _Spec(
+        "table", "Tool sequences",
+        "Recurring sequences of tool calls.",
+        lambda run, a: a.tool_sequences),
+    "failure_patterns": _Spec(
+        "table", "Failure patterns",
+        "Failed tool calls grouped by tool and error.",
+        lambda run, a: a.failure_patterns),
+    "failure_chains": _Spec(
+        "table", "Failure chains",
+        "Runs of consecutive failing assistant steps, with chain statistics.",
+        _failure_chains),
+    "error_clusters": _Spec(
+        "table", "Error clusters",
+        "Errors clustered by message into candidate root causes; `reliable` is false for formats whose "
+        "error text is too uniform to cluster.",
+        _error_clusters),
+    "bottlenecks": _Spec(
+        "table", "Performance bottlenecks",
+        "Steps that are outliers in duration with a clear cause (tool wait, idle gap, generation).",
+        lambda run, a: a.performance_bottlenecks),
+    "fruitless_streaks": _Spec(
+        "table", "Fruitless search streaks",
+        "Consecutive searches that found nothing.",
+        lambda run, a: a.fruitless_streaks),
+    "tool_selection": _Spec(
+        "table", "Tool selection anti-patterns",
+        "Shell commands used where a dedicated tool exists (for example `cat` instead of Read).",
+        lambda run, a: a.tool_selection),
+    "edit_thrash": _Spec(
+        "table", "Edit thrash",
+        "Files edited repeatedly in a short span.",
+        lambda run, a: a.edit_thrash),
+    "repeated_searches": _Spec(
+        "table", "Repeated searches",
+        "The same search run more than once.",
+        lambda run, a: a.repeated_searches),
+    "phase_regressions": _Spec(
+        "table", "Phase regressions",
+        "Unintended returns to an earlier workflow phase.",
+        lambda run, a: a.phase_regressions),
+    "premature_compactions": _Spec(
+        "table", "Premature compactions",
+        "Context compactions that happened well before the window was full.",
+        lambda run, a: a.premature_compactions),
+    "diagnostics": _Spec(
+        "summary", "Diagnostic metrics",
+        "Derived diagnostics: error recovery, retries, exploration ratio and related measures.",
+        lambda run, a: a.diagnostic_metrics),
+}
+
+#: Single-run view id -> ``{"title", "kind", "description"}``, in display order.
+VIEW_CATALOG: Mapping[str, Mapping[str, str]] = MappingProxyType({
+    vid: MappingProxyType({"title": spec.title, "kind": spec.kind, "description": spec.description})
+    for vid, spec in _SPECS.items()
+})
+
+
+def build_views(run: Trajectory, analysis: Analysis, only: Iterable[str] | None = None) -> dict[str, View]:
+    """Views of *run*, computed from *analysis* (see :meth:`Trajectory.views`)."""
+    ids = list(_SPECS) if only is None else list(only)
+    unknown = [vid for vid in ids if vid not in _SPECS]
+    if unknown:
+        raise KeyError(f"unknown view id(s): {', '.join(unknown)}; see agent_trajviz.VIEW_CATALOG")
+    out: dict[str, View] = {}
+    for vid in ids:
+        spec = _SPECS[vid]
+        out[vid] = View(vid, spec.title, spec.kind, spec.description, _jsonable(spec.build(run, analysis)))
+    return out
+
+
+_COMPARISON_SPECS: dict[str, tuple[ViewKind, str, str, Callable[[dict], Any]]] = {
+    "comparison_summary": (
+        "summary", "Comparison summary",
+        "The two runs, their outcomes, alignment scores, confidence and evidence level.",
+        lambda r: {k: r.get(k) for k in ("task_id", "reference_agent", "compared_agent", "outcome",
+                                          "alignment", "confidence", "evidence_level", "anchor_mode", "notes")}),
+    "milestone_timeline": (
+        "chart", "Milestones",
+        "The step each run reached each milestone (first relevant file, first edit, passing validation, "
+        "final patch) and the difference.",
+        lambda r: {"reference": r.get("ref_milestones"), "compared": r.get("cmp_milestones"),
+                   "deltas": r.get("milestones")}),
+    "segment_costs": (
+        "chart", "Segment costs",
+        "Cost of each stretch between milestones in both runs.",
+        lambda r: r.get("segments")),
+    "divergence": (
+        "chart", "Divergence patterns",
+        "Where and how the compared run diverged from the reference, with cost.",
+        lambda r: r.get("patterns")),
+    "anchor_classes": (
+        "chart", "Anchor write recall",
+        "Recall of the anchor patch's files by class; null without an anchor patch.",
+        lambda r: r.get("anchor_analysis")),
+    "evaluation_layers": (
+        "table", "Evaluation layers",
+        "File selection, edit stability and completion quality, each with what it measures.",
+        lambda r: r.get("eval_layers")),
+}
+
+
+def comparison_views(report: Mapping[str, Any]) -> dict[str, View]:
+    """Views of a :func:`agent_trajviz.compare` report, keyed by id."""
+    return {
+        vid: View(vid, title, kind, description, _jsonable(build(dict(report))))
+        for vid, (kind, title, description, build) in _COMPARISON_SPECS.items()
+    }
+
+
+def _source_views(source: Trajectory | Mapping[str, View], only: Iterable[str] | None) -> dict[str, View]:
+    from .api import Trajectory
+
+    if isinstance(source, Trajectory):
+        return source.views(only=only)
+    views = dict(source)
+    if only is not None:
+        wanted = list(only)
+        missing = [vid for vid in wanted if vid not in views]
+        if missing:
+            raise KeyError(f"no such view(s): {', '.join(missing)}")
+        views = {vid: views[vid] for vid in wanted}
+    return views
+
+
+def export_json(
+    source: Trajectory | Mapping[str, View],
+    directory: str | os.PathLike[str],
+    *,
+    only: Iterable[str] | None = None,
+    indent: int | None = 2,
+) -> list[Path]:
+    """Write each view to ``<directory>/<id>.json``, plus ``index.json``; return the paths.
+
+    *source* is a loaded trajectory (all of its views, or those in *only*) or
+    a mapping of views such as :func:`comparison_views` returns. For a
+    trajectory, ``trajectory.json`` holds :meth:`Trajectory.to_dict`. The
+    directory is created if needed; existing files of the same names are
+    replaced.
+    """
+    from . import __version__
+    from .api import Trajectory
+
+    views = _source_views(source, only)
+    out_dir = Path(directory)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+
+    def _write(name: str, payload: Any) -> None:
+        path = out_dir / name
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(payload, indent=indent, ensure_ascii=False, allow_nan=False) + "\n",
+                       encoding="utf-8")
+        os.replace(tmp, path)
+        written.append(path)
+
+    for view in views.values():
+        _write(f"{view.id}.json", view.to_dict())
+    index: dict[str, Any] = {
+        "schema_version": VIEWS_SCHEMA_VERSION,
+        "generator": f"agent-trajviz {__version__}",
+        "views": [{"id": v.id, "title": v.title, "kind": v.kind, "file": f"{v.id}.json"} for v in views.values()],
+    }
+    if isinstance(source, Trajectory):
+        _write("trajectory.json", _jsonable(source.to_dict()))
+        index.update(source=source.source, sha256=source.sha256, format=source.format,
+                     trajectory_file="trajectory.json")
+    _write("index.json", index)
+    return written

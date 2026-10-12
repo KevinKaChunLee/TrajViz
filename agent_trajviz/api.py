@@ -1,4 +1,4 @@
-"""The public API: load a trajectory, measure it, compare two, write a report.
+"""The public API: load a trajectory, analyze it, compare two, export the results.
 
 Everything here needs only the standard library except :func:`write_report`,
 which needs the ``charts`` extra. Names not exported from ``agent_trajviz``
@@ -9,12 +9,12 @@ change between minor versions.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from ._extras import require
 from .errors import LoadError, ReportError
@@ -23,6 +23,9 @@ from .insight.analysis import Analysis
 from .insight.context_usage import context_pressure_series, context_pressure_stats
 from .insight.parser import parse_steps
 from .model import Step
+
+if TYPE_CHECKING:
+    from .views import View
 
 #: Supported formats: format id (as in :attr:`Trajectory.format`) -> display name.
 FORMATS: Mapping[str, str] = MappingProxyType(dict(loaders.FORMAT_LABELS))
@@ -94,6 +97,21 @@ class Trajectory:
         """
         series = context_pressure_series(_plain(self.steps), raw=self.raw, window_limit=window_limit)
         return {"stats": context_pressure_stats(series), "series": series}
+
+    def views(self, *, only: Iterable[str] | None = None) -> dict[str, View]:
+        """Every chart and table as a JSON-serializable :class:`View`, keyed by id.
+
+        *only* restricts the result to those ids (see :data:`VIEW_CATALOG`);
+        an unknown id raises :class:`KeyError`. Results are computed once per
+        trajectory and shared between views.
+        """
+        from .views import build_views
+
+        return build_views(self, self._analysis, only)
+
+    def view(self, view_id: str) -> View:
+        """One view by id (see :data:`VIEW_CATALOG`)."""
+        return self.views(only=[view_id])[view_id]
 
     def to_dict(self) -> dict[str, Any]:
         """A JSON-serializable copy: format, provenance, warnings and steps."""

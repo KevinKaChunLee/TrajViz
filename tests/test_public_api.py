@@ -28,6 +28,7 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertEqual(sorted(tv.__all__), sorted([
             "FORMATS", "SCHEMA_VERSION", "LoadError", "MissingExtraError", "ReportError", "Step",
             "TokenUsage", "ToolCall", "Trajectory", "TrajVizError", "compare", "load", "write_report",
+            "VIEWS_SCHEMA_VERSION", "VIEW_CATALOG", "View", "comparison_views", "export_json",
         ]))
         for name in tv.__all__:
             self.assertTrue(hasattr(tv, name), name)
@@ -39,6 +40,9 @@ class ApiSurfaceTests(unittest.TestCase):
                        "fuzzy_commands: 'bool' = False) -> 'dict[str, Any]'",
             "write_report": "(source: 'Trajectory | PathLike', destination: 'PathLike | None' = None, *, "
                             "dark: 'bool' = False, inline_plotly: 'bool' = False) -> 'Path'",
+            "export_json": "(source: 'Trajectory | Mapping[str, View]', directory: 'str | os.PathLike[str]', *, "
+                           "only: 'Iterable[str] | None' = None, indent: 'int | None' = 2) -> 'list[Path]'",
+            "comparison_views": "(report: 'Mapping[str, Any]') -> 'dict[str, View]'",
         }
         for name, signature in pinned.items():
             self.assertEqual(str(inspect.signature(getattr(tv, name))), signature, name)
@@ -46,7 +50,8 @@ class ApiSurfaceTests(unittest.TestCase):
     def test_the_trajectory_fields_are_the_pinned_ones(self):
         self.assertEqual([f.name for f in dataclasses.fields(tv.Trajectory)],
                          ["format", "steps", "source", "sha256", "warnings", "tokens_estimated", "raw"])
-        for member in ("format_label", "metrics", "health", "agents", "context_pressure", "to_dict"):
+        for member in ("format_label", "metrics", "health", "agents", "context_pressure", "views", "view",
+                       "to_dict"):
             self.assertTrue(hasattr(tv.Trajectory, member), member)
 
     def test_every_error_is_a_trajviz_error(self):
