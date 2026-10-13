@@ -19,7 +19,6 @@ from ..context_usage import (
     usage_snapshot_choices,
 )
 from ..formatting import format_context_pressure_html
-from ..help import HELP_TEXT
 from ..presenters.label_ui import build_label_ui_payload
 from ..presenters.issues import (
     build_overview_issues_html,
@@ -31,7 +30,9 @@ from ..presenters.overview import (
     build_diagnostics_outputs,
     build_overview_outputs,
     empty_plotly_fig,
+    render_section_guide,
 )
+from ..token_explain import build_token_step_panel_html
 from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
 from ..llm_config import resolve_analysis_config
 from ..session import LoadedSession, session_from_run
@@ -55,6 +56,7 @@ class OverviewRefs:
     suggest_fixes_btn: gr.Button
     metrics_md: gr.Markdown
     token_chart: gr.Plot
+    token_step_html: gr.HTML
     duration_chart: gr.Plot
     behavior_md: gr.Markdown
     tool_chart: gr.Plot
@@ -147,17 +149,25 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
 
             with gr.Column(scale=1, min_width=0, elem_classes=["overview-section-content"]):
                 with gr.Column(visible=True) as performance_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_summary'])}</div>")
+                    gr.HTML(render_section_guide("performance_section"))
                     with gr.Row(equal_height=True):
-                        token_chart = gr.Plot(show_label=False, label="Token Usage")
+                        token_chart = gr.Plot(
+                            show_label=False,
+                            label="Token Usage",
+                            elem_id="token-chart",
+                        )
                         duration_chart = gr.Plot(
                             show_label=False,
                             label="Step Duration",
                             elem_id="duration-chart",
                         )
+                    token_step_html = gr.HTML(
+                        build_token_step_panel_html([]),
+                        elem_classes=["token-step-explain"],
+                    )
 
                 with gr.Column(visible=False) as context_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_context_utilization'])}</div>")
+                    gr.HTML(render_section_guide("context_section"))
                     with gr.Row():
                         diag_pressure_agent = gr.Dropdown(
                             label="Agent",
@@ -192,7 +202,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                     )
 
                 with gr.Column(visible=False) as tools_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_tools'])}</div>")
+                    gr.HTML(render_section_guide("tools_section"))
                     behavior_md = gr.Markdown("")
                     with gr.Row(equal_height=True):
                         tool_chart = gr.Plot(show_label=False, label="Tool Call Frequency")
@@ -212,7 +222,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                         gr.Column(scale=1)
 
                 with gr.Column(visible=False) as agents_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_agents'])}</div>")
+                    gr.HTML(render_section_guide("agents_section"))
                     agent_summary_html = gr.HTML("")
                     with gr.Row(equal_height=True):
                         agent_swimlane_chart = gr.Plot(
@@ -225,7 +235,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                         gr.Column(scale=1)
 
                 with gr.Column(visible=False) as diagnostics_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_diagnostics'])}</div>")
+                    gr.HTML(render_section_guide("diagnostics_section"))
                     diag_summary_html = gr.HTML("")
                     diag_file_chart = gr.Plot(
                         show_label=False,
@@ -237,13 +247,13 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                     plan_timeline_chart = gr.Plot(show_label=False, label="Plan Progress Timeline")
 
                 with gr.Column(visible=False) as deep_dive_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_deep_dive'])}</div>")
+                    gr.HTML(render_section_guide("deep_dive_section"))
                     metrics_md = gr.Markdown("")
                     hotspots_md = gr.Markdown("")
                     per_message_md = gr.Markdown("")
 
                 with gr.Column(visible=False) as labels_section:
-                    gr.HTML("<div class='section-subtitle'>Phase and action classification from labeled JSON</div>")
+                    gr.HTML(render_section_guide("labels_section"))
                     label_status_html = gr.HTML(
                         "<div style='padding:1em;color:var(--ov-muted);text-align:center;'>"
                         "Upload a <code>*_labeled.json</code> file to view label distributions and timeline.</div>"
@@ -272,6 +282,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
         suggest_fixes_btn=suggest_fixes_btn,
         metrics_md=metrics_md,
         token_chart=token_chart,
+        token_step_html=token_step_html,
         duration_chart=duration_chart,
         behavior_md=behavior_md,
         tool_chart=tool_chart,
@@ -312,6 +323,7 @@ def load_slots(refs: OverviewRefs) -> dict:
         "issues_html": refs.issues_html,
         "metrics_md": refs.metrics_md,
         "token_chart": refs.token_chart,
+        "token_step_html": refs.token_step_html,
         "duration_chart": refs.duration_chart,
         "behavior_md": refs.behavior_md,
         "tool_chart": refs.tool_chart,
@@ -346,6 +358,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
             "issues_html": "",
             "metrics_md": "",
             "token_chart": fig,
+            "token_step_html": build_token_step_panel_html([]),
             "duration_chart": fig,
             "behavior_md": "",
             "tool_chart": fig,
@@ -385,6 +398,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
         "issues_html": ov["issues_html"],
         "metrics_md": ov["metrics_text"],
         "token_chart": ch["tok_fig"],
+        "token_step_html": build_token_step_panel_html(session.steps),
         "duration_chart": ch["dur_fig"],
         "behavior_md": ov["behavior_text"],
         "tool_chart": ch["tl_fig"],

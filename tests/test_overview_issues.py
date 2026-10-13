@@ -39,7 +39,8 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn("overview-issues", html)
         self.assertIn("<details", html)
         self.assertIn("overview-issues-summary", html)
-        self.assertIn("No major workflow issues detected", html)
+        self.assertIn("未检测到明显的工作流问题", html)
+        self.assertIn("未检测到问题", html)
         self.assertNotIn("insight-step-link", html)
         self.assertNotIn("<details class='overview-issues-panel' id='overview-issues' open", html)
 
@@ -54,9 +55,12 @@ class OverviewIssuesTests(unittest.TestCase):
             )
         ])
         self.assertIn("<details class='overview-issues-panel' id='overview-issues' open>", html)
-        self.assertIn("1 issue", html)
-        self.assertNotIn(">Change<", html)
-        self.assertNotIn(">Fix<", html)
+        self.assertIn("1 个问题", html)
+        self.assertIn("overview-issue-index", html)
+        self.assertIn("#1", html)
+        self.assertIn("错误", html)
+        self.assertNotIn("修改位置", html)
+        self.assertNotIn("修复建议", html)
 
     def test_errors_rank_above_antipatterns(self):
         issues = collect_overview_issues(
@@ -158,13 +162,13 @@ class OverviewIssuesTests(unittest.TestCase):
             progress="Suggesting fixes 1/3 — Bash: exit 1 (1×)",
         )
         self.assertIn("overview-issues-progress", html)
-        self.assertIn("Thinking…", html)
+        self.assertIn("思考中…", html)
         self.assertIn("overview-issues-progress-spinner", html)
         self.assertIn("animateTransform", html)
         self.assertIn("currentColor", html)
         self.assertIn("Suggesting fixes 1/3", html)
-        self.assertIn("suggesting fixes…", html)
-        self.assertNotIn(">Change<", html)
+        self.assertIn("正在生成修复建议…", html)
+        self.assertNotIn("修改位置", html)
 
     def test_step_chips_without_fix_or_change(self):
         html = render_overview_issues_html([
@@ -178,13 +182,14 @@ class OverviewIssuesTests(unittest.TestCase):
         ])
         self.assertIn("tvGotoWorkflowStep(3)", html)
         self.assertIn("tvGotoWorkflowStep(7)", html)
-        self.assertIn("#3", html)
-        self.assertIn("#7", html)
-        self.assertIn("overview-issue-more", html)
-        self.assertIn("Why it matters", html)
-        self.assertNotIn(">Change<", html)
-        self.assertNotIn(">Fix<", html)
-        self.assertNotIn("Also:", html)
+        self.assertIn(">第3步<", html)
+        self.assertIn(">第7步<", html)
+        self.assertIn("overview-issue-info", html)
+        self.assertIn("title='Typical recovery: Read'", html)
+        self.assertNotIn("overview-issue-more", html)
+        self.assertNotIn("修改位置", html)
+        self.assertNotIn("修复建议", html)
+        self.assertNotIn("补充：", html)
 
     def test_failure_shows_recovery_as_why_not_fix(self):
         issues = collect_overview_issues(
@@ -200,9 +205,10 @@ class OverviewIssuesTests(unittest.TestCase):
         )
         self.assertEqual(len(issues), 1)
         self.assertIn("Read → Edit", issues[0].why)
+        self.assertIn("Bash: exit 1", issues[0].title)  # English data preserved
         html = render_overview_issues_html(issues)
-        self.assertNotIn(">Fix<", html)
-        self.assertNotIn(">Change<", html)
+        self.assertNotIn("修复建议", html)
+        self.assertNotIn("修改位置", html)
 
     def test_shows_all_ranked_issues(self):
         issues = [
@@ -218,11 +224,13 @@ class OverviewIssuesTests(unittest.TestCase):
         shown = rank_issues(issues)
         self.assertEqual(len(shown), 12)
         html = render_overview_issues_html(shown)
-        self.assertIn("12 issues", html)
+        self.assertIn("12 个问题", html)
         self.assertNotIn("Show all", html)
         self.assertNotIn("overview-issues-remainder", html)
         for i in range(12):
             self.assertIn(f"Waste pattern #{i}", html)
+            self.assertIn(f"#{i + 1}", html)
+        self.assertIn("行为问题", html)
 
     def test_skips_tool_error_rollup_when_failure_patterns_exist(self):
         session = _session(

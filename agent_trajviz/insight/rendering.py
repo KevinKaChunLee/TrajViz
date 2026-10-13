@@ -1249,33 +1249,36 @@ _STEP_CHIP_STYLE = (
 )
 
 
-def _step_link_chip(idx: int) -> str:
-    """Clickable ``#N`` chip that jumps to Workflow step *idx*."""
+def _step_link_chip(idx: int, *, label: str = "#{n}") -> str:
+    """Clickable chip (``#N`` by default) that jumps to Workflow step *idx*.
+
+    *label* is a trusted ``str.format`` template with ``{n}`` for the step.
+    """
     n = _step_index(idx)
     return (
         f"<span class='insight-step-link' style='{_STEP_CHIP_STYLE}' "
-        f"onclick=\"{_diag_jump_onclick(n)}\">#{n}</span>"
+        f"onclick=\"{_diag_jump_onclick(n)}\">{label.format(n=n)}</span>"
     )
 
 
-def _step_link_chips(indices: list[int], *, limit: int = 8) -> str:
-    """Deduped step chips; shows ``+N more`` when truncated."""
-    seen: list[int] = []
-    for raw in indices:
-        if raw is None:
-            continue
-        n = _step_index(raw)
-        if n not in seen:
-            seen.append(n)
+def _step_link_chips(
+    indices: list[int],
+    *,
+    limit: int = 8,
+    label: str = "#{n}",
+    more: str = "+{extra} more",
+) -> str:
+    """Deduped step chips; shows *more* (``+N more``) when truncated."""
+    seen = list(dict.fromkeys(_step_index(raw) for raw in indices if raw is not None))
     if not seen:
         return ""
     shown = seen[:limit]
-    chips = "".join(_step_link_chip(n) for n in shown)
+    chips = "".join(_step_link_chip(n, label=label) for n in shown)
     extra = len(seen) - len(shown)
     if extra > 0:
         chips += (
             f"<span style='font-size:11px;color:var(--ov-muted);'>"
-            f"+{extra} more</span>"
+            f"{more.format(extra=extra)}</span>"
         )
     return f"<div style='margin-top:4px;'>{chips}</div>"
 

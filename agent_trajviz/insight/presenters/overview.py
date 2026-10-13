@@ -19,7 +19,7 @@ from ..formatting import (
     _build_hotspots_md,
     _build_per_message_md,
 )
-from ..help import HELP_TEXT
+from ..help import HELP_TEXT, SECTION_GUIDES
 from ..loaders import tokens_are_estimates
 from ...plugins import format_label
 from ..metrics import extract_agent_info
@@ -42,14 +42,39 @@ if TYPE_CHECKING:
     from ...api import Trajectory
 
 
-
 def _rate_text(rate: float | None) -> str:
     """A percentage for a KPI card, or "n/a" when there is nothing to rate."""
     return f"{rate}%" if isinstance(rate, (int, float)) else "n/a"
 
+
 def trajectory_format_label(fmt: str | None) -> str:
     """Return a human-readable trajectory format label (registered formats included)."""
     return format_label(fmt) if fmt else "Unknown"
+
+
+def render_section_guide(section: str) -> str:
+    """Header for an Overview Contents section: summary line plus a hover/focus
+    panel describing each chart and a debugging example."""
+    guide = SECTION_GUIDES[section]
+    charts = "".join(
+        "<li class='section-guide-chart'>"
+        f"<span class='section-guide-chart-name'>{html.escape(name)}</span>"
+        f"：{html.escape(desc)}</li>"
+        for name, desc in guide.charts
+    )
+    return (
+        "<div class='section-guide'>"
+        f"<span class='section-guide-summary'>{html.escape(guide.summary)}</span>"
+        "<div class='section-guide-tip' tabindex='0'>"
+        "<span class='section-guide-trigger'>ⓘ 图表说明与调试示例</span>"
+        "<div class='section-guide-pop' role='tooltip'>"
+        "<div class='section-guide-panel'>"
+        "<div class='section-guide-heading'>本页图表</div>"
+        f"<ul class='section-guide-charts'>{charts}</ul>"
+        "<div class='section-guide-heading'>调试示例</div>"
+        f"<p class='section-guide-example'>{html.escape(guide.example)}</p>"
+        "</div></div></div></div>"
+    )
 
 
 def _build_sparkline_svg(values: list[float], width: int = 100, height: int = 20) -> str:

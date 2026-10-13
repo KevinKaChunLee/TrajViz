@@ -330,12 +330,48 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
                         });
                     };
                     /* __TV_BIND_JUMPS_END__ */
+                    /* Click a Token Usage bar -> reveal that step's pre-rendered
+                       token decomposition (one hidden div per step). */
+                    window.tvBindTokenStepExplain = function () {
+                        const root = document.getElementById('token-chart');
+                        if (!root) return;
+                        const gd = root.querySelector('.js-plotly-plot')
+                            || root.querySelector('[data-testid="plotly"]');
+                        if (!gd || typeof gd.on !== 'function') return;
+                        if (gd.__tvTokenExplainHandler && typeof gd.removeListener === 'function') {
+                            gd.removeListener('plotly_click', gd.__tvTokenExplainHandler);
+                        }
+                        const handler = function (data) {
+                            const pt = data && data.points && data.points[0];
+                            if (!pt) return;
+                            const n = Number(pt.x);
+                            if (!Number.isFinite(n)) return;
+                            const panel = document.querySelector('.token-step-explain');
+                            if (!panel) return;
+                            if (panel.__tvShown) panel.__tvShown.style.display = 'none';
+                            const hint = panel.querySelector('.tv-token-hint');
+                            if (hint) hint.style.display = 'none';
+                            const target = panel.querySelector(
+                                '[data-step="' + Math.trunc(n) + '"]'
+                            );
+                            if (target) {
+                                target.style.display = '';
+                                panel.__tvShown = target;
+                            } else {
+                                panel.__tvShown = null;
+                            }
+                        };
+                        gd.__tvTokenExplainHandler = handler;
+                        gd.on('plotly_click', handler);
+                        gd.style.cursor = 'pointer';
+                    };
                     let timer = null;
                     const schedule = () => {
                         if (timer) clearTimeout(timer);
                         timer = setTimeout(() => {
                             window.tvExpandFileTimeline();
                             window.tvBindChartWorkflowJumps();
+                            window.tvBindTokenStepExplain();
                         }, 60);
                     };
                     new MutationObserver(schedule).observe(document.documentElement, {
