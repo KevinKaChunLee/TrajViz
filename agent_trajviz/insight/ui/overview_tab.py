@@ -32,7 +32,7 @@ from ..presenters.overview import (
     empty_plotly_fig,
     render_section_guide,
 )
-from ..token_explain import build_token_step_panel_html, step_explanation_hint
+from ..token_explain import build_token_step_panel_html
 from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
 from ..llm_config import resolve_analysis_config
 from ..session import LoadedSession, session_from_run
@@ -162,7 +162,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                             elem_id="duration-chart",
                         )
                     token_step_html = gr.HTML(
-                        step_explanation_hint(),
+                        build_token_step_panel_html([]),
                         elem_classes=["token-step-explain"],
                     )
 
@@ -358,7 +358,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
             "issues_html": "",
             "metrics_md": "",
             "token_chart": fig,
-            "token_step_html": step_explanation_hint(),
+            "token_step_html": build_token_step_panel_html([]),
             "duration_chart": fig,
             "behavior_md": "",
             "tool_chart": fig,

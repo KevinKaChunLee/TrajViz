@@ -4,7 +4,6 @@ from agent_trajviz.insight.token_explain import (
     RADIX_PAGE_TOKENS,
     build_token_step_explanation_html,
     build_token_step_panel_html,
-    step_explanation_hint,
 )
 
 
@@ -30,7 +29,7 @@ class TokenStepExplanationTests(unittest.TestCase):
 
     def test_out_of_range_index_is_graceful(self):
         self.assertIn("未找到该步骤", build_token_step_explanation_html([_step()], 5))
-        self.assertIn("未找到该步骤", build_token_step_explanation_html([_step()], None))
+        self.assertIn("未找到该步骤", build_token_step_explanation_html([_step()], -1))
 
     def test_first_call_lists_user_message_and_derives_system_prompt(self):
         steps = [
@@ -143,7 +142,8 @@ class TokenStepExplanationTests(unittest.TestCase):
 
     def test_empty_panel_is_just_the_hint(self):
         panel = build_token_step_panel_html([])
-        self.assertIn(step_explanation_hint(), panel)
+        self.assertIn("tv-token-hint", panel)
+        self.assertIn("点击上方 Token Usage", panel)
         self.assertNotIn("data-step", panel)
         self.assertNotIn("tv-token-method", panel)
 

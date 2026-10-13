@@ -330,9 +330,8 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
                         });
                     };
                     /* __TV_BIND_JUMPS_END__ */
-                    /* Click a Token Usage bar -> swap in that step's token
-                       decomposition. The panel HTML is pre-rendered at load
-                       time with one hidden div per step (data-step="N"). */
+                    /* Click a Token Usage bar -> reveal that step's pre-rendered
+                       token decomposition (one hidden div per step). */
                     window.tvBindTokenStepExplain = function () {
                         const root = document.getElementById('token-chart');
                         if (!root) return;
@@ -349,15 +348,18 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
                             if (!Number.isFinite(n)) return;
                             const panel = document.querySelector('.token-step-explain');
                             if (!panel) return;
-                            panel.querySelectorAll('[data-step]').forEach(function (el) {
-                                el.style.display = 'none';
-                            });
+                            if (panel.__tvShown) panel.__tvShown.style.display = 'none';
                             const hint = panel.querySelector('.tv-token-hint');
                             if (hint) hint.style.display = 'none';
                             const target = panel.querySelector(
                                 '[data-step="' + Math.trunc(n) + '"]'
                             );
-                            if (target) target.style.display = '';
+                            if (target) {
+                                target.style.display = '';
+                                panel.__tvShown = target;
+                            } else {
+                                panel.__tvShown = null;
+                            }
                         };
                         gd.__tvTokenExplainHandler = handler;
                         gd.on('plotly_click', handler);

@@ -307,8 +307,6 @@ def draw_token_usage(data: dict, dark: bool = False) -> go.Figure:
             include_empty=opencode_schema,
         )
         fig.update_xaxes(title_text="Step", range=x_range, showticklabels=True)
-        # clickmode="event": clicking a bar drives the per-step token
-        # decomposition panel (see token_explain.py).
         return _finalize_step_chart(
             fig,
             title=_token_title(flagged),

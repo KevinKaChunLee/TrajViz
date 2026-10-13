@@ -10,7 +10,7 @@ against (sglang radix cache + OpenAI-compatible usage). Numbers taken from
 the usage report are marked 实际值 (exact); everything else is an
 independent estimate marked ≈ — items are all listed, and their sum is
 NOT forced to equal the real value. The estimation method itself is
-rendered at the bottom of the panel (see ``_method_details_html``).
+rendered at the bottom of the panel (see ``_METHOD_DETAILS_HTML``).
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from typing import Any
 
 from .parser import infer_non_cache_input
 from .rendering import _diag_jump_onclick
+from .shell_cmd import tool_call_hint
 
 # sglang's radix cache matches prefixes in whole pages; 256 is the page size
 # of the deployment these explanations were verified against.
@@ -55,58 +56,45 @@ _HINT = "点击上方 Token Usage 图表的任意柱子，查看该步 token 构
 _IND1 = "&nbsp;&nbsp;"
 _IND2 = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
 
-
-def step_explanation_hint() -> str:
-    """The idle hint shown before any bar is clicked."""
-    return _HINT
-
-
-def _method_details_html() -> str:
-    """The always-visible estimation-method note at the bottom of the panel."""
-    return (
-        "<details class='tv-token-method' style='margin-top:6px;font-size:0.85em;"
-        "color:var(--ov-muted);'>"
-        "<summary style='cursor:pointer;user-select:none;'>估算方法（带 ≈ 的数值如何得出）</summary>"
-        "<div style='padding:4px 0 2px 14px;line-height:1.7;'>"
-        "导出文件只保存文本、不保存 token 数，因此带 ≈ 的项均为独立估算，"
-        "逐项全部列出，但相加不必等于实际值：<br>"
-        "1. 文本 → token：中文字符数 ÷ 1.4 + 其他字符数 ÷ 2.5 —— 参数用 Qwen tokenizer "
-        "对真实轨迹的全部工具输出做最小二乘拟合，总体误差约 ±5%；<br>"
-        f"2. 消息框架：每条工具结果 ≈ {TOOL_RESULT_WRAPPER_TOKENS} tok（模板标签对）"
-        f"+ 每批工具结果 ≈ {TOOL_BATCH_WRAPPER_TOKENS} tok（消息头尾）；"
-        f"每条用户消息 ≈ {USER_MSG_WRAPPER_TOKENS} tok（角色标记）；"
-        f"每次工具调用语法 ≈ {TOOL_CALL_SYNTAX_TOKENS} tok（&lt;function&gt;/&lt;parameter&gt; "
-        f"骨架，随参数个数变化）+ assistant 消息头尾 ≈ {ASSISTANT_MSG_WRAPPER_TOKENS} tok；<br>"
-        f"3. 页大小 {RADIX_PAGE_TOKENS} token/页：sglang radix cache 的整页复用粒度，"
-        "页尾重算 = 上一步总 token 对 256 取余；<br>"
-        "标（实际值）的数字来自服务端 usage 上报，是精确的。"
-        "</div></details>"
-    )
+_METHOD_DETAILS_HTML = (
+    "<details class='tv-token-method' style='margin-top:6px;font-size:0.85em;"
+    "color:var(--ov-muted);'>"
+    "<summary style='cursor:pointer;user-select:none;'>估算方法（带 ≈ 的数值如何得出）</summary>"
+    "<div style='padding:4px 0 2px 14px;line-height:1.7;'>"
+    "导出文件只保存文本、不保存 token 数，因此带 ≈ 的项均为独立估算，"
+    "逐项全部列出，但相加不必等于实际值：<br>"
+    "1. 文本 → token：中文字符数 ÷ 1.4 + 其他字符数 ÷ 2.5 —— 参数用 Qwen tokenizer "
+    "对真实轨迹的全部工具输出做最小二乘拟合，总体误差约 ±5%；<br>"
+    f"2. 消息框架：每条工具结果 ≈ {TOOL_RESULT_WRAPPER_TOKENS} tok（模板标签对）"
+    f"+ 每批工具结果 ≈ {TOOL_BATCH_WRAPPER_TOKENS} tok（消息头尾）；"
+    f"每条用户消息 ≈ {USER_MSG_WRAPPER_TOKENS} tok（角色标记）；"
+    f"每次工具调用语法 ≈ {TOOL_CALL_SYNTAX_TOKENS} tok（&lt;function&gt;/&lt;parameter&gt; "
+    f"骨架，随参数个数变化）+ assistant 消息头尾 ≈ {ASSISTANT_MSG_WRAPPER_TOKENS} tok；<br>"
+    f"3. 页大小 {RADIX_PAGE_TOKENS} token/页：sglang radix cache 的整页复用粒度，"
+    "页尾重算 = 上一步总 token 对 256 取余；<br>"
+    "标（实际值）的数字来自服务端 usage 上报，是精确的。"
+    "</div></details>"
+)
 
 
 def build_token_step_panel_html(steps: list[dict]) -> str:
     """The full click-target panel: visible hint + one hidden div per step.
 
     The dashboard binds a client-side plotly_click handler (see
-    ``tvBindTokenStepExplain`` in ``insight.py``) that hides every
-    ``[data-step]`` div and reveals the one matching the clicked bar, so no
-    server round-trip is needed per click. The estimation-method note sits
-    below the step divs so it stays visible whichever step is shown.
+    ``tvBindTokenStepExplain`` in ``insight.py``) that reveals the
+    ``[data-step]`` div matching the clicked bar, so no server round-trip
+    is needed per click. The estimation-method note sits below the step
+    divs so it stays visible whichever step is shown.
     """
     if not steps:
         return f"<div class='tv-token-hint'>{_esc(_HINT)}</div>"
-    details = []
-    for i in range(len(steps)):
-        details.append(
-            f"<div class='tv-token-step-detail' data-step='{i}' style='display:none;'>"
-            f"{build_token_step_explanation_html(steps, i)}"
-            f"</div>"
-        )
-    return f"<div class='tv-token-hint'>{_esc(_HINT)}</div>" + "".join(details) + _method_details_html()
-
-
-def _cjk_chars(s: str) -> int:
-    return sum(1 for ch in s if "\u4e00" <= ch <= "\u9fff")
+    details = [
+        f"<div class='tv-token-step-detail' data-step='{i}' style='display:none;'>"
+        f"{build_token_step_explanation_html(steps, i)}"
+        f"</div>"
+        for i in range(len(steps))
+    ]
+    return f"<div class='tv-token-hint'>{_esc(_HINT)}</div>" + "".join(details) + _METHOD_DETAILS_HTML
 
 
 def _est_tokens(text: Any) -> int:
@@ -116,7 +104,7 @@ def _est_tokens(text: Any) -> int:
     s = text if isinstance(text, str) else str(text)
     if not s:
         return 0
-    cjk = _cjk_chars(s)
+    cjk = sum(1 for ch in s if "\u4e00" <= ch <= "\u9fff")
     other = len(s) - cjk
     return max(1, round(cjk / CJK_CHARS_PER_TOKEN + other / OTHER_CHARS_PER_TOKEN))
 
@@ -133,44 +121,17 @@ def _esc(s: Any) -> str:
 def _tool_hint(tc: dict) -> str:
     """Short human hint for a tool call: name + first argument line."""
     name = tc.get("tool_name") or tc.get("name") or "?"
-    raw_input = tc.get("input")
-    hint = ""
-    if isinstance(raw_input, dict):
-        for key in ("command", "path", "file_path", "filePath", "pattern", "url", "query"):
-            if raw_input.get(key):
-                hint = str(raw_input[key])
-                break
-        if not hint:
-            hint = ", ".join(f"{k}={v}" for k, v in list(raw_input.items())[:2])
-    elif isinstance(raw_input, str) and raw_input:
-        hint = raw_input
-    hint = " ".join(hint.split())
+    hint = tool_call_hint(tc)
     if len(hint) > 48:
         hint = hint[:45] + "…"
     return f"{name}({hint})" if hint else str(name)
 
 
-def _text_parts(step: dict) -> str:
-    return "".join(
-        p.get("text") or ""
-        for p in step.get("parts") or []
-        if isinstance(p, dict) and p.get("type") == "text"
-    )
-
-
-def _prev_token_step(steps: list[dict], step_index: int) -> dict | None:
-    for s in reversed(steps[:step_index]):
-        tokens = s.get("tokens") or {}
-        if tokens.get("total", 0) > 0:
-            return s
-    return None
-
-
-def _prev_token_step_index(steps: list[dict], step_index: int) -> int:
+def _prev_token_step(steps: list[dict], step_index: int) -> tuple[int, dict] | None:
     for i in range(step_index - 1, -1, -1):
         if (steps[i].get("tokens") or {}).get("total", 0) > 0:
-            return i
-    return -1
+            return i, steps[i]
+    return None
 
 
 def _sum_note(est_total: int, actual: int, ind: str = _IND2) -> str:
@@ -205,10 +166,11 @@ def _first_call_lines(steps: list[dict], step_index: int, fresh_input: int) -> l
 
 
 def _fresh_input_lines(steps: list[dict], step_index: int, fresh_input: int) -> list[str]:
-    prev = _prev_token_step(steps, step_index)
-    if prev is None:
+    prev_info = _prev_token_step(steps, step_index)
+    if prev_info is None:
         return _first_call_lines(steps, step_index, fresh_input)
 
+    prev_i, prev = prev_info
     prev_total = (prev.get("tokens") or {}).get("total", 0)
     tail = prev_total % RADIX_PAGE_TOKENS
     new_content = max(0, fresh_input - tail)
@@ -233,7 +195,7 @@ def _fresh_input_lines(steps: list[dict], step_index: int, fresh_input: int) -> 
         n_tools += 1
         lines.append(f"{_IND2}- {_esc(_tool_hint(tc))} 的执行结果 ≈ {_fmt(est)} tok（估算）")
     n_users = 0
-    for s in steps[_prev_token_step_index(steps, step_index) + 1 : step_index]:
+    for s in steps[prev_i + 1 : step_index]:
         if (s.get("role") or "") == "user":
             est = _est_tokens(s.get("text_preview"))
             est_total += est
@@ -275,10 +237,10 @@ def _fresh_input_lines(steps: list[dict], step_index: int, fresh_input: int) -> 
 def _cache_read_lines(steps: list[dict], step_index: int, cache_read: int) -> list[str]:
     if cache_read <= 0:
         return ["<b>0</b> — 无前缀缓存命中（冷启动 / 首次调用）"]
-    prev = _prev_token_step(steps, step_index)
-    if prev is None:
+    prev_info = _prev_token_step(steps, step_index)
+    if prev_info is None:
         return [f"<b>{_fmt(cache_read)}</b> — 前缀缓存命中"]
-    prev_total = (prev.get("tokens") or {}).get("total", 0)
+    prev_total = (prev_info[1].get("tokens") or {}).get("total", 0)
     pages = cache_read // RADIX_PAGE_TOKENS
     return [
         f"<b>{_fmt(cache_read)}</b> — 命中上一步结束时完整上下文 {_fmt(prev_total)} token 的整页部分"
@@ -291,7 +253,11 @@ def _output_lines(step: dict, output: int) -> list[str]:
         return ["<b>0</b> — 本步没有可见输出"]
     lines = [f"<b>{_fmt(output)}</b> — 模型可见输出（实际值，不含思考），逐项估算："]
     est_total = 0
-    text = _text_parts(step)
+    text = "".join(
+        p.get("text") or ""
+        for p in step.get("parts") or []
+        if isinstance(p, dict) and p.get("type") == "text"
+    )
     if text:
         est = _est_tokens(text)
         est_total += est
@@ -316,9 +282,9 @@ def _output_lines(step: dict, output: int) -> list[str]:
     return lines
 
 
-def build_token_step_explanation_html(steps: list[dict], step_index: int | None) -> str:
+def build_token_step_explanation_html(steps: list[dict], step_index: int) -> str:
     """Render the per-step token decomposition as HTML for the clicked bar."""
-    if not isinstance(step_index, int) or not steps or not (0 <= step_index < len(steps)):
+    if not steps or not (0 <= step_index < len(steps)):
         return "<div style='padding:0.6em;color:var(--ov-muted);'>未找到该步骤。</div>"
 
     step = steps[step_index]
@@ -348,8 +314,6 @@ def build_token_step_explanation_html(steps: list[dict], step_index: int | None)
     header = f"第 {step_index} 步 · {_esc(role)}"
     if model:
         header += f" · {_esc(model)}"
-    # Jump link: same path as the Issues/overview badges — switches to the
-    # Workflow tab, scrolls to the step card and flashes it.
     jump = (
         f"<span class='insight-step-link' onclick=\"{_diag_jump_onclick(step_index)}\" "
         f"style='margin-left:10px;font-weight:400;'>在 Workflow 中查看该步 →</span>"
@@ -385,8 +349,5 @@ def build_token_step_explanation_html(steps: list[dict], step_index: int | None)
         f"<div style='font-weight:600;margin-bottom:4px;'>{header} — token 构成{jump}</div>"
         f"<table style='border-collapse:collapse;font-size:0.92em;'>{''.join(rows)}</table>"
         f"<div style='margin-top:6px;color:var(--body-text-color);'>{summary}</div>"
-        f"<div style='margin-top:2px;color:var(--ov-muted);font-size:0.85em;'>"
-        f"带 ≈ 的数值为独立估算（方法见下方\"估算方法\"），相加不必等于实际值；"
-        f"标（实际值）的数字来自服务端 usage 上报。</div>"
         f"</div>"
     )
