@@ -30,10 +30,29 @@
     "data": {
       "type": "object",
       "required": [
+        "agents",
         "average_s",
         "steps"
       ],
       "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "average_s": {
           "type": "number"
         },
@@ -42,6 +61,7 @@
           "items": {
             "type": "object",
             "required": [
+              "agent",
               "duration_s",
               "error_kind",
               "outlier",
@@ -50,6 +70,9 @@
               "step"
             ],
             "properties": {
+              "agent": {
+                "type": "string"
+              },
               "duration_s": {
                 "type": [
                   "null",

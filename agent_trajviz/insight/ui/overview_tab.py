@@ -19,7 +19,6 @@ from ..context_usage import (
     usage_snapshot_choices,
 )
 from ..formatting import format_context_pressure_html
-from ..help import HELP_TEXT
 from ..presenters.label_ui import build_label_ui_payload
 from ..presenters.issues import (
     build_overview_issues_html,
@@ -31,6 +30,7 @@ from ..presenters.overview import (
     build_diagnostics_outputs,
     build_overview_outputs,
     empty_plotly_fig,
+    render_section_guide,
 )
 from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
 from ..llm_config import resolve_analysis_config
@@ -147,7 +147,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
 
             with gr.Column(scale=1, min_width=0, elem_classes=["overview-section-content"]):
                 with gr.Column(visible=True) as performance_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_summary'])}</div>")
+                    gr.HTML(render_section_guide("performance_section"))
                     with gr.Row(equal_height=True):
                         token_chart = gr.Plot(show_label=False, label="Token Usage")
                         duration_chart = gr.Plot(
@@ -157,7 +157,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                         )
 
                 with gr.Column(visible=False) as context_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_context_utilization'])}</div>")
+                    gr.HTML(render_section_guide("context_section"))
                     with gr.Row():
                         diag_pressure_agent = gr.Dropdown(
                             label="Agent",
@@ -192,7 +192,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                     )
 
                 with gr.Column(visible=False) as tools_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_tools'])}</div>")
+                    gr.HTML(render_section_guide("tools_section"))
                     behavior_md = gr.Markdown("")
                     with gr.Row(equal_height=True):
                         tool_chart = gr.Plot(show_label=False, label="Tool Call Frequency")
@@ -212,7 +212,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                         gr.Column(scale=1)
 
                 with gr.Column(visible=False) as agents_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_agents'])}</div>")
+                    gr.HTML(render_section_guide("agents_section"))
                     agent_summary_html = gr.HTML("")
                     with gr.Row(equal_height=True):
                         agent_swimlane_chart = gr.Plot(
@@ -225,7 +225,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                         gr.Column(scale=1)
 
                 with gr.Column(visible=False) as diagnostics_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_diagnostics'])}</div>")
+                    gr.HTML(render_section_guide("diagnostics_section"))
                     diag_summary_html = gr.HTML("")
                     diag_file_chart = gr.Plot(
                         show_label=False,
@@ -237,13 +237,13 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                     plan_timeline_chart = gr.Plot(show_label=False, label="Plan Progress Timeline")
 
                 with gr.Column(visible=False) as deep_dive_section:
-                    gr.HTML(f"<div class='section-subtitle'>{html.escape(HELP_TEXT['section_deep_dive'])}</div>")
+                    gr.HTML(render_section_guide("deep_dive_section"))
                     metrics_md = gr.Markdown("")
                     hotspots_md = gr.Markdown("")
                     per_message_md = gr.Markdown("")
 
                 with gr.Column(visible=False) as labels_section:
-                    gr.HTML("<div class='section-subtitle'>Phase and action classification from labeled JSON</div>")
+                    gr.HTML(render_section_guide("labels_section"))
                     label_status_html = gr.HTML(
                         "<div style='padding:1em;color:var(--ov-muted);text-align:center;'>"
                         "Upload a <code>*_labeled.json</code> file to view label distributions and timeline.</div>"
