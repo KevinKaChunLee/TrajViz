@@ -95,7 +95,7 @@ def token_usage(steps: list[dict], fmt: str | None = None) -> dict:
     only. Each row carries its timeline ``agent``; ``agents`` lists every
     timeline agent in palette order so a multi-agent renderer can split panels.
     """
-    color_map, labels, agent_id_of = bind_timeline_agents(steps) if steps else ({}, {}, None)
+    color_map, labels, agent_id_of = bind_timeline_agents(steps)
     rows = []
     for position, s in enumerate(steps):
         tok = s["tokens"]
@@ -109,7 +109,7 @@ def token_usage(steps: list[dict], fmt: str | None = None) -> dict:
         rows.append({
             "position": position,
             "step": s.get("index", position),
-            "agent": agent_id_of(s) if agent_id_of else "",
+            "agent": agent_id_of(s),
             "fresh_input": seg["fresh"],
             "cache_read": seg["cache_read"],
             "cache_write": seg["cache_write"],
@@ -140,7 +140,7 @@ def step_durations(steps: list[dict]) -> dict:
     the mean over steps that have a duration. Each row carries its timeline
     ``agent``; ``agents`` lists every timeline agent in palette order.
     """
-    color_map, labels, agent_id_of = bind_timeline_agents(steps) if steps else ({}, {}, None)
+    color_map, labels, agent_id_of = bind_timeline_agents(steps)
     chart_durs = [step_duration_excluding_spawn(s) for s in steps]
     durations = [d if d is not None else 0 for d in chart_durs]
     real = [d for d in chart_durs if d is not None]
@@ -150,7 +150,7 @@ def step_durations(steps: list[dict]) -> dict:
         rows.append({
             "position": i,
             "step": int(s.get("index", i)),
-            "agent": agent_id_of(s) if agent_id_of else "",
+            "agent": agent_id_of(s),
             "duration_s": d,
             "spawn_adjusted": d is not None and spawn_wait_seconds(s) > 0,
             "error_kind": step_error_kind(s),

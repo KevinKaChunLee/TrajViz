@@ -280,6 +280,20 @@ class TokenChartTests(unittest.TestCase):
         xaxes = {getattr(tr, "xaxis", None) or "x" for tr in fig.data}
         self.assertEqual(xaxes, {"x"})
 
+    def test_multi_agent_legend_claims_series_from_later_panels(self):
+        # Cache only on the second agent: legend must still list Cache Read.
+        steps = [
+            balanced(0, inp=100, output=10, agent="build", session_id="s-main"),
+            balanced(
+                1, inp=50, output=20, cache_read=200,
+                agent="explore", session_id="s-explore",
+            ),
+        ]
+        fig = build_token_chart(steps)
+        legend = [t.name for t in fig.data if t.showlegend is not False]
+        self.assertIn("Cache Read", legend)
+        self.assertIn("Fresh Input", legend)
+
 
 # --------------------------------------------------------------------------
 # Step Duration

@@ -3,8 +3,16 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Sequence
 
-from ._layout import _add_legend_hint, _apply_chart_layout, _apply_dark, _empty_figure, _truncate_chart_labels
+from ._layout import (
+    _add_legend_hint,
+    _apply_chart_layout,
+    _apply_dark,
+    _empty_figure,
+    _truncate_chart_label,
+    _truncate_chart_labels,
+)
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -38,7 +46,7 @@ def _add_token_bar_traces(
     x_label: str = "Step",
     row: int | None = None,
     col: int | None = None,
-    showlegend: bool = True,
+    legend_shown: dict[str, bool] | None = None,
 ) -> None:
     """Add token category bar traces to a figure.
 
@@ -54,6 +62,9 @@ def _add_token_bar_traces(
 
     Stack order (bottom → top) mirrors context-window occupancy: cache read /
     write form the base, then fresh input, then generated output / reasoning.
+
+    When *legend_shown* is set, each series is claimed once across panels so a
+    category that first appears on a later agent still gets a legend entry.
     """
     traces = [("Cache Read", cache_read, TOKEN_COLORS["cache_read"])]
     if cache_write is not None:
@@ -69,13 +80,14 @@ def _add_token_bar_traces(
     step_prefix = f"{x_label} " if x_label else ""
     for name, values, color in traces:
         if include_empty or any(v > 0 for v in values):
+            show = _claim_legend(legend_shown, name) if legend_shown is not None else True
             fig.add_trace(
                 go.Bar(
                     x=x_values,
                     y=values,
                     name=name,
                     legendgroup=name,
-                    showlegend=showlegend,
+                    showlegend=show,
                     marker_color=color,
                     hovertemplate=f"{step_prefix}%{{x}}<br>{name}: %{{y:,.0f}}<extra></extra>",
                 ),
@@ -83,7 +95,7 @@ def _add_token_bar_traces(
             )
 
 
-def _describe_impossible(fields: list) -> str:
+def _describe_impossible(fields: Sequence[Sequence[object]]) -> str:
     if not fields:
         return ""
     reported = ", ".join(
@@ -164,15 +176,10 @@ def _claim_legend(legend_shown: dict[str, bool], name: str) -> bool:
 
 def _group_rows_by_agent(data: dict) -> tuple[list[dict], dict[str, list[dict]]]:
     """Agents that have at least one row, plus rows grouped by agent id."""
-    agents = list(data.get("agents") or [])
     groups: dict[str, list[dict]] = defaultdict(list)
     for row in data["steps"]:
-        groups[row.get("agent") or ""].append(row)
-    if not agents:
-        # Fallback when agents was omitted: one synthetic agent for all rows.
-        aid = next(iter(groups), "")
-        agents = [{"id": aid, "label": aid or "agent"}] if groups else []
-    agents = [a for a in agents if groups.get(a["id"])]
+        groups[row["agent"]].append(row)
+    agents = [a for a in data["agents"] if groups.get(a["id"])]
     return agents, groups
 
 
@@ -194,14 +201,15 @@ def _draw_token_panel(
     rows: list[dict],
     *,
     has_breakdown: bool,
-    fmt: str | None,
     row: int | None = None,
     col: int | None = None,
-    showlegend: bool = True,
+    legend_shown: dict[str, bool] | None = None,
+    include_empty: bool = False,
     x_label: str = "Step",
 ) -> int:
     """Draw one stacked (or total-only) token panel onto *fig*. Returns flagged count."""
     rc = _subplot_rc(row, col)
+    legend_shown = legend_shown if legend_shown is not None else {}
     x_values = [r["step"] for r in rows]
     impossible = [r["invalid"] for r in rows]
     fresh_input = [r["fresh_input"] for r in rows]
@@ -211,7 +219,6 @@ def _draw_token_panel(
     cache_w = [r["cache_write"] for r in rows]
 
     if has_breakdown:
-        opencode_schema = fmt in ("opencode", "codearts")
         _add_token_bar_traces(
             fig,
             x_values,
@@ -220,11 +227,11 @@ def _draw_token_panel(
             output_t,
             reasoning_t,
             cache_write=cache_w,
-            include_empty=opencode_schema and showlegend,
+            include_empty=include_empty,
             x_label=x_label,
             row=row,
             col=col,
-            showlegend=showlegend,
+            legend_shown=legend_shown,
         )
     else:
         totals = [0 if r["invalid"] else r["total"] for r in rows]
@@ -234,7 +241,7 @@ def _draw_token_panel(
                 y=totals,
                 name="Total",
                 legendgroup="Total",
-                showlegend=showlegend,
+                showlegend=_claim_legend(legend_shown, "Total"),
                 marker_color=CHART_ACCENT,
                 hovertemplate=f"{x_label + ' ' if x_label else ''}%{{x}}<br>Total: %{{y:,.0f}}<extra></extra>",
             ),
@@ -243,13 +250,14 @@ def _draw_token_panel(
 
     flagged = sum(1 for bad in impossible if bad)
     if flagged:
+        name = "Total only (invalid breakdown)"
         fig.add_trace(
             go.Bar(
                 x=x_values,
                 y=[(r["usable_total"] or 0) if r["invalid"] else 0 for r in rows],
-                name="Total only (invalid breakdown)",
-                legendgroup="Total only (invalid breakdown)",
-                showlegend=showlegend,
+                name=name,
+                legendgroup=name,
+                showlegend=_claim_legend(legend_shown, name),
                 marker=dict(
                     color=TOKEN_COLORS["invalid_breakdown"],
                     pattern=dict(shape="/", fgcolor="#4b5563"),
@@ -262,12 +270,18 @@ def _draw_token_panel(
     return flagged
 
 
+def _token_title(flagged: int) -> str:
+    title = "Token Usage by Step"
+    if flagged:
+        title += f" — {flagged} step{'s' if flagged != 1 else ''} with an invalid breakdown"
+    return title
+
+
 def draw_token_usage(data: dict, dark: bool = False) -> go.Figure:
     """Draw :func:`chart_data.token_usage` output.
 
-    Stack order (bottom → top): cache_read / cache_write, fresh_input, output,
-    reasoning. Multi-agent trajectories get one subplot panel per timeline
-    agent, sharing Workflow step indices on the x-axis.
+    Multi-agent trajectories get one subplot panel per timeline agent, sharing
+    Workflow step indices on the x-axis.
     """
     rows = data["steps"]
     if not rows:
@@ -278,20 +292,25 @@ def draw_token_usage(data: dict, dark: bool = False) -> go.Figure:
     agents, groups = _group_rows_by_agent(data)
     fmt = data.get("format")
     has_breakdown = data["has_breakdown"]
+    opencode_schema = fmt in ("opencode", "codearts")
     legend = dict(orientation="h", yanchor="bottom", y=1.06, xanchor="center", x=0.5)
+    x_range = _workflow_x_range(rows)
+    legend_shown: dict[str, bool] = {}
 
     if len(agents) <= 1:
         panel_rows = groups[agents[0]["id"]] if agents else rows
         fig = go.Figure()
         flagged = _draw_token_panel(
-            fig, panel_rows, has_breakdown=has_breakdown, fmt=fmt,
+            fig,
+            panel_rows,
+            has_breakdown=has_breakdown,
+            legend_shown=legend_shown,
+            include_empty=opencode_schema,
         )
-        title = "Token Usage by Step"
-        if flagged:
-            title += f" — {flagged} step{'s' if flagged != 1 else ''} with an invalid breakdown"
+        fig.update_xaxes(title_text="Step", range=x_range, showticklabels=True)
         return _finalize_step_chart(
             fig,
-            title=title,
+            title=_token_title(flagged),
             height=380,
             barmode="stack",
             legend=legend,
@@ -302,28 +321,21 @@ def draw_token_usage(data: dict, dark: bool = False) -> go.Figure:
 
     n = len(agents)
     fig = _make_agent_subplots(agents)
-    x_range = _workflow_x_range(rows)
     flagged_total = 0
     for row_i, agent in enumerate(agents, start=1):
         flagged_total += _draw_token_panel(
             fig,
             groups[agent["id"]],
             has_breakdown=has_breakdown,
-            fmt=fmt,
             row=row_i,
             col=1,
-            showlegend=(row_i == 1),
+            legend_shown=legend_shown,
+            include_empty=opencode_schema and row_i == 1,
         )
     _apply_shared_step_axes(fig, n_panels=n, x_range=x_range, y_title="Tokens")
-    title = "Token Usage by Step"
-    if flagged_total:
-        title += (
-            f" — {flagged_total} step{'s' if flagged_total != 1 else ''} "
-            "with an invalid breakdown"
-        )
     return _finalize_step_chart(
         fig,
-        title=title,
+        title=_token_title(flagged_total),
         height=_agent_panel_height(n, 380),
         barmode="stack",
         legend={**legend, "y": 1.02},
@@ -713,10 +725,6 @@ def _spread_sankey_y(n: int) -> list[float]:
     return [0.08 + 0.84 * i / (n - 1) for i in range(n)]
 
 
-def _trunc_skill_label(name: str, limit: int = 28) -> str:
-    return name if len(name) <= limit else name[: limit - 3] + "..."
-
-
 def build_skill_agent_chart(steps: list[dict], dark: bool = False) -> go.Figure:
     """Sankey diagram of Skill-tool invocations: which agent called which skill.
 
@@ -767,7 +775,7 @@ def draw_skill_calls(data: dict, dark: bool = False) -> go.Figure:
     skill_color = "#64748b"
     for i, skill in enumerate(skills):
         skill_index[skill] = len(node_labels)
-        node_labels.append(f"{_trunc_skill_label(skill)} ({skill_totals[skill]})")
+        node_labels.append(f"{_truncate_chart_label(skill, 28)} ({skill_totals[skill]})")
         node_colors.append(skill_color)
         node_x.append(0.98)
         node_y.append(skill_ys[i])

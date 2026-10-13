@@ -71,17 +71,19 @@ def _issue_card(issue: OverviewIssue, number: int) -> str:
     detail_html = (
         f"<span class='overview-issue-detail'>{detail}</span>" if issue.detail else ""
     )
-    why_attr = info_html = ""
+    info_html = ""
     if issue.why:
-        why_attr = f" title='{html.escape(issue.why)}'"
-        info_html = f"<span class='overview-issue-info'{why_attr} aria-hidden='true'>ⓘ</span>"
+        info_html = (
+            f"<span class='overview-issue-info' title='{html.escape(issue.why)}' "
+            f"aria-hidden='true'>ⓘ</span>"
+        )
     return (
         f"<div class='overview-issue-card' style='border-left-color:{border};'>"
         f"<div class='overview-issue-head'>"
         f"<span class='overview-issue-index'>#{number}</span>"
         f"<span class='overview-issue-kind' style='color:{border};'>"
         f"{_ISSUE_KIND_LABELS_ZH[issue.kind]}</span>"
-        f"<span class='overview-issue-title'{why_attr}>{title}</span>"
+        f"<span class='overview-issue-title'>{title}</span>"
         f"{info_html}"
         f"{detail_html}"
         f"</div>"
