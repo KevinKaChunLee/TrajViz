@@ -70,7 +70,7 @@ class CodeArtsTests(unittest.TestCase):
         # series once (second panel suppresses duplicate legend entries).
         self.assertEqual(
             [trace.name for trace in figure.data if trace.showlegend is not False],
-            ["Cache Read", "Cache Write", "Fresh Input", "Output", "Reasoning"],
+            ["Cache Read", "Fresh Input", "Reasoning", "Output", "Cache Write"],
         )
         # Root assistant is Workflow step 1 on the first panel
         # (50 fresh + 20 cache + 20 output + 10 reasoning).

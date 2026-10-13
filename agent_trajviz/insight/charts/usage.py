@@ -60,22 +60,21 @@ def _add_token_bar_traces(
     Pass ``cache_write`` to add a 5th stacked trace. For OpenCode this sample
     always reports zero, but the field is present and worth showing.
 
-    Stack order (bottom → top) mirrors context-window occupancy: cache read /
-    write form the base, then fresh input, then generated output / reasoning.
+    Stack order (bottom → top) mirrors context-window occupancy: cache read
+    forms the base, then fresh input, then generated reasoning / output;
+    cache write (when reported) goes on top.
 
     When *legend_shown* is set, each series is claimed once across panels so a
     category that first appears on a later agent still gets a legend entry.
     """
-    traces = [("Cache Read", cache_read, TOKEN_COLORS["cache_read"])]
+    traces = [
+        ("Cache Read", cache_read, TOKEN_COLORS["cache_read"]),
+        ("Fresh Input", fresh_input, TOKEN_COLORS["fresh_input"]),
+        ("Reasoning", reasoning, TOKEN_COLORS["reasoning"]),
+        ("Output", output, TOKEN_COLORS["output"]),
+    ]
     if cache_write is not None:
         traces.append(("Cache Write", cache_write, TOKEN_COLORS["cache_write"]))
-    traces.extend(
-        [
-            ("Fresh Input", fresh_input, TOKEN_COLORS["fresh_input"]),
-            ("Output", output, TOKEN_COLORS["output"]),
-            ("Reasoning", reasoning, TOKEN_COLORS["reasoning"]),
-        ]
-    )
     rc = _subplot_rc(row, col)
     step_prefix = f"{x_label} " if x_label else ""
     for name, values, color in traces:
@@ -308,6 +307,8 @@ def draw_token_usage(data: dict, dark: bool = False) -> go.Figure:
             include_empty=opencode_schema,
         )
         fig.update_xaxes(title_text="Step", range=x_range, showticklabels=True)
+        # clickmode="event": clicking a bar drives the per-step token
+        # decomposition panel (see token_explain.py).
         return _finalize_step_chart(
             fig,
             title=_token_title(flagged),
@@ -317,6 +318,7 @@ def draw_token_usage(data: dict, dark: bool = False) -> go.Figure:
             dark=dark,
             xaxis="Step",
             yaxis="Tokens",
+            extra_layout=dict(clickmode="event"),
         )
 
     n = len(agents)
@@ -340,6 +342,7 @@ def draw_token_usage(data: dict, dark: bool = False) -> go.Figure:
         barmode="stack",
         legend={**legend, "y": 1.02},
         dark=dark,
+        extra_layout=dict(clickmode="event"),
     )
 
 

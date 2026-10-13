@@ -32,6 +32,7 @@ from ..presenters.overview import (
     empty_plotly_fig,
     render_section_guide,
 )
+from ..token_explain import build_token_step_panel_html, step_explanation_hint
 from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
 from ..llm_config import resolve_analysis_config
 from ..session import LoadedSession, session_from_run
@@ -55,6 +56,7 @@ class OverviewRefs:
     suggest_fixes_btn: gr.Button
     metrics_md: gr.Markdown
     token_chart: gr.Plot
+    token_step_html: gr.HTML
     duration_chart: gr.Plot
     behavior_md: gr.Markdown
     tool_chart: gr.Plot
@@ -149,12 +151,20 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                 with gr.Column(visible=True) as performance_section:
                     gr.HTML(render_section_guide("performance_section"))
                     with gr.Row(equal_height=True):
-                        token_chart = gr.Plot(show_label=False, label="Token Usage")
+                        token_chart = gr.Plot(
+                            show_label=False,
+                            label="Token Usage",
+                            elem_id="token-chart",
+                        )
                         duration_chart = gr.Plot(
                             show_label=False,
                             label="Step Duration",
                             elem_id="duration-chart",
                         )
+                    token_step_html = gr.HTML(
+                        step_explanation_hint(),
+                        elem_classes=["token-step-explain"],
+                    )
 
                 with gr.Column(visible=False) as context_section:
                     gr.HTML(render_section_guide("context_section"))
@@ -272,6 +282,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
         suggest_fixes_btn=suggest_fixes_btn,
         metrics_md=metrics_md,
         token_chart=token_chart,
+        token_step_html=token_step_html,
         duration_chart=duration_chart,
         behavior_md=behavior_md,
         tool_chart=tool_chart,
@@ -312,6 +323,7 @@ def load_slots(refs: OverviewRefs) -> dict:
         "issues_html": refs.issues_html,
         "metrics_md": refs.metrics_md,
         "token_chart": refs.token_chart,
+        "token_step_html": refs.token_step_html,
         "duration_chart": refs.duration_chart,
         "behavior_md": refs.behavior_md,
         "tool_chart": refs.tool_chart,
@@ -346,6 +358,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
             "issues_html": "",
             "metrics_md": "",
             "token_chart": fig,
+            "token_step_html": step_explanation_hint(),
             "duration_chart": fig,
             "behavior_md": "",
             "tool_chart": fig,
@@ -385,6 +398,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
         "issues_html": ov["issues_html"],
         "metrics_md": ov["metrics_text"],
         "token_chart": ch["tok_fig"],
+        "token_step_html": build_token_step_panel_html(session.steps),
         "duration_chart": ch["dur_fig"],
         "behavior_md": ov["behavior_text"],
         "tool_chart": ch["tl_fig"],
