@@ -273,6 +273,23 @@ class TokenChartTests(unittest.TestCase):
         xs = sorted({x for tr in fig.data for x in (tr.x or [])})
         self.assertEqual(xs, [0, 5, 9])
 
+    def test_sparse_agent_panel_keeps_fixed_bar_width(self):
+        # Compaction-like panel: two steps far apart on a shared Workflow
+        # x-range. Without an explicit width Plotly sizes bars from the
+        # panel's own gaps and the sparse panel balloons.
+        steps = [
+            balanced(0, inp=100, output=10, agent="build", session_id="s-main"),
+            balanced(1, inp=110, output=10, agent="build", session_id="s-main"),
+            balanced(2, inp=120, output=10, agent="build", session_id="s-main"),
+            balanced(5, inp=200, output=20, agent="compaction", session_id="s-comp"),
+            balanced(15, inp=8000, output=30, agent="compaction", session_id="s-comp"),
+        ]
+        from agent_trajviz.insight.charts.usage import _STEP_BAR_WIDTH
+
+        fig = build_token_chart(steps, format="opencode")
+        widths = {tr.width for tr in fig.data if tr.type == "bar"}
+        self.assertEqual(widths, {_STEP_BAR_WIDTH})
+
     def test_single_agent_stays_one_panel(self):
         steps = [balanced(i, inp=100, output=10) for i in range(3)]
         fig = build_token_chart(steps)

@@ -613,6 +613,7 @@ def bind(
     _empty_label_fig.update_layout(
         template="plotly_white", height=380, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
     )
+    _badge_off = gr.update(value="", visible=False)
 
     def do_load_labels(upload_obj, dark=False):
         """Load labeled JSON and update all label UI components."""
@@ -624,7 +625,7 @@ def bind(
 
         if not file_path or not os.path.isfile(file_path):
             return (
-                "",
+                _badge_off,
                 "<div style='padding:1em;color:var(--ov-muted);text-align:center;'>"
                 "Upload a <code>*_labeled.json</code> file to view label distributions and timeline.</div>",
                 gr.update(visible=False),
@@ -641,7 +642,7 @@ def bind(
             payload = build_label_ui_payload(file_path, dark=bool(dark))
         except Exception as exc:
             return (
-                "",
+                _badge_off,
                 f"<div style='padding:1em;color:#dc2626;text-align:center;'>Error: {html.escape(str(exc))}</div>",
                 gr.update(visible=False),
                 empty,
@@ -654,7 +655,7 @@ def bind(
             )
 
         return (
-            payload["badge_html"],
+            gr.update(value=payload["badge_html"], visible=True),
             payload["status_html"],
             gr.update(visible=True),
             payload["phase_count_fig"],
@@ -693,7 +694,7 @@ def bind(
     def _reset_labels():
         empty = _empty_label_fig
         return (
-            "",
+            _badge_off,
             (
                 "<div style='padding:1em;color:var(--ov-muted);text-align:center;'>"
                 "Upload a <code>*_labeled.json</code> file to view label distributions and timeline.</div>"

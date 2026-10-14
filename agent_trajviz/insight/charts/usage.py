@@ -33,6 +33,11 @@ def _subplot_rc(row: int | None, col: int | None) -> dict[str, int]:
     return {"row": row, "col": col}
 
 
+# Fixed in axis units so sparse multi-agent panels (few steps on a shared
+# Workflow x-range) do not auto-widen bars to fill the gap between points.
+_STEP_BAR_WIDTH = 0.8
+
+
 def _add_token_bar_traces(
     fig: go.Figure,
     x_values: list,
@@ -88,6 +93,7 @@ def _add_token_bar_traces(
                     legendgroup=name,
                     showlegend=show,
                     marker_color=color,
+                    width=_STEP_BAR_WIDTH,
                     hovertemplate=f"{step_prefix}%{{x}}<br>{name}: %{{y:,.0f}}<extra></extra>",
                 ),
                 **rc,
@@ -259,6 +265,7 @@ def _draw_token_panel(
                 legendgroup="Total",
                 showlegend=_claim_legend(legend_shown, "Total"),
                 marker_color=CHART_ACCENT,
+                width=_STEP_BAR_WIDTH,
                 hovertemplate=f"{x_label + ' ' if x_label else ''}%{{x}}<br>Total: %{{y:,.0f}}<extra></extra>",
             ),
             **rc,
@@ -278,6 +285,7 @@ def _draw_token_panel(
                     color=TOKEN_COLORS["invalid_breakdown"],
                     pattern=dict(shape="/", fgcolor="#4b5563"),
                 ),
+                width=_STEP_BAR_WIDTH,
                 customdata=[_describe_impossible(bad) for bad in impossible],
                 hovertemplate="Step %{x}<br>Reported total: %{y:,.0f}<br>%{customdata}<extra></extra>",
             ),
@@ -421,7 +429,7 @@ def _draw_duration_panel(
                 legendgroup=name,
                 showlegend=_claim_legend(legend_shown, name),
                 marker_color=color,
-                width=0.8,
+                width=_STEP_BAR_WIDTH,
                 hovertemplate=(
                     "Step %{customdata[0]}<br>%{y:.1f}s%{customdata[1]}"
                     f"{suffix}<extra></extra>"

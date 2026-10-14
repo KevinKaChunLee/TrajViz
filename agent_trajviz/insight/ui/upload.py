@@ -84,7 +84,9 @@ def layout() -> UploadRefs:
 
     with gr.Column(visible=False) as summary_area:
         summary_banner = gr.HTML("", elem_classes=["summary-banner"])
-        label_badge_html = gr.HTML("")
+        # Hidden until Load Labels fills it — an empty gr.HTML still paints a
+        # padded block (~20px) between the upload row and the KPI strip.
+        label_badge_html = gr.HTML("", visible=False)
 
     return UploadRefs(
         upload_accordion=upload_accordion,
@@ -198,8 +200,8 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
     # `summary_area` is a plain Column above the Tabs — never an accordion — so a
     # step-truncation notice (session.MAX_STEPS) cannot be collapsed out of
     # sight, and `report.py` repeats the same strip in the exported header.
+    # Kept visible after load so label badges can appear (badge HTML starts hidden).
     return {
-        # Keep area visible so label badges can appear after Load Labels.
         "summary_area": gr.update(visible=True),
         "upload_accordion": gr.update(),
         "summary_banner": gr.update(value=warnings, visible=bool(warnings.strip())),
