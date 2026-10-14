@@ -29,6 +29,7 @@ Integrity model (hardened over three review rounds):
 from __future__ import annotations
 
 import json
+import inspect
 import os
 import re
 import sys
@@ -152,7 +153,9 @@ try:
     from awe import config as _cfg  # noqa: E402
     DECAF_AVAILABLE = True
 except Exception as exc:  # pragma: no cover - environment-dependent
-    _IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
+    # Optional dependency import failures can include private environment values
+    # or paths. Keep the public reason useful without forwarding their text.
+    _IMPORT_ERROR = f"DECAF import failed ({type(exc).__name__})"
 
 if DECAF_AVAILABLE and not _JUDGE_MODEL_EXPLICIT:
     # DECAF reads config.JUDGE_MODEL at call time (judge, arbiter and
@@ -172,8 +175,8 @@ def configure(reference_root: str | os.PathLike) -> None:
     rewrite DECAF's process-global root/caches while a diagnosis is in flight.
     diagnose() itself re-configures per request (explicit root or the immutable
     default) — configuration is never inherited across callers.
-    The outcome lru_cache lives on load_outcomes (resolved() is an uncached
-    wrapper); clearing must fail loudly on DECAF API drift, not except-pass.
+    Older releases cache build_gold_reference/load_outcomes themselves; newer
+    releases use uncached wrappers around content-keyed private readers.
     """
     if not DECAF_AVAILABLE:
         return
@@ -191,17 +194,25 @@ def _configure_unlocked(reference_root: str | os.PathLike) -> None:
     _cfg.PATCH_DIR = _cfg.DATA / "patch"
     _cfg.TRAJECTORY_DIR = _cfg.DATA / "trajectory"
     _cfg.LABELS_DIR = _cfg.DATA / "labels"
-    from awe.gold import build_gold_reference
-    from awe.outcomes import load_outcomes
-    build_gold_reference.cache_clear()
-    load_outcomes.cache_clear()
+    from awe import gold, outcomes
+    for function in (gold.build_gold_reference, outcomes.load_outcomes,
+                     getattr(outcomes, "_read_json", None), getattr(outcomes, "_read_outcomes", None)):
+        clear = getattr(function, "cache_clear", None)
+        if callable(clear):
+            clear()
 
 
 if DECAF_AVAILABLE:
     # DECAF's own default is its checkout; point it at the reference root from
     # import on, so a caller that reaches DECAF before any diagnose() reads the
     # same data diagnose() will. Every diagnose() re-configures explicitly.
-    _configure_unlocked(_DEFAULT_ROOT)
+    try:
+        _configure_unlocked(_DEFAULT_ROOT)
+    except Exception as exc:
+        # Importing the public optional facade must remain safe on API drift.
+        # Exception text can contain private paths or source data.
+        DECAF_AVAILABLE = False
+        _IMPORT_ERROR = f"DECAF configuration failed ({type(exc).__name__})"
 
 
 # --------------------------------------------------------------------------- #
@@ -243,6 +254,84 @@ def _sha256(p: Path) -> str | None:
         return hashlib.sha256(p.read_bytes()).hexdigest()
     except OSError:
         return None
+
+
+def _canonical_trajectory_path(agent: str, instance_id: str) -> Path | None:
+    from awe import adapters
+
+    resolver = getattr(adapters, "canonical_trajectory_path", None)
+    if callable(resolver):
+        return resolver(agent, instance_id)
+    # Current DECAF resolves these two sources in _parse_normalized. The
+    # normalized source stamp is checked independently before any diagnosis, so
+    # an adapter that changes its resolution cannot silently certify this path.
+    base = _cfg.TRAJECTORY_DIR / agent
+    json_file, jsonl_file = base / f"{instance_id}.json", base / f"{instance_id}.jsonl"
+    selected = jsonl_file if agent == "codex" or (jsonl_file.exists() and not json_file.exists()) else json_file
+    return selected if selected.is_file() else None
+
+
+def _supports_layer_controls(case_record) -> bool:
+    parameters = inspect.signature(case_record).parameters
+    return {"use_judge", "adjudicate"} <= parameters.keys()
+
+
+def _objective_record(agent: str, instance_id: str, canon: Path, canon_sha: str):
+    """Current DECAF without per-call dossier controls: keep LLM layers off.
+
+    Never monkeypatch process-global DECAF functions or temporarily move its
+    cache directories. Such changes could affect independent DECAF consumers.
+    Build the objective dossier from its explicit detector and blame APIs.
+    """
+    from awe.adapters import load_normalized
+    from awe.detect import detect
+    from awe.dossier import file_hunks
+    from awe.evidence import build_chain, changed_lines
+    from awe.gold import build_gold_reference
+    from awe.rootcause import build_blame
+
+    trajectory = load_normalized(agent, instance_id)
+    stamp = getattr(trajectory, "source", None)
+    if (not isinstance(stamp, dict) or stamp.get("sha256") != canon_sha
+            or not isinstance(stamp.get("path"), str)
+            or Path(stamp["path"]).resolve() != canon.resolve()):
+        raise ValueError("normalized trajectory identity could not be verified")
+    detection = detect(instance_id, agent, use_judge=False)
+    if detection.get("resolved") is not False:
+        return None, detection
+    blame = build_blame(detection, adjudicate=None)
+    gold = build_gold_reference(instance_id)
+    requirement = json.loads(_cfg.requirements_path(instance_id).read_text(encoding="utf-8"))
+    gold_text = requirement.get("gold_patch") or ""
+    patch = _cfg.patch_path(agent, instance_id)
+    agent_text = patch.read_text(encoding="utf-8") if patch.is_file() else ""
+    gold_changed, agent_changed = changed_lines(gold_text), changed_lines(agent_text)
+    gold_hunks, agent_hunks = file_hunks(gold_text), file_hunks(agent_text)
+    primary = blame.get("primary")
+    weights = {(row["capability"], row["error_type"]): row["weight"] for row in blame["blame"]}
+    step_text = {step.step_id: (step.text or step.output_excerpt or "")[:200]
+                 for step in trajectory.steps if step.text or step.output_excerpt}
+    faults = []
+    for candidate in detection["candidates"]:
+        capability, error = candidate["capability"], candidate["error_type"]
+        weight = weights.get((capability, error), 0.0)
+        is_primary = bool(primary and (primary["capability"], primary["error_type"]) == (capability, error))
+        code = {}
+        if capability == "code_localization":
+            missed = candidate.get("evidence", {}).get("missed_gold") or gold.gold_files
+            code["code_that_needed_changing_but_was_missed"] = {name: gold_hunks[name] for name in missed if name in gold_hunks}
+        elif capability == "code_editing":
+            code = {"what_the_agent_changed": agent_hunks, "reference_fix": gold_hunks}
+        faults.append({"capability": capability, "error_type": error, "confidence": candidate["confidence"],
+                       "blame_weight": weight, "is_primary": is_primary,
+                       "detector_evidence": candidate.get("evidence", {}), "code_evidence": code,
+                       "evidence_chain": build_chain(candidate, detection, gold, gold_changed, agent_changed,
+                                                     weight, is_primary, step_text=step_text)})
+    faults.sort(key=lambda fault: -fault["blame_weight"])
+    return {"agent": agent, "instance_id": instance_id, "blame_status": blame["status"],
+            "faults": faults, "arbiter": None,
+            "task": {"problem_statement": gold.problem_statement, "gold_files": gold.gold_files,
+                     "multi_file": gold.is_multi_file, "cross_module": gold.is_cross_module}}, detection
 
 
 def _verdict_verifies(rec: dict, *, canon_sha: str, req_sha: str | None,
@@ -343,11 +432,15 @@ def diagnose(*, agent: str | None, instance_id: str | None,
     if not DECAF_AVAILABLE:
         return AttributionResult(False, reason=f"DECAF unavailable ({_IMPORT_ERROR})")
     with _LOCK:
-        return _diagnose_locked(agent=agent, instance_id=instance_id,
-                                source_path=source_path, fmt=fmt,
-                                expected_sha=expected_sha,
-                                merged_sources=merged_sources,
-                                reference_root=reference_root)
+        try:
+            return _diagnose_locked(agent=agent, instance_id=instance_id,
+                                    source_path=source_path, fmt=fmt,
+                                    expected_sha=expected_sha,
+                                    merged_sources=merged_sources,
+                                    reference_root=reference_root)
+        except Exception as exc:
+            return AttributionResult(False, mode="reference", agent=agent, instance_id=instance_id,
+                                     reason=f"DECAF diagnosis unavailable ({type(exc).__name__})")
 
 
 def _diagnose_locked(*, agent, instance_id, source_path, fmt, expected_sha,
@@ -383,8 +476,7 @@ def _diagnose_locked(*, agent, instance_id, source_path, fmt, expected_sha,
 
     # Canonical identity: resolve via DECAF's OWN source resolution so we verify
     # the very file diagnosis will parse (codex prefers .jsonl).
-    from awe.adapters import canonical_trajectory_path
-    canon = canonical_trajectory_path(agent, instance_id)
+    canon = _canonical_trajectory_path(agent, instance_id)
     if canon is None:
         return AttributionResult(
             False, mode="reference", agent=agent, instance_id=instance_id,
@@ -431,20 +523,36 @@ def _diagnose_locked(*, agent, instance_id, source_path, fmt, expected_sha,
                    f"gold-grounded verdict would otherwise describe different "
                    f"bytes than the ones shown")
 
-    # LLM layers only when their cached verdicts verifiably belong to THIS
-    # trajectory content.
-    use_judge, adjudicate, notes = _llm_layer_policy(agent, instance_id, canon_sha)
-
     from awe.dossier import case_record
     from awe.detect import detect
+    requirement_sha = _sha256(config.requirements_path(instance_id))
+    patch_path = config.patch_path(agent, instance_id)
+    eval_resolver = getattr(config, "eval_path", None)
+    outcome_path = eval_resolver(agent) if callable(eval_resolver) else config.DATA / f"eval_{agent}.json"
+    patch_sha, outcome_sha = _sha256(patch_path), _sha256(outcome_path)
+    project_data = getattr(config, "PROJECT_DATA", None)
+    optional_evidence = ([Path(project_data) / "overrides" / "resolved_overrides.json",
+                          Path(project_data) / "pertest" / agent / f"{instance_id}.json",
+                          Path(project_data) / "pertest" / agent / f"{instance_id}.log.json"]
+                         if project_data is not None else [])
+    optional_fingerprints = [_sha256(path) for path in optional_evidence]
+    used_judge = False
     try:
-        rec = case_record(agent, instance_id, use_judge=use_judge,
-                          adjudicate=adjudicate)
-        d = detect(instance_id, agent, use_judge=use_judge)
+        if _supports_layer_controls(case_record):
+            # Legacy DECAF: use its full dossier only with verified cached
+            # verdicts and its explicit per-call controls.
+            use_judge, adjudicate, notes = _llm_layer_policy(agent, instance_id, canon_sha)
+            used_judge = bool(use_judge)
+            rec = case_record(agent, instance_id, use_judge=use_judge, adjudicate=adjudicate)
+            d = detect(instance_id, agent, use_judge=use_judge)
+        else:
+            rec, d = _objective_record(agent, instance_id, canon, canon_sha)
+            notes = ["DECAF's dossier API lacks per-call judge/arbiter controls; "
+                     "using objective analysis only, without cached LLM verdicts."]
     except Exception as exc:  # never surface a raw traceback to the UI
         return AttributionResult(
             False, mode="reference", agent=agent, instance_id=instance_id,
-            reason=f"diagnosis failed for {agent}/{instance_id}: {type(exc).__name__}: {exc}")
+            reason=f"diagnosis failed for {agent}/{instance_id} ({type(exc).__name__})")
     if rec is None:
         return AttributionResult(
             False, mode="reference", agent=agent, instance_id=instance_id,
@@ -461,10 +569,22 @@ def _diagnose_locked(*, agent, instance_id, source_path, fmt, expected_sha,
             False, mode="reference", agent=agent, instance_id=instance_id,
             reason=f"the real trajectory for {agent}/{instance_id} changed "
                    f"while the diagnosis was running — reload and retry")
-    return _shape(rec, d.get("opportunities", {}), notes)
+    if _sha256(config.requirements_path(instance_id)) != requirement_sha:
+        return AttributionResult(False, mode="reference", agent=agent, instance_id=instance_id,
+                                 reason="the reference task changed while the diagnosis was running — reload and retry")
+    if _sha256(patch_path) != patch_sha:
+        return AttributionResult(False, mode="reference", agent=agent, instance_id=instance_id,
+                                 reason="the final agent patch changed while the diagnosis was running — reload and retry")
+    if _sha256(outcome_path) != outcome_sha:
+        return AttributionResult(False, mode="reference", agent=agent, instance_id=instance_id,
+                                 reason="the benchmark outcome changed while the diagnosis was running — reload and retry")
+    if [_sha256(path) for path in optional_evidence] != optional_fingerprints:
+        return AttributionResult(False, mode="reference", agent=agent, instance_id=instance_id,
+                                 reason="the optional evaluation evidence changed while the diagnosis was running — reload and retry")
+    return _shape(rec, d.get("opportunities", {}), notes, used_judge=used_judge)
 
 
-def _shape(rec: dict, opportunities: dict, notes: list[str]) -> AttributionResult:
+def _shape(rec: dict, opportunities: dict, notes: list[str], *, used_judge: bool | None = None) -> AttributionResult:
     """case_record dict + detection opportunities -> AttributionResult.
 
     Blame is NON-ZERO only (arbiter-refuted faults carry weight 0). Assessment
@@ -497,8 +617,9 @@ def _shape(rec: dict, opportunities: dict, notes: list[str]) -> AttributionResul
         tier = a["tier_of"].get(top) if (a and top) else None
         scorecard.append(CapabilityScore(cap, assessed, blamed, weight, tier, top))
 
-    used_judge = any(bool(opportunities.get(c)) for c in _JUDGE_CAPS) or \
-        any(f["capability"] in _JUDGE_CAPS for f in faults)
+    if used_judge is None:
+        used_judge = any(bool(opportunities.get(c)) for c in _JUDGE_CAPS) or \
+            any(f["capability"] in _JUDGE_CAPS for f in faults)
 
     return AttributionResult(
         available=True, mode="reference",
