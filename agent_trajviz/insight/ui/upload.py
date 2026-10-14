@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import shutil
 import logging
+import tempfile
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any
 
 import gradio as gr
@@ -115,9 +118,35 @@ _TEMP_EXPORT_PREFIX = "trajviz-report-"
 # serves every viewer and each export deletes the directory it recorded, so a
 # single module-level string meant the next viewer's export rmtree'd the report
 # the previous viewer's Export HTML button was still pointing at. The cost of
-# keying it is that an abandoned session's last temp dir lives until the process
-# exits; losing another viewer's armed download is the worse of the two.
+# keying it is that abandoned sessions need cleanup on unload, with a normal
+# interpreter-exit sweep as a fallback when the browser never sends unload.
 _last_temp_export_dirs: dict[str | None, str] = {}
+_temp_export_lock = Lock()
+
+
+def _remove_temp_export_dir(directory: str | None) -> None:
+    if directory and os.path.basename(directory).startswith(_TEMP_EXPORT_PREFIX):
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def cleanup_session_export(request: gr.Request) -> None:
+    """Release only the departing browser session's temporary report."""
+    session = getattr(request, "session_hash", None)
+    if session is None:
+        return
+    with _temp_export_lock:
+        _remove_temp_export_dir(_last_temp_export_dirs.pop(session, None))
+
+
+def _cleanup_temp_exports() -> None:
+    """Clean UI-owned reports only; standalone library/CLI exports stay usable."""
+    with _temp_export_lock:
+        for directory in _last_temp_export_dirs.values():
+            _remove_temp_export_dir(directory)
+        _last_temp_export_dirs.clear()
+
+
+atexit.register(_cleanup_temp_exports)
 
 
 def _export_off():
@@ -127,11 +156,12 @@ def _export_off():
 def _replace_temp_export_dir(new_path: str, session: str | None = None) -> None:
     """Drop *this session's* previous mkdtemp export dir once its replacement is written."""
     parent = os.path.dirname(os.path.abspath(new_path))
-    previous = _last_temp_export_dirs.get(session)
-    if os.path.basename(parent).startswith(_TEMP_EXPORT_PREFIX):
-        _last_temp_export_dirs[session] = parent
-    if previous and previous != parent and os.path.basename(previous).startswith(_TEMP_EXPORT_PREFIX):
-        shutil.rmtree(previous, ignore_errors=True)
+    with _temp_export_lock:
+        previous = _last_temp_export_dirs.get(session)
+        if os.path.basename(parent).startswith(_TEMP_EXPORT_PREFIX):
+            _last_temp_export_dirs[session] = parent
+        if previous != parent:
+            _remove_temp_export_dir(previous)
 
 
 def prepare_html_export(source, _steps=None, dark=False, request: gr.Request | None = None):
@@ -153,13 +183,24 @@ def prepare_html_export(source, _steps=None, dark=False, request: gr.Request | N
         payload = source if isinstance(source, dict) else {}
         if not payload or payload.get("_error"):
             return _export_off()
+    directory = path = None
     try:
-        path = write_report_file(payload, dark=bool(dark))
+        # Gradio otherwise copies DownloadButton files into its shared,
+        # content-addressed cache after this callback returns. Create the report
+        # inside that cache so postprocessing serves this session-owned path
+        # directly; cleanup then removes the actual served file too.
+        cache_root = gr.utils.get_upload_folder()
+        os.makedirs(cache_root, exist_ok=True)
+        directory = tempfile.mkdtemp(prefix=_TEMP_EXPORT_PREFIX, dir=cache_root)
+        path = write_report_file(payload, dest=directory, dark=bool(dark))
     except ReportError:
         return _export_off()
     except Exception:
         logger.exception("writing the HTML report failed")
         return _export_off()
+    finally:
+        if path is None:
+            _remove_temp_export_dir(directory)
     # Gradio injects *request* on a browser call (annotation-driven) and leaves
     # it None for a direct call, which is the key library callers share.
     _replace_temp_export_dir(path, getattr(request, "session_hash", None))
