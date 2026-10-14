@@ -52,6 +52,7 @@ def _add_token_bar_traces(
     row: int | None = None,
     col: int | None = None,
     legend_shown: dict[str, bool] | None = None,
+    bar_width: float | None = _STEP_BAR_WIDTH,
 ) -> None:
     """Add token category bar traces to a figure.
 
@@ -71,6 +72,11 @@ def _add_token_bar_traces(
 
     When *legend_shown* is set, each series is claimed once across panels so a
     category that first appears on a later agent still gets a legend entry.
+
+    *bar_width* defaults to the fixed step-axis width used by stacked Token
+    Usage panels. Pass ``None`` for grouped charts (Token Breakdown by Agent)
+    so Plotly can size side-by-side bars; an explicit width there makes every
+    series claim most of the category and overlap.
     """
     traces = [
         ("Cache Read", cache_read, TOKEN_COLORS["cache_read"]),
@@ -85,19 +91,18 @@ def _add_token_bar_traces(
     for name, values, color in traces:
         if include_empty or any(v > 0 for v in values):
             show = _claim_legend(legend_shown, name) if legend_shown is not None else True
-            fig.add_trace(
-                go.Bar(
-                    x=x_values,
-                    y=values,
-                    name=name,
-                    legendgroup=name,
-                    showlegend=show,
-                    marker_color=color,
-                    width=_STEP_BAR_WIDTH,
-                    hovertemplate=f"{step_prefix}%{{x}}<br>{name}: %{{y:,.0f}}<extra></extra>",
-                ),
-                **rc,
+            bar_kwargs: dict = dict(
+                x=x_values,
+                y=values,
+                name=name,
+                legendgroup=name,
+                showlegend=show,
+                marker_color=color,
+                hovertemplate=f"{step_prefix}%{{x}}<br>{name}: %{{y:,.0f}}<extra></extra>",
             )
+            if bar_width is not None:
+                bar_kwargs["width"] = bar_width
+            fig.add_trace(go.Bar(**bar_kwargs), **rc)
 
 
 def _describe_impossible(fields: Sequence[Sequence[object]]) -> str:
@@ -894,8 +899,17 @@ def draw_agent_tokens(data: dict, dark: bool = False) -> go.Figure:
         output = [g["output"] for g in segs]
         reasoning = [g["reasoning"] for g in segs]
         cache_write = [g["cache_write"] for g in segs]
-        _add_token_bar_traces(fig, labels, fresh_input, cache_read, output, reasoning,
-                              cache_write=cache_write, x_label="")
+        _add_token_bar_traces(
+            fig,
+            labels,
+            fresh_input,
+            cache_read,
+            output,
+            reasoning,
+            cache_write=cache_write,
+            x_label="",
+            bar_width=None,
+        )
     else:
         # No token breakdown available — show total tokens per agent
         session_palette = AGENT_COLORS  # shared palette so agent colors match across views
