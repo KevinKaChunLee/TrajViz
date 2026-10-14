@@ -185,7 +185,7 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn(">第3步<", html)
         self.assertIn(">第7步<", html)
         self.assertIn("overview-issue-info", html)
-        self.assertIn("title='Typical recovery: Read'", html)
+        self.assertIn("title='常见恢复路径：Read'", html)
         self.assertNotIn("overview-issue-more", html)
         self.assertNotIn("修改位置", html)
         self.assertNotIn("修复建议", html)
@@ -291,6 +291,12 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertEqual(premature.steps, (245, 259))
         self.assertIn("23–33%", premature.detail)
         self.assertIn("128k", premature.detail)
+        html = render_overview_issues_html(rank_issues(issues))
+        self.assertIn("过早压缩上下文", html)
+        self.assertIn("压缩后上下文反而变大", html)
+        self.assertIn("压缩时窗口占用：假定 128k token 窗口的", html)
+        self.assertNotIn("Premature compactions", html)
+        self.assertNotIn("window occupancy at compaction time", html)
 
     def test_failure_cascade_skips_single_step_chains(self):
         issues = collect_overview_issues(

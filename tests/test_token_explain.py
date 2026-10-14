@@ -8,9 +8,10 @@ from agent_trajviz.insight.token_explain import (
 
 
 def _step(role="assistant", total=0, inp=0, output=0, cache_read=0, reasoning=0,
-          tool_calls=None, parts=None, text_preview="", model_id="test-model"):
+          tool_calls=None, parts=None, text_preview="", model_id="test-model",
+          session_id=""):
     return {
-        "index": 0, "raw_index": 0, "role": role,
+        "index": 0, "raw_index": 0, "role": role, "session_id": session_id,
         "tokens": {
             "total": total, "input": inp, "output": output,
             "cache_read": cache_read, "cache_write": 0, "reasoning": reasoning,
@@ -204,6 +205,61 @@ class TokenStepExplanationTests(unittest.TestCase):
         self.assertEqual(1, _est_tokens("a"))
         self.assertEqual(0, _est_tokens(""))
         self.assertEqual(0, _est_tokens(None))
+
+    def test_subagent_steps_stay_within_their_own_conversation(self):
+        # Interleaved root + subagent conversations: the subagent's steps
+        # must not treat root steps as their "previous step" — different
+        # prefix, different cache lineage.
+        steps = [
+            _step(role="user", text_preview="主会话用户消息", session_id="s-main"),
+            _step(total=19270, inp=8373, output=303, reasoning=10594,
+                  cache_read=0, session_id="s-main"),
+            _step(total=5000, inp=5000, output=200, reasoning=0,
+                  cache_read=0, session_id="s-sub"),
+            _step(total=6000, inp=1000, output=300, reasoning=0,
+                  cache_read=5000, session_id="s-sub"),
+            _step(total=20136, inp=622, output=100, reasoning=0,
+                  cache_read=19200, session_id="s-main"),
+        ]
+        for i, s in enumerate(steps):
+            s["index"] = i
+
+        # Subagent first call: first-call treatment, no reference to the
+        # root conversation's context or user message.
+        sub_first = build_token_step_explanation_html(steps, 2)
+        self.assertIn("首次 LLM 调用", sub_first)
+        self.assertNotIn("19,270", sub_first)
+        self.assertNotIn("主会话用户消息", sub_first)
+
+        # Subagent second call: cache lineage points at its own previous
+        # step (5,000), not the root's (19,270).
+        sub_second = build_token_step_explanation_html(steps, 3)
+        self.assertIn("5,000", sub_second)
+        self.assertNotIn("19,270", sub_second)
+        self.assertNotIn("20,136", sub_second)
+
+        # Root steps keep referencing root steps.
+        root_second = build_token_step_explanation_html(steps, 4)
+        self.assertIn("19,270", root_second)
+
+    def test_agent_mode_switch_within_one_session_stays_one_conversation(self):
+        # opencode plan -> build is a mode switch inside ONE session: the
+        # context is shared, so the build step's cache lineage must point at
+        # the plan step even though the agent field differs.
+        steps = [
+            _step(total=10000, inp=10000, output=0, reasoning=0,
+                  cache_read=0, session_id="s1"),
+            _step(total=11000, inp=1000, output=500, reasoning=500,
+                  cache_read=10000, session_id="s1"),
+        ]
+        steps[0]["agent"] = "plan"
+        steps[1]["agent"] = "build"
+        for i, s in enumerate(steps):
+            s["index"] = i
+
+        html_out = build_token_step_explanation_html(steps, 1)
+        self.assertNotIn("首次 LLM 调用", html_out)
+        self.assertIn("10,000", html_out)
 
 
 if __name__ == "__main__":

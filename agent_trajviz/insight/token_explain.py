@@ -21,6 +21,7 @@ from typing import Any
 from .parser import infer_non_cache_input
 from .rendering import _diag_jump_onclick
 from .shell_cmd import tool_call_hint
+from .timeline_agents import timeline_agent_id_of
 
 # sglang's radix cache matches prefixes in whole pages; 256 is the page size
 # of the deployment these explanations were verified against.
@@ -127,8 +128,41 @@ def _tool_hint(tc: dict) -> str:
     return f"{name}({hint})" if hint else str(name)
 
 
+def _timeline_peer(steps: list[dict], step_index: int):
+    """Same-conversation test for one step.
+
+    With subagents the step list interleaves several conversations. A
+    subagent step must not treat a root-agent step as its "previous step":
+    they have different prefixes, so neither the radix-cache lineage nor the
+    "new content since last call" narrative carries over. The conversation
+    key is ``session_id`` — an agent-mode switch within one session (opencode
+    plan/build) shares the context and must stay peers, so the timeline
+    agent id (``session_id::agent``) would split it wrongly and is only the
+    fallback when session ids are absent.
+    """
+    me = steps[step_index]
+    me_sid = str(me.get("session_id") or "")
+    if me_sid:
+
+        def peer(step: dict) -> bool:
+            return str(step.get("session_id") or "") == me_sid
+
+        return peer
+
+    agent_id = timeline_agent_id_of(steps)
+    me_aid = agent_id(me)
+
+    def peer(step: dict) -> bool:
+        return agent_id(step) == me_aid
+
+    return peer
+
+
 def _prev_token_step(steps: list[dict], step_index: int) -> tuple[int, dict] | None:
+    peer = _timeline_peer(steps, step_index)
     for i in range(step_index - 1, -1, -1):
+        if not peer(steps[i]):
+            continue
         if (steps[i].get("tokens") or {}).get("total", 0) > 0:
             return i, steps[i]
     return None
@@ -147,8 +181,9 @@ def _sum_note(est_total: int, actual: int, ind: str = _IND2) -> str:
 def _first_call_lines(steps: list[dict], step_index: int, fresh_input: int) -> list[str]:
     lines = [f"<b>{_fmt(fresh_input)}</b> — 首次 LLM 调用，全部为全新 prefill。可能构成："]
     est_total = 0
+    peer = _timeline_peer(steps, step_index)
     for s in steps[:step_index]:
-        if (s.get("role") or "") != "user":
+        if (s.get("role") or "") != "user" or not peer(s):
             continue
         est = _est_tokens(s.get("text_preview"))
         if est <= 0:
@@ -195,12 +230,14 @@ def _fresh_input_lines(steps: list[dict], step_index: int, fresh_input: int) -> 
         n_tools += 1
         lines.append(f"{_IND2}- {_esc(_tool_hint(tc))} 的执行结果 ≈ {_fmt(est)} tok（估算）")
     n_users = 0
+    peer = _timeline_peer(steps, step_index)
     for s in steps[prev_i + 1 : step_index]:
-        if (s.get("role") or "") == "user":
-            est = _est_tokens(s.get("text_preview"))
-            est_total += est
-            n_users += 1
-            lines.append(f"{_IND2}- 用户新消息 ≈ {_fmt(est)} tok（估算）")
+        if (s.get("role") or "") != "user" or not peer(s):
+            continue
+        est = _est_tokens(s.get("text_preview"))
+        est_total += est
+        n_users += 1
+        lines.append(f"{_IND2}- 用户新消息 ≈ {_fmt(est)} tok（估算）")
     framework = 0
     if n_tools:
         framework += TOOL_BATCH_WRAPPER_TOKENS + n_tools * TOOL_RESULT_WRAPPER_TOKENS
