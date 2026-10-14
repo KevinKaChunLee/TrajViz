@@ -750,6 +750,15 @@ class AgentTokenChartTests(unittest.TestCase):
         for tr in fig.data:
             self.assertEqual(list(tr.x), ["main", "explore"])
 
+    def test_grouped_bars_leave_width_unset(self):
+        # An explicit width (used by stacked step charts) makes every series
+        # claim most of the category slot and overlap under barmode=group.
+        fig = build_agent_token_chart(self.SUMMARIES)
+        self.assertEqual(fig.layout.barmode, "group")
+        for tr in fig.data:
+            self.assertTrue(tr.type == "bar")
+            self.assertTrue(tr.width is None)
+
     def test_no_agents_renders_an_explanatory_empty_figure(self):
         fig = build_agent_token_chart([])
         self.assertEqual(len(fig.data), 0)
