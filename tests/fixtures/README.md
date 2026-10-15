@@ -17,6 +17,13 @@ and reference patch), `patch/<agent>/<id>.diff` (the agent's edit set),
 `trajectory/<agent>/<id>.json` (the run) and `eval_<agent>.json` (whether each
 run resolved its task).
 
+These two external DECAF reference trajectories retain their historical
+`ccsession-trajectory` shape to preserve the evidence and cached-verdict hashes.
+They are reference data, not examples of the supported Claude Code input format.
+`native_claude_code/` contains reconstructed native saved-session JSONL copies
+of the two redacted reference runs for loader, API, and dashboard coverage.
+Native parsing tests also construct small session records and subagent trees.
+
 **Sanitization:** session/message UUIDs and request ids are deterministic
 placeholders, signature/encrypted-content blobs are emptied, and absolute paths
 are rewritten under `/home/user`. The golden tests verify the sanitized runs

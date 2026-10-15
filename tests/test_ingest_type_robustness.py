@@ -99,12 +99,11 @@ class LoaderNeverRaisesTests(unittest.TestCase):
         self.assertIsInstance(raw, dict)
         self.assertIsInstance(load_session(path), (LoadedSession, LoadError))
 
-    def test_claude_code_with_mixed_type_indices_still_loads(self):
-        src = _FIXTURES / "reference" / "data" / "trajectory" / "claude_code" / "django__django-11477.json"
-        doc = json.loads(src.read_text())
-        entries = doc.get("trajectory") or []
-        self.assertGreater(len(entries), 2)
-        entries[1]["index"] = "one"
+    def test_claude_code_with_mixed_type_metadata_still_loads(self):
+        src = _FIXTURES / "native_claude_code" / "django__django-11477.jsonl"
+        doc = [json.loads(line) for line in src.read_text().splitlines()]
+        self.assertGreater(len(doc), 2)
+        doc[1]["version"] = 1
         path = _write(self.tmp, "cc.json", json.dumps(doc))
         self.assertIsInstance(load_session(path), LoadedSession)
 
@@ -165,8 +164,8 @@ class SeededMutationSweepTests(unittest.TestCase):
                                                   ("codex.jsonl", _codex_lines(), True)]
         for name in ("icode_minimal.json", "cursor_minimal.json", "codearts_minimal.json"):
             sources.append((name, json.loads((_FIXTURES / name).read_text()), False))
-        cc = _FIXTURES / "reference" / "data" / "trajectory" / "claude_code" / "django__django-11477.json"
-        sources.append(("cc.json", json.loads(cc.read_text()), False))
+        cc = _FIXTURES / "native_claude_code" / "django__django-11477.jsonl"
+        sources.append(("cc.jsonl", [json.loads(line) for line in cc.read_text().splitlines()], True))
         return sources
 
     def test_no_type_mutation_raises_out_of_load_or_render(self):
@@ -174,7 +173,7 @@ class SeededMutationSweepTests(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         failures: list[str] = []
         for name, base, jsonl in self._sources():
-            trials = 6 if name == "cc.json" else 18
+            trials = 6 if name == "cc.jsonl" else 18
             for trial in range(trials):
                 doc = json.loads(json.dumps(base))
                 paths = self._paths(doc)

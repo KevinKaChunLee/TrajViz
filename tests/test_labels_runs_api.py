@@ -23,8 +23,8 @@ from agent_trajviz.insight.charts import (
 from agent_trajviz.insight.presenters.label_ui import build_label_ui_payload
 from agent_trajviz.insight.run_group import build_run_group_scorecard
 
-REF = Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory" / "claude_code"
-DJANGO, ASTROPY = REF / "django__django-11477.json", REF / "astropy__astropy-13033.json"
+REF = Path(__file__).resolve().parent / "fixtures" / "native_claude_code"
+DJANGO, ASTROPY = REF / "django__django-11477.jsonl", REF / "astropy__astropy-13033.jsonl"
 PHASES = [("understand", "code_reading"), ("plan", "task_planning"), ("implement", "code_editing"),
           ("validate", "test_running"), ("debug", "error_analysis")]
 

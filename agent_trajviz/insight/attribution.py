@@ -542,9 +542,13 @@ def _diagnose_locked(*, agent, instance_id, source_path, fmt, expected_sha,
             # Legacy DECAF: use its full dossier only with verified cached
             # verdicts and its explicit per-call controls.
             use_judge, adjudicate, notes = _llm_layer_policy(agent, instance_id, canon_sha)
-            used_judge = bool(use_judge)
             rec = case_record(agent, instance_id, use_judge=use_judge, adjudicate=adjudicate)
             d = detect(instance_id, agent, use_judge=use_judge)
+            # None selects DECAF's automatic cached-verdict mode. Its detector
+            # reports whether this case actually had a usable verdict; task
+            # opportunities or the policy flag alone cannot establish that.
+            used_judge = (use_judge is not False
+                          and (d.get("signals") or {}).get("judge_available") is True)
         else:
             rec, d = _objective_record(agent, instance_id, canon, canon_sha)
             notes = ["DECAF's dossier API lacks per-call judge/arbiter controls; "

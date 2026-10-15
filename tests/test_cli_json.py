@@ -12,8 +12,7 @@ from pathlib import Path
 import agent_trajviz as tv
 from agent_trajviz.insight.__main__ import main
 
-CC_RUN = (Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory"
-          / "claude_code" / "django__django-11477.json")
+CC_RUN = (Path(__file__).resolve().parent / "fixtures" / "native_claude_code" / "django__django-11477.jsonl")
 
 
 def _run(*argv):

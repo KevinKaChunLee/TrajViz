@@ -73,8 +73,7 @@ class AnalysisLanguageTests(unittest.TestCase):
         from agent_trajviz.insight.presenters.issues import OverviewIssue
         from agent_trajviz.insight.session import load_session
 
-        fixture = sorted((Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory"
-                          / "claude_code").glob("*.json"))[0]
+        fixture = sorted((Path(__file__).resolve().parent / "fixtures" / "native_claude_code").glob("*.jsonl"))[0]
         session = load_session(str(fixture))
         cfg = issue_judge.AnalysisLLMConfig(base_url="http://x", api_key="k", model="m", provider="openai",
                                             temperature=None, max_tokens=100, timeout=5, source="analyze")

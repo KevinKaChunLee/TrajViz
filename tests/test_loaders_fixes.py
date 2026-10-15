@@ -19,6 +19,8 @@ import os
 import tempfile
 import unittest
 
+from claude_native_helpers import native_events, empty_session
+
 from agent_trajviz.insight.loaders import (
     FORMAT_DROPDOWN_CHOICES,
     FORMAT_LABELS,
@@ -117,13 +119,10 @@ class B3NumericTimestampTests(unittest.TestCase):
         self.assertIsNone(_iso_to_epoch_ms(""))
         self.assertIsNone(_iso_to_epoch_ms(0))
 
-    def test_ccsession_with_numeric_timestamp_loads_without_crash(self):
-        raw = {
-            "format": "ccsession-trajectory",
-            "trajectory": [
+    def test_claude_code_with_numeric_timestamp_loads_without_crash(self):
+        raw = native_events([
                 {"role": "assistant", "timestamp": 1712345678000, "content": [{"type": "text", "text": "hello"}]},
-            ],
-        }
+            ])
         p = _write(self.tmp, "cc-numeric-ts.json", raw)
         loaded = load_trajectory(p)  # must not raise AttributeError
         self.assertNotIn("_error", loaded)
@@ -284,7 +283,7 @@ class SourceShaContractTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
 
     def test_json_path_attaches_sha_of_parsed_bytes(self):
-        raw = {"format": "ccsession-trajectory", "trajectory": []}
+        raw = empty_session()
         p = _write(self.tmp, "cc.json", raw)
         with open(p, "rb") as f:
             expected = hashlib.sha256(f.read()).hexdigest()
@@ -312,7 +311,7 @@ class FormatLabelsTests(unittest.TestCase):
         self.assertEqual(
             FORMAT_LABELS,
             {
-                "ccsession": "Claude Code",
+                "claude_code": "Claude Code",
                 "cursor": "Cursor",
                 "codearts": "CodeArts",
                 "icode": "ICode",
@@ -344,17 +343,17 @@ class FormatSelectionTests(unittest.TestCase):
         self.assertEqual(check_format_selection("unknown", None), "unknown")
 
     def test_explicit_selection_rejects_other_json_format(self):
-        self.assertEqual(check_format_selection("opencode", "ccsession"), "mismatch")
+        self.assertEqual(check_format_selection("opencode", "claude_code"), "mismatch")
         self.assertEqual(check_format_selection("codearts", "opencode"), "mismatch")
         self.assertEqual(check_format_selection("icode", "opencode"), "mismatch")
         self.assertEqual(check_format_selection("cursor", "opencode"), "mismatch")
-        self.assertEqual(check_format_selection("pi", "ccsession"), "mismatch")
+        self.assertEqual(check_format_selection("pi", "claude_code"), "mismatch")
         self.assertEqual(check_format_selection("codex", "opencode"), "mismatch")
 
     def test_explicit_selection_allows_match_and_unknown_force(self):
-        self.assertIsNone(check_format_selection("ccsession", "ccsession"))
+        self.assertIsNone(check_format_selection("claude_code", "claude_code"))
         self.assertIsNone(check_format_selection("codex", "codex"))
-        self.assertIsNone(check_format_selection("unknown", "ccsession"))
+        self.assertIsNone(check_format_selection("unknown", "claude_code"))
         self.assertIsNone(check_format_selection("unknown", "pi"))
 
 
@@ -411,12 +410,12 @@ class UnifiedDispatcherTests(unittest.TestCase):
         self.assertNotIn("_error", raw)
         self.assertEqual(detect_format(raw), "codex")
 
-    def test_ccsession_object_loads_from_jsonl_path(self):
-        obj = {"format": "ccsession-trajectory", "trajectory": []}
+    def test_claude_code_object_loads_from_jsonl_path(self):
+        obj = empty_session()
         p = _write(self.tmp, "session.jsonl", obj)
         raw = load_trajectory(p)
         self.assertNotIn("_error", raw)
-        self.assertEqual(detect_format(raw), "ccsession")
+        self.assertEqual(detect_format(raw), "claude_code")
 
     def test_jsonl_extension_is_case_insensitive(self):
         events = _codex_session(
@@ -436,30 +435,30 @@ class UnifiedDispatcherTests(unittest.TestCase):
             ]
         )
         p = _write(self.tmp, "rollout.jsonl", events, jsonl=True)
-        raw = load_trajectory(p, format_hint="ccsession")
+        raw = load_trajectory(p, format_hint="claude_code")
         self.assertEqual(raw.get("_error_code"), "mismatch")
         self.assertEqual(raw.get("_detected"), "codex")
-        self.assertEqual(raw.get("_selected"), "ccsession")
+        self.assertEqual(raw.get("_selected"), "claude_code")
         self.assertIn("Claude Code", raw["_error"])
         self.assertIn("Codex CLI", raw["_error"])
 
     def test_format_hint_mismatches_detected_json_object(self):
         p = _write(self.tmp, "oc.json", {"info": {"id": "s"}, "messages": []})
-        raw = load_trajectory(p, format_hint="ccsession")
+        raw = load_trajectory(p, format_hint="claude_code")
         self.assertEqual(raw.get("_error_code"), "mismatch")
         self.assertEqual(raw.get("_detected"), "opencode")
 
-    def test_format_hint_forces_unknown_object_as_ccsession(self):
-        p = _write(self.tmp, "bare.json", {"trajectory": []})
-        raw = load_trajectory(p, format_hint="ccsession")
-        self.assertNotIn("_error", raw)
-        self.assertEqual(detect_format(raw), "ccsession")
+    def test_format_hint_rejects_an_unrelated_object_as_claude_code(self):
+        p = _write(self.tmp, "bare.json", {"foo": []})
+        raw = load_trajectory(p, format_hint="claude_code")
+        self.assertIn("_error", raw)
 
-    def test_format_hint_forces_unmarked_ccsession_saved_as_jsonl(self):
-        p = _write(self.tmp, "bare.jsonl", {"trajectory": []})
-        raw = load_trajectory(p, format_hint="ccsession")
+    def test_format_hint_accepts_a_single_native_message_saved_as_jsonl(self):
+        event = native_events([{"role": "user", "content": "hello"}])[0]
+        p = _write(self.tmp, "native.jsonl", event)
+        raw = load_trajectory(p, format_hint="claude_code")
         self.assertNotIn("_error", raw)
-        self.assertEqual(detect_format(raw), "ccsession")
+        self.assertEqual(detect_format(raw), "claude_code")
 
     def test_format_hint_codex_on_unknown_object_is_kind_error(self):
         p = _write(self.tmp, "bare.json", {"foo": 1})
@@ -481,14 +480,14 @@ class UnifiedDispatcherTests(unittest.TestCase):
         self.assertTrue(second.get("_codex_format"))
 
     def test_truncated_trailer_unwraps_object_saved_as_jsonl(self):
-        obj = {"format": "ccsession-trajectory", "trajectory": []}
+        obj = empty_session()
         p = os.path.join(self.tmp, "cc.jsonl")
         with open(p, "w", encoding="utf-8") as f:
             f.write(json.dumps(obj) + "\n")
             f.write('{"partial":')
         raw = load_trajectory(p)
         self.assertNotIn("_error", raw)
-        self.assertEqual(detect_format(raw), "ccsession")
+        self.assertEqual(detect_format(raw), "claude_code")
 
     def test_pi_json_array_loads_without_jsonl_extension(self):
         events = [

@@ -32,6 +32,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from claude_native_helpers import empty_session
+
 from agent_trajviz.converge import charts, milestones
 from agent_trajviz.converge.alignment import (
     build_comparison_report,
@@ -66,19 +68,19 @@ class EmptyStepsMessageNamesFormatTests(unittest.TestCase):
         self.tmp = Path(self._tmp.name)
         self.addCleanup(self._tmp.cleanup)
         self.good = self.tmp / "good.json"
-        self.good.write_text(json.dumps({"trajectory": [
-            {"type": "assistant", "uuid": f"u{i}",
+        self.good.write_text(json.dumps([
+            {"type": "assistant", "uuid": f"u{i}", "sessionId": "s",
              "message": {"id": f"m{i}", "role": "assistant",
                          "content": [{"type": "text", "text": f"step {i}"}],
                          "usage": {"input_tokens": 10, "output_tokens": 5}}}
             for i in range(2)
-        ]}))
+        ]))
 
     def test_recognised_format_is_named_in_the_refusal(self):
         # A Claude Code export the loader recognises but that yields no steps.
         empty_cc = self.tmp / "empty_cc.json"
         empty_cc.write_text(json.dumps(
-            {"format": "ccsession-trajectory", "trajectory": []}))
+            empty_session()))
         with self.assertRaises(ValueError) as ctx:
             build_comparison_report(str(empty_cc), str(self.good))
         msg = str(ctx.exception)

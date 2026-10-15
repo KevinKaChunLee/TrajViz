@@ -25,7 +25,7 @@ def _trajectory(path: Path, *, steps: int, tool: str = "Bash") -> Path:
     entries = []
     for i in range(steps):
         entries.append({
-            "type": "assistant",
+            "type": "assistant", "sessionId": "test-session",
             "uuid": f"u{i}",
             "message": {
                 "id": f"m{i}",
@@ -38,7 +38,7 @@ def _trajectory(path: Path, *, steps: int, tool: str = "Bash") -> Path:
                 "usage": {"input_tokens": 100, "output_tokens": 20},
             },
         })
-    path.write_text(json.dumps({"trajectory": entries}))
+    path.write_text(json.dumps(entries))
     return path
 
 

@@ -1,5 +1,6 @@
 """DeepSeek Harness JSONL / zip export → internal trajectory."""
 
+import io
 import json
 import math
 import os
@@ -1090,14 +1091,14 @@ class DshZipContents:
     child_warnings: tuple[str, ...] = ()
 
 
-def parse_dsh_zip(file_path: str) -> DshZipContents | dict:
+def parse_dsh_zip(file_path: str, *, data: bytes | None = None) -> DshZipContents | dict:
     """Open a DSH export zip and parse ``session.jsonl`` plus child members.
 
     Returns ``DshZipContents`` or ``{"_error": ...}``. Format detection and
     conversion stay in the loaders facade so this module does not import it.
     """
     try:
-        archive = zipfile.ZipFile(file_path)
+        archive = zipfile.ZipFile(io.BytesIO(data) if data is not None else file_path)
     except (OSError, zipfile.BadZipFile) as exc:
         return {"_error": f"Invalid zip archive: {exc}"}
     with archive:

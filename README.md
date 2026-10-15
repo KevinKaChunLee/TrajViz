@@ -294,14 +294,13 @@ python -m agent_trajviz.insight --port 8080
 
 TrajViz normalizes the following formats. **Auto-detect** is the default —
 upload a `.json` / `.jsonl` / `.zip` file and load it. Pick a specific format only to
-override detection or to load a Claude Code export that lacks the usual
-`format` marker. An explicit pick is a requirement, not a hint: a file that is
+override detection. An explicit pick is a requirement, not a hint: a file that is
 detected as a *different* format is rejected with a "Format mismatch" message
 (so leave the dropdown on Auto-detect unless detection fails):
 
 | Format | Detection | Notes |
 |---|---|---|
-| Claude Code | `format: ccsession-trajectory` | Full support: tokens, cache, tool calls, thinking (expected shape below). |
+| Claude Code | Native `.jsonl` session records with `type`, `message`, and Claude session metadata | Tokens, cache, tool calls/results, thinking, and subagent logs. Local loading discovers associated children; upload a ZIP to preserve them on a hosted dashboard. Format key: `claude_code`. |
 | Cursor | `export_metadata.source_format: cursor_composer` | Consolidated from local `agent-transcripts` JSONL + Composer `state.vscdb`. Tool inputs always; tool outputs, step clocks (`startedAtMs`/`completedAtMs`), and context-window occupancy when the DB row is present. Per-step token bars are ≈4-chars/token estimates of logged text and tools — Cursor does not persist billed per-request tokens. |
 | OpenCode | `info` + `messages` shape | Includes sub-agent sessions |
 | CodeArts | `export_metadata.source_format: codearts_opencode_sqlite` with schema version 2 | Preserved token breakdown and consolidated parent/sub-agent sessions |
@@ -356,20 +355,59 @@ runtime via `AWE_DECAF_PATH` (default: a sibling `../DECAF` checkout).
 
 ## Collecting trajectories
 
-TrajViz only **reads** trajectory files — producing them is the agent's responsibility. This section shows how to obtain a valid trajectory JSON for each supported agent.
+TrajViz only **reads** trajectory files — producing them is the agent's responsibility. This section shows how to obtain a valid trajectory file for each supported agent.
 
 ### Claude Code
 
-TrajViz reads Claude Code sessions as `ccsession-trajectory` JSON: a top-level
-`"format": "ccsession-trajectory"` marker and a `trajectory` array with one entry
-per message (`role`, `uuid`, `message_id`, `content` blocks, `usage`,
-`timestamp`, `model`, `stop_reason`), plus an optional `sub_agents` list. The
-loader detects the marker and normalizes the step model automatically.
+TrajViz reads Claude Code's saved session logs directly. No export or conversion
+is needed. Find the parent log under
+`~/.claude/projects/<project-directory>/<session-id>.jsonl`. A run with
+subagents typically has this layout:
 
-Claude Code's own session logs
-(`~/.claude/projects/<url-encoded-cwd>/<session-id>.jsonl`) are not in this shape
-and must be converted first. `tests/fixtures/reference/data/trajectory/claude_code/`
-holds two complete examples of the expected file.
+```text
+<project-directory>/
+├── <session-id>.jsonl
+└── <session-id>/
+    └── subagents/
+        ├── agent-<id>.jsonl
+        └── agent-<other-id>.jsonl
+```
+
+Load the parent file on the same machine to include its associated subagent
+logs automatically:
+
+```python
+import agent_trajviz as tv
+
+run = tv.load("/path/to/project-directory/SESSION_ID.jsonl")
+assert run.format == "claude_code"
+```
+
+You can also load a directory containing one unambiguous parent session, or a
+child `.jsonl` by itself. Older sibling `agent-*.jsonl` logs are included only
+when their session metadata associates them with the selected parent.
+
+For a hosted dashboard, ZIP the parent `.jsonl` and its matching session folder,
+keeping the relative paths above, then upload the ZIP. Uploading only the parent
+file cannot transfer its subagent logs from your machine. From the project
+directory, for example (replace `SESSION_ID` with the actual session ID):
+
+```bash
+zip -r session.zip SESSION_ID.jsonl SESSION_ID/
+```
+
+The loader retains message text, thinking, tool inputs and outputs, provider
+usage, timestamps, and agent relationships. Non-conversation bookkeeping records
+are skipped. Tool timing uses reported execution durations when available, or
+the observed transcript interval; a final response timestamp alone does not
+provide a generation duration. A missing or unreadable referenced child produces a load warning
+while the available parent data remains usable. Claude Code's
+`--output-format json` returns a final result rather than a saved session
+transcript; use the native session `.jsonl` for trajectory analysis.
+
+The old `ccsession-trajectory` wrapper is no longer an input format. Existing
+TrajViz `trajectory.json` exports remain loadable through the public round-trip
+format.
 
 ### Cursor
 

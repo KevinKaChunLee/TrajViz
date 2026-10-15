@@ -1,18 +1,15 @@
-"""Live (executed, not read) checks of the DECAF attribution seam after PR #13.
+"""Executed checks of the DECAF attribution seam and its content-identity gate.
 
-PR #13 rewrote the loader read path that feeds attribution's content-identity
-gate — ``data.decode("utf-8-sig")``, ``resolve_dsh_session_path`` rewriting
-``file_path`` before the hash, and a zip branch that hashes the archive —
-without touching ``agent_trajviz/insight/attribution.py``. The pre-merge review
-verified that wiring by READING it; these tests verify it by RUNNING a
-diagnosis, because a silent sha mismatch is exactly what the gate exists to
-catch and a gate that refuses everything looks identical to a gate that works
-until you execute it.
+DECAF's immutable reference trajectories and cached verdicts predate native
+Claude ingestion. A test-only bridge supplies normalized native records with
+the original archived source identity, without retaining a legacy production
+loader. Native file/tree/ZIP identity is exercised in test_claude_native.py;
+the DSH ZIP checks below continue to exercise its production loader directly.
 
 What each group protects:
 
-* load-time identity — the sha the loader stamps as ``_source_sha256`` is the
-  sha of the exact bytes DECAF parses, so a reference file diagnoses, while a
+* reference identity — ``_source_sha256`` identifies the exact bytes DECAF
+  parses, so a reference file diagnoses, while a
   BOM-prefixed or one-byte-flipped copy is refused (lenient decoding must never
   leak into identity).
 * mid-diagnosis mutation — the post-diagnosis recheck refuses when the
@@ -50,7 +47,8 @@ from agent_trajviz.insight import attribution
 from agent_trajviz.insight.loaders import load_trajectory
 from agent_trajviz.insight.parser import parse_steps
 from agent_trajviz.insight.rendering import build_attribution_html
-from agent_trajviz.insight.session import LoadedSession, load_session
+from agent_trajviz.insight.session import LoadedSession, session_from_run
+from claude_native_helpers import native_events
 
 GOLD_AGENT = "claude_code"
 GOLD_INST = "astropy__astropy-13033"          # deductive-only case
@@ -81,6 +79,29 @@ def _sha(path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def _archived_reference_session(path) -> LoadedSession:
+    """Test-only bridge for DECAF's byte-pinned pre-native reference evidence.
+
+    Production loading deliberately rejects that retired export format. The
+    seam tests supply normalized native records while preserving the original
+    source bytes/hash that the external DECAF cache is pinned to. Native file
+    and bundle loading/identity are exercised in test_claude_native.py.
+    """
+    from agent_trajviz import Trajectory
+    from agent_trajviz.insight.formats.claude_code import convert_claude_code_events
+
+    path = Path(path)
+    original = path.read_bytes()
+    doc = json.loads(original.decode("utf-8-sig"))
+    session_id = (doc.get("session") or {}).get("id", "reference")
+    raw = convert_claude_code_events(native_events(doc["trajectory"], session_id=session_id))
+    raw["_source_path"] = str(path)
+    raw["_source_sha256"] = hashlib.sha256(original).hexdigest()
+    run = Trajectory(format="claude_code", steps=parse_steps(raw), source=str(path),
+                     sha256=raw["_source_sha256"], raw=raw)
+    return session_from_run(run)
+
+
 class _RootRestoringTest(unittest.TestCase):
     """Every diagnosis rewrites DECAF's process-global root; put it back."""
 
@@ -102,10 +123,10 @@ class _RootRestoringTest(unittest.TestCase):
 # --------------------------------------------------------------- load identity
 @requires_decaf
 @requires_reference
-class LoadTimeIdentityTests(_RootRestoringTest):
-    """The gate compares the LOADER's hash against DECAF's canonical file."""
+class ArchivedReferenceIdentityTests(_RootRestoringTest):
+    """The gate compares normalized archived evidence against DECAF's source."""
 
-    def test_loader_sha_is_the_sha_of_the_bytes_decaf_parses(self):
+    def test_reference_bridge_sha_is_the_sha_of_the_bytes_decaf_parses(self):
         """``_source_sha256`` must be the raw bytes of the canonical file.
 
         The read path decodes ``utf-8-sig`` and may rewrite ``file_path`` before
@@ -114,7 +135,7 @@ class LoadTimeIdentityTests(_RootRestoringTest):
         would silently refuse while looking exactly like a healthy gate.
         """
         canon = _canonical(GOLD_AGENT, GOLD_INST)
-        raw = load_trajectory(str(canon))
+        raw = _archived_reference_session(canon).raw
         self.assertNotIn("_error", raw)
         self.assertEqual(raw["_source_path"], str(canon))
         self.assertEqual(raw["_source_sha256"], _sha(canon))
@@ -122,7 +143,7 @@ class LoadTimeIdentityTests(_RootRestoringTest):
     def test_loaded_reference_trajectory_passes_the_identity_gate(self):
         """End-to-end seam: loader output -> diagnose() must produce a verdict."""
         canon = _canonical(GOLD_AGENT, GOLD_INST)
-        raw = load_trajectory(str(canon))
+        raw = _archived_reference_session(canon).raw
         res = attribution.diagnose(agent=GOLD_AGENT, instance_id=GOLD_INST,
                                    source_path=raw["_source_path"],
                                    expected_sha=raw["_source_sha256"])
@@ -140,7 +161,7 @@ class LoadTimeIdentityTests(_RootRestoringTest):
         flipped = self.tmp / "flipped.json"
         flipped.write_bytes(bytes(data))
 
-        raw = load_trajectory(str(flipped))
+        raw = _archived_reference_session(flipped).raw
         self.assertNotIn("_error", raw)
         self.assertNotEqual(raw["_source_sha256"], _sha(canon))
         res = attribution.diagnose(agent=GOLD_AGENT, instance_id=GOLD_INST,
@@ -163,7 +184,7 @@ class LoadTimeIdentityTests(_RootRestoringTest):
         bom = self.tmp / "bom.json"
         bom.write_bytes(b"\xef\xbb\xbf" + canon.read_bytes())
 
-        raw = load_trajectory(str(bom))
+        raw = _archived_reference_session(bom).raw
         self.assertNotIn("_error", raw, "utf-8-sig decode should still parse a BOM")
         self.assertTrue(parse_steps(raw), "the BOM'd copy must still be displayable")
         res = attribution.diagnose(agent=GOLD_AGENT, instance_id=GOLD_INST,
@@ -534,7 +555,7 @@ class AttributionTabTests(_RootRestoringTest):
         raise AssertionError(f"{name} is not wired into build_ui()")
 
     def _session_raw(self, path) -> dict:
-        session = load_session(str(path))
+        session = _archived_reference_session(path)
         self.assertIsInstance(session, LoadedSession, getattr(session, "message", ""))
         return session.raw
 

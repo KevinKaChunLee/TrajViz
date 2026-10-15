@@ -18,7 +18,7 @@ from pathlib import Path
 import agent_trajviz as tv
 
 REPO = Path(__file__).resolve().parent.parent
-CC_RUN = REPO / "tests" / "fixtures" / "reference" / "data" / "trajectory" / "claude_code" / "django__django-11477.json"
+CC_RUN = REPO / "tests" / "fixtures" / "native_claude_code" / "django__django-11477.jsonl"
 
 
 def _roundtrip(view):

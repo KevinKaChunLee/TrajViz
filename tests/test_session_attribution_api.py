@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -10,8 +11,9 @@ import agent_trajviz as tv
 from agent_trajviz import attribution
 from agent_trajviz.insight import attribution as _attr
 
-CC_RUN = (Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory"
-          / "claude_code" / "django__django-11477.json")
+CC_RUN = (Path(__file__).resolve().parent / "fixtures" / "native_claude_code" / "django__django-11477.jsonl")
+CC_ARCHIVE = (Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory"
+              / "claude_code" / "django__django-11477.json")
 
 
 class SessionViewTests(unittest.TestCase):
@@ -27,12 +29,17 @@ class SessionViewTests(unittest.TestCase):
 @unittest.skipUnless(_attr.DECAF_AVAILABLE, "DECAF not importable")
 class AttributionApiTests(unittest.TestCase):
     def test_public_diagnose_is_the_tabs_diagnosis(self):
-        run = tv.load(CC_RUN)
+        # Test-only bridge to DECAF's byte-stable archived reference. Load the
+        # equivalent native records, then attach the original source identity
+        # through the normalized API; production never parses the old envelope.
+        run = tv.Trajectory.from_steps(tv.load(CC_RUN).steps, format="claude_code",
+                                       source=str(CC_ARCHIVE),
+                                       sha256=hashlib.sha256(CC_ARCHIVE.read_bytes()).hexdigest())
         public = attribution.diagnose(run)
         from dataclasses import asdict
 
         tab = asdict(_attr.diagnose(agent="claude_code", instance_id="django__django-11477",
-                                    source_path=str(CC_RUN), fmt=run.format, expected_sha=run.sha256,
+                                    source_path=run.source, fmt=run.format, expected_sha=run.sha256,
                                     merged_sources=0, reference_root=None))
         self.assertEqual(public, json.loads(json.dumps(tab)))
         self.assertTrue(public["available"], public.get("reason"))

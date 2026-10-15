@@ -62,6 +62,9 @@ def layout() -> UploadRefs:
                 file_types=[".json", ".jsonl", ".zip"],
                 height=110,
             )
+            gr.Markdown(
+                "Claude Code subagents: ZIP the parent log with its session folder.",
+            )
             with gr.Row():
                 load_btn = gr.Button(
                     "Load Trajectory",

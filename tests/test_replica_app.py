@@ -22,8 +22,8 @@ import agent_trajviz as tv
 
 REPO = Path(__file__).resolve().parent.parent
 APP_DIR = REPO / "examples" / "trajviz_app"
-REF = REPO / "tests" / "fixtures" / "reference" / "data" / "trajectory" / "claude_code"
-DJANGO, ASTROPY = REF / "django__django-11477.json", REF / "astropy__astropy-13033.json"
+REF = REPO / "tests" / "fixtures" / "native_claude_code"
+DJANGO, ASTROPY = REF / "django__django-11477.jsonl", REF / "astropy__astropy-13033.jsonl"
 PUBLIC = {"agent_trajviz", "agent_trajviz.figures", "agent_trajviz.llm", "agent_trajviz.attribution",
           "agent_trajviz.dashboard"}
 
@@ -100,7 +100,7 @@ class LiveReplicaTests(unittest.TestCase):
     def test_load_fills_every_panel_with_the_original_dashboards_numbers(self):
         out = self._load()
         text = json.dumps(out, default=str)
-        for needle in ("Claude Code", "602,021", "38.3 gen tok/s", "95.8%", "EISDIR", "Showing 24 of 24 steps",
+        for needle in ("Claude Code", "602,021", "217.2 gen tok/s", "95.8%", "EISDIR", "Showing 24 of 24 steps",
                        "Session details"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, text)

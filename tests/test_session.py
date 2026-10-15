@@ -29,10 +29,10 @@ class LoadSessionTests(unittest.TestCase):
         self.assertEqual(result.code, "not_found")
 
     def test_format_mismatch(self):
-        result = load_session(str(FIXTURE), format_hint="ccsession")
+        result = load_session(str(FIXTURE), format_hint="claude_code")
         self.assertIsInstance(result, LoadError)
         self.assertEqual(result.code, "mismatch")
-        self.assertEqual(result.selected, "ccsession")
+        self.assertEqual(result.selected, "claude_code")
         self.assertEqual(result.detected, "codearts")
 
     def test_truncation_when_max_steps_is_low(self):

@@ -25,7 +25,7 @@ def _trajectory(path: Path, *, steps: int = 3) -> Path:
     entries = []
     for i in range(steps):
         entries.append({
-            "type": "assistant", "uuid": f"u{i}",
+            "type": "assistant", "sessionId": "test-session", "uuid": f"u{i}",
             "message": {
                 "id": f"m{i}", "role": "assistant",
                 "content": [{"type": "text", "text": f"step {i}"},
@@ -35,7 +35,7 @@ def _trajectory(path: Path, *, steps: int = 3) -> Path:
             },
         })
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"trajectory": entries}))
+    path.write_text(json.dumps(entries))
     return path
 
 

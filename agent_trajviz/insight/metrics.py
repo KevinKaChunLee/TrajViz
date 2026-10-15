@@ -13,7 +13,7 @@ def effective_agent(s: dict) -> str:
     """Return the best agent identifier for a step.
 
     User turns always map to ``""`` (main).  For assistant turns:
-    - Claude Code / OpenCode: uses ``agent`` field (sub-agent ID).
+    - Native Claude Code: uses ``agent`` (children share the root sessionId).
     - CodeArts: uses ``session_id`` as the grouping key since each
       sub-agent gets a distinct session, and ``agent`` may be the same
       generic name (e.g. "Agent") for both main and sub-agent messages.
@@ -26,10 +26,11 @@ def effective_agent(s: dict) -> str:
     # Sub-agent: isSubAgent set, or the OpenCode "(subagent)" name suffix.
     # CodeArts groups by session_id (agent name is often generic).
     if s.get("is_sub_agent") or suffix_sub:
+        if "parent_agent_id" in s:
+            return agent or s.get("session_id") or ""
         return s.get("session_id") or agent or ""
-    # Claude Code step (no is_sub_agent key): a non-empty agent id denotes a
-    # sub-agent, the main agent is empty. A named main agent under the
-    # opencode/codearts convention (is_sub_agent present but false) maps to "".
+    # Custom steps may name children without the explicit is_sub_agent flag.
+    # A named main agent with is_sub_agent=False maps to "".
     if "is_sub_agent" not in s:
         return agent
     return ""
@@ -1142,9 +1143,9 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
         d["tool_call_count"] += s.get("tool_call_count", 0)
         d["error_count"] += s.get("error_count", 0)
 
-    # Build spawning map from _cc_sub_agents
+    # Build spawning map from native Claude Code child transcripts.
     spawned_by_map: dict[str, str] = {}  # agent_id -> spawned_by_tool_call_id
-    cc_sub_agents = raw.get("_cc_sub_agents", [])
+    cc_sub_agents = raw.get("_claude_code_sub_agents", [])
     if isinstance(cc_sub_agents, list):
         for sa in cc_sub_agents:
             if isinstance(sa, dict) and sa.get("agent_id"):
