@@ -43,6 +43,7 @@ import threading
 import unittest
 import zipfile
 from dataclasses import asdict
+from functools import wraps
 from pathlib import Path
 
 from agent_trajviz.insight import attribution
@@ -192,6 +193,7 @@ class MidDiagnosisMutationTests(_RootRestoringTest):
         import awe.dossier as dossier
         original = dossier.case_record
 
+        @wraps(original)
         def racing(*args, **kwargs):
             out = original(*args, **kwargs)
             mutate()
