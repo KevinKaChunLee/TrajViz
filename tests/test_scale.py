@@ -18,16 +18,15 @@ from pathlib import Path
 
 import agent_trajviz as tv
 
-FIXTURE = (Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory"
-           / "claude_code" / "django__django-11477.json")
+FIXTURE = (Path(__file__).resolve().parent / "fixtures" / "native_claude_code" / "django__django-11477.jsonl")
 _ID = re.compile(r'"((?:toolu_|msg_|req_)[A-Za-z0-9_]+|00000000-0000-4000-8000-[0-9]{12})"')
 _TS = re.compile(r'"timestamp": "([0-9T:\-\.]+)Z"')
 
 
 def replayed(copies: int, directory: Path) -> Path:
     """The fixture's turns replayed *copies* times as one longer session."""
-    data = json.loads(FIXTURE.read_text())
-    head, body = data["trajectory"][:6], data["trajectory"][6:]
+    data = [json.loads(line) for line in FIXTURE.read_text().splitlines()]
+    head, body = data[:6], data[6:]
     template = json.dumps(body)
     entries = list(head)
     for k in range(copies):
@@ -39,11 +38,8 @@ def replayed(copies: int, directory: Path) -> Path:
             return f'"timestamp": "{stamp.isoformat(timespec="milliseconds")}Z"'
 
         entries.extend(json.loads(_TS.sub(shifted, _ID.sub(new_id, template))))
-    for i, entry in enumerate(entries):
-        entry["index"] = i
-    data["trajectory"] = entries
-    path = directory / f"replayed_{copies}.json"
-    path.write_text(json.dumps(data))
+    path = directory / f"replayed_{copies}.jsonl"
+    path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
     return path
 
 

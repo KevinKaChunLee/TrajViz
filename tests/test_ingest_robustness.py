@@ -31,6 +31,8 @@ import zipfile
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from claude_native_helpers import native_events
+
 from agent_trajviz.insight.formats.parse import _parse_jsonl_events
 from agent_trajviz.insight.loaders import load_trajectory
 from agent_trajviz.insight.metrics import build_message_metrics, compute_metrics
@@ -177,9 +179,9 @@ class LoadTrajectoryNeverRaises(unittest.TestCase):
                                   "messages": [{"info": None, "parts": []}]},
             "time_is_text.json": {"info": {"time": {"created": "yesterday"}}, "messages": []},
             "tokens_is_string.json": {"info": {}, "messages": [{"info": {"tokens": "lots"}, "parts": []}]},
-            "cc_trajectory_is_string.json": {"format": "ccsession-trajectory", "trajectory": "nope"},
-            "cc_trajectory_of_scalars.json": {"format": "ccsession-trajectory", "trajectory": [None, 3, "x"]},
-            "cc_message_is_string.json": {"format": "ccsession-trajectory", "trajectory": [{"message": "str"}]},
+            "cc_content_is_string.json": [{"type": "assistant", "sessionId": "s", "uuid": "a", "message": {"role": "assistant", "content": "nope"}}],
+            "cc_content_of_scalars.json": [{"type": "assistant", "sessionId": "s", "uuid": "a", "message": {"role": "assistant", "content": [None, 3, "x"]}}],
+            "cc_message_is_string.json": [{"type": "assistant", "sessionId": "s", "uuid": "a", "message": "str"}],
         }
         for name, doc in cases.items():
             with self.subTest(case=name):
@@ -206,16 +208,11 @@ class LoadTrajectoryNeverRaises(unittest.TestCase):
         sources = {
             "opencode.json": json.dumps(_opencode_doc([_opencode_message(index=i, created=i * 1000)
                                                        for i in range(20)])),
-            "ccsession.json": json.dumps({
-                "format": "ccsession-trajectory",
-                "session": {"session_id": "s1", "working_directory": "/p"},
-                "trajectory": [
-                    {"index": i, "type": "assistant", "timestamp": "2026-01-05T12:00:00.000Z",
-                     "message_id": f"m{i}", "message": {"role": "assistant", "content": [
-                         {"type": "text", "text": "x" * 200}]}}
+            "claude_code.json": json.dumps(native_events([
+                    {"role": "assistant", "timestamp": "2026-01-05T12:00:00.000Z",
+                     "message_id": f"m{i}", "content": [{"type": "text", "text": "x" * 200}]}
                     for i in range(20)
-                ],
-            }),
+                ])),
             "codex.jsonl": _jsonl_text(_codex_stream()),
         }
         for name, text in sources.items():
@@ -298,25 +295,22 @@ class LoadTrajectoryNeverRaises(unittest.TestCase):
             "schema_version": 2, "source_format": "codearts_opencode_sqlite",
             "generator_name": "codearts_consolidator",
         }
-        ccsession = {
-            "format": "ccsession-trajectory",
-            "trajectory": [{
+        claude_code = native_events([{
                 "role": "assistant",
                 "content": [{"type": "text", "text": "hi"}],
                 "usage": {"input_tokens": "50", "output_tokens": 5,
                           "cache_read_input_tokens": "0",
                           "cache_creation_input_tokens": "0"},
-            }],
-        }
+            }])
         for name, doc in (("opencode", opencode), ("codearts", codearts),
-                          ("ccsession", ccsession)):
+                          ("claude_code", claude_code)):
             with self.subTest(format=name):
                 raw = self._assert_contract(_write_json(self.tmp, f"tokens_{name}.json", doc))
                 self.assertNotIn("_error", raw)
-                self.assertEqual(raw["token_usage"]["total_tokens"], 0)
+                self.assertEqual(raw["token_usage"]["total_tokens"], 5 if name == "claude_code" else 0)
         # Claude Code sums its per-message usage, so the one usable field in
         # that payload must survive while the strings drop out.
-        cc_raw = load_trajectory(os.path.join(self.tmp, "tokens_ccsession.json"))
+        cc_raw = load_trajectory(os.path.join(self.tmp, "tokens_claude_code.json"))
         self.assertEqual([s["tokens"]["total"] for s in parse_steps(cc_raw)], [5])
 
     def test_non_finite_token_values_do_not_crash_the_pipeline(self):
@@ -686,7 +680,7 @@ class MetricInvariants(unittest.TestCase):
 class StepSchemaContract(unittest.TestCase):
     """The generic ``parse_steps`` path and the Claude Code fast path share one schema.
 
-    ``parse_steps`` returns ``raw["_cc_parsed_steps"]`` verbatim for Claude Code
+    ``parse_steps`` returns ``raw["_claude_code_parsed_steps"]`` verbatim for Claude Code
     (``parser.py``), so ``_cc_build_step`` is the second writer of a schema every
     downstream reader shares. Key drift between the two is invisible until a
     reader stops using ``.get()``.
@@ -704,21 +698,6 @@ class StepSchemaContract(unittest.TestCase):
         "_metrics_unavailable_fields",
     })
 
-    # Keys the Claude Code path legitimately does not carry.
-    _CC_EXEMPT_KEYS = frozenset({
-        # Load-bearing ABSENCE: metrics.effective_agent() reads a missing
-        # is_sub_agent as the Claude Code convention (a non-empty ``agent``
-        # names a sub-agent). Adding the key, even as False, re-buckets every
-        # sub-agent step into the main agent. See _cc_build_step.
-        "is_sub_agent",
-        # The OpenCode session hierarchy fields; Claude Code models sub-agents
-        # through ``agent`` plus _cc_sub_agents, not nested session ids.
-        "parent_session_id", "session_depth", "session_title",
-        # Only ever non-empty on a compaction checkpoint, which Claude Code
-        # exports do not record as a trajectory entry.
-        "compaction_reason",
-    })
-
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()
         self.tmp = self._dir.name
@@ -733,16 +712,13 @@ class StepSchemaContract(unittest.TestCase):
         return steps[0]
 
     def _cc_step(self):
-        doc = {
-            "format": "ccsession-trajectory",
-            "trajectory": [{
+        doc = native_events([{
                 "role": "assistant", "timestamp": "2026-01-05T12:00:02.000Z",
                 "content": [{"type": "text", "text": "done"}],
                 "usage": {"input_tokens": 40, "output_tokens": 60,
                           "cache_read_input_tokens": 0,
                           "cache_creation_input_tokens": 0},
-            }],
-        }
+            }])
         raw = load_trajectory(_write_json(self.tmp, "cc.json", doc))
         self.assertNotIn("_error", raw)
         steps = parse_steps(raw)
@@ -755,12 +731,16 @@ class StepSchemaContract(unittest.TestCase):
 
     def test_claude_code_steps_carry_the_same_keys_as_the_generic_path(self):
         """The fast path must not be a silent subset of the schema it shares."""
-        missing = set(self._generic_step()) - set(self._cc_step()) - self._CC_EXEMPT_KEYS
+        missing = set(self._generic_step()) - set(self._cc_step())
         self.assertEqual(missing, set())
 
-    def test_claude_code_steps_never_carry_is_sub_agent(self):
-        """Its absence is the signal; see ``_CC_EXEMPT_KEYS``."""
-        self.assertNotIn("is_sub_agent", self._cc_step())
+    def test_claude_code_steps_explicitly_identify_the_main_agent(self):
+        step = self._cc_step()
+        self.assertIs(step["is_sub_agent"], False)
+        self.assertEqual(step["session_id"], "test-session")
+        self.assertEqual(step["parent_agent_id"], "")
+        self.assertEqual(step["parent_session_id"], "")
+        self.assertEqual(step["session_depth"], 0)
 
     def test_claude_code_normalized_keys_stay_neutral(self):
         """The normalized keys must report "nothing known", not a fabricated value.

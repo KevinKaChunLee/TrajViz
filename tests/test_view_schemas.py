@@ -23,8 +23,8 @@ import agent_trajviz as tv
 from agent_trajviz import views as views_mod
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-CC = FIXTURES / "reference" / "data" / "trajectory" / "claude_code"
-RUNS = [CC / "django__django-11477.json", CC / "astropy__astropy-13033.json",
+CC = FIXTURES / "native_claude_code"
+RUNS = [CC / "django__django-11477.jsonl", CC / "astropy__astropy-13033.jsonl",
         FIXTURES / "codearts_minimal.json", FIXTURES / "cursor_minimal.json", FIXTURES / "icode_minimal.json"]
 T0 = 1_700_000_000_000
 

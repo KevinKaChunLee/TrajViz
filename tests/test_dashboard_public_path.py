@@ -22,7 +22,7 @@ from agent_trajviz import plugins
 from agent_trajviz import views as views_mod
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-CC_RUN = FIXTURES / "reference" / "data" / "trajectory" / "claude_code" / "django__django-11477.json"
+CC_RUN = FIXTURES / "native_claude_code" / "django__django-11477.jsonl"
 T0 = 1_700_000_000_000
 
 

@@ -23,7 +23,7 @@ from agent_trajviz.views import _jsonable
 
 REPO = Path(__file__).resolve().parent.parent
 FIXTURES = REPO / "tests" / "fixtures"
-CC_RUN = FIXTURES / "reference" / "data" / "trajectory" / "claude_code" / "django__django-11477.json"
+CC_RUN = FIXTURES / "native_claude_code" / "django__django-11477.jsonl"
 RUNS = [CC_RUN, FIXTURES / "codearts_minimal.json", FIXTURES / "cursor_minimal.json", FIXTURES / "icode_minimal.json"]
 
 

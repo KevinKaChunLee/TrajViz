@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-_OBJECT_FORMATS = frozenset({"ccsession", "codearts", "cursor", "icode", "opencode"})
-_EVENT_FORMATS = frozenset({"codex", "pi", "dsh"})
+_OBJECT_FORMATS = frozenset({"codearts", "cursor", "icode", "opencode"})
+_EVENT_FORMATS = frozenset({"claude_code", "codex", "pi", "dsh"})
 _FORMAT_STAMPS = {
-    "ccsession": "_cc_format",
+    "claude_code": "_claude_code_format",
     "codearts": "_codearts_format",
     "cursor": "_cursor_format",
     "icode": "_icode_format",
@@ -14,6 +14,28 @@ _FORMAT_STAMPS = {
     "dsh": "_dsh_format",
 }
 _CHRYS_EXPANDED_FORMAT = "chrys-expanded-session-v1"
+
+
+def _looks_like_claude_code_events(events: list) -> bool:
+    """Recognize saved Claude transcripts, including logs led by metadata.
+
+    The camelCase session envelope distinguishes native transcripts from
+    generic message JSONL and the CLI's different ``stream-json`` protocol.
+    """
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") not in ("user", "assistant", "system", "progress"):
+            continue
+        sid = event.get("sessionId")
+        if isinstance(sid, str) and sid:
+            return True
+        if (event.get("type") in ("user", "assistant")
+                and isinstance(event.get("message"), dict)
+                and isinstance(event.get("uuid"), str) and event["uuid"]
+                and "parentUuid" in event):
+            return True
+    return False
 
 
 def _looks_like_codex_jsonl(events: list) -> bool:
@@ -70,9 +92,11 @@ def _looks_like_pi_jsonl(events: list) -> bool:
 
 
 def _detect_event_stream_format(events: list) -> str:
-    """Detect Codex / DSH / Pi from a parsed event array (JSONL or a JSON list)."""
-    if not events or not isinstance(events[0], dict):
+    """Detect Claude Code / Codex / DSH / Pi from a parsed event array."""
+    if not events:
         return "unknown"
+    if _looks_like_claude_code_events(events):
+        return "claude_code"
     if _looks_like_codex_jsonl(events):
         return "codex"
     # DSH before Pi: both lead with ``type: session`` + string ``id``.
@@ -121,8 +145,8 @@ def _detect_object_format(raw: dict) -> str:
     """Detect format of a parsed JSON object (raw export or already-converted)."""
     # Post-conversion markers: converters build/stamp a dict so a second pass
     # (UI gate, attribution, run-group) still reports the originating product.
-    if raw.get("_cc_format") is True:
-        return "ccsession"
+    if raw.get("_claude_code_format") is True:
+        return "claude_code"
     if raw.get("_codex_format") is True:
         return "codex"
     if raw.get("_pi_format") is True:
@@ -133,8 +157,6 @@ def _detect_object_format(raw: dict) -> str:
         return "icode"
     if raw.get("_cursor_format") is True:
         return "cursor"
-    if raw.get("format") == "ccsession-trajectory":
-        return "ccsession"
     # CodeArts exports use an OpenCode-compatible ``info + messages``
     # envelope.  Check their explicit export marker before the generic
     # OpenCode shape so the UI does not mislabel the originating product.

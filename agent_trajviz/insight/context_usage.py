@@ -12,6 +12,7 @@ from __future__ import annotations
 import bisect
 import html
 import json
+import math
 from collections.abc import Iterable
 from typing import Any
 
@@ -100,6 +101,10 @@ def _pressure_agent(step: dict) -> str:
     sessions are not tagged ``isSubAgent`` / ``(subagent)``. Prefer
     ``session_id`` when present; otherwise fall back to ``effective_agent``.
     """
+    # Native Claude children share the root sessionId but have independent
+    # windows, including their user prompts and compaction checkpoints.
+    if "parent_agent_id" in step:
+        return step.get("agent") or ""
     session_id = step.get("session_id") or ""
     if isinstance(session_id, str) and session_id:
         return session_id
@@ -110,9 +115,7 @@ def _pressure_agent(step: dict) -> str:
     suffix_sub = isinstance(agent, str) and agent.endswith("(subagent)")
     if step.get("is_sub_agent") or suffix_sub:
         return agent or ""
-    # Claude Code carries no is_sub_agent key: a non-empty agent names the
-    # sub-agent (metrics.effective_agent), so its compaction checkpoint belongs
-    # to that sub-agent's window, not to the main one.
+    # Custom steps can name a child without an explicit is_sub_agent flag.
     if "is_sub_agent" not in step and isinstance(agent, str):
         return agent
     return ""
@@ -632,7 +635,11 @@ def detect_compaction_events(steps: list[dict]) -> list[dict]:
         agent_id = _pressure_agent(step)
 
         if step.get("is_compaction_checkpoint") or step.get("role") == "compaction":
-            events.append(_event(step, "compaction_message", agent_id, position=i))
+            compact = step.get("compaction_metadata")
+            before = compact.get("preTokens") if isinstance(compact, dict) else None
+            if isinstance(before, bool) or not isinstance(before, (int, float)) or not math.isfinite(before) or before < 0:
+                before = None
+            events.append(_event(step, "compaction_message", agent_id, position=i, occupancy_before=before))
             explicit_steps.add(idx)
             continue
 

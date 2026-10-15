@@ -10,7 +10,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .formats.claude_code import _convert_claude_code_to_internal
+from .formats.claude_code import convert_claude_code_events
+from .formats.claude_files import (
+    ClaudeSessionFiles,
+    claude_tree_sha256,
+    discover_claude_children,
+    parse_claude_zip,
+    resolve_session_path,
+)
 from .formats.codearts import _convert_codearts_metadata
 from .formats.codex import _convert_codex_to_internal
 from .formats.cursor import _convert_cursor_to_internal
@@ -26,7 +33,6 @@ from .formats.dsh import (
     _dsh_drop_seed_prefix,  # noqa: F401
     _zip_dsh_members,  # noqa: F401
     parse_dsh_zip,
-    resolve_dsh_session_path,
 )
 from .formats.opencode import _convert_opencode_metadata
 from .formats.parse import _normalize_payload, _parse_trajectory_text, _path_ext
@@ -45,7 +51,7 @@ logger = logging.getLogger(__name__)
 # next to detect_format, as the single source of truth — UI/report modules
 # import this mapping instead of maintaining their own drifting copies.
 FORMAT_LABELS = {
-    "ccsession": "Claude Code",
+    "claude_code": "Claude Code",
     "cursor": "Cursor",
     "codearts": "CodeArts",
     "icode": "ICode",
@@ -77,7 +83,17 @@ def _convert_pi_events(payload: list, *, source_path: str | None = None) -> dict
     return _convert_pi_to_internal(payload)
 
 
+def _convert_claude_events(payload: list, *, source_path: str | None = None) -> dict:
+    bundle = discover_claude_children(payload, source_path) if source_path else ClaudeSessionFiles(payload)
+    result = convert_claude_code_events(
+        payload, source_path=source_path, child_event_lists=bundle.children, child_warnings=bundle.warnings,
+    )
+    result["_claude_code_child_hashes"] = bundle.child_hashes
+    return result
+
+
 _EVENT_CONVERTERS = {
+    "claude_code": _convert_claude_events,
     "codex": _convert_codex_events,
     "dsh": _convert_dsh_events,
     "pi": _convert_pi_events,
@@ -97,7 +113,7 @@ if set(FORMAT_LABELS) != _OBJECT_FORMATS | _EVENT_FORMATS:
 def detect_format(raw: Any) -> str:
     """Detect trajectory format from parsed content.
 
-    Accepts a JSON object or an event array. Returns ``ccsession``,
+    Accepts a JSON object or an event array. Returns ``claude_code``,
     ``opencode``, ``codearts``, ``cursor``, ``icode``, ``codex``, ``pi``, ``dsh``,
     or ``unknown``.
     """
@@ -144,7 +160,8 @@ def check_format_selection(detected: str, selected: str | None) -> str | None:
 
 
 _UNSUPPORTED_EVENT_STREAM = (
-    "Unsupported event-array input; expected Codex JSONL "
+    "Unsupported event-array input; expected native Claude Code JSONL "
+    "(user/assistant messages with sessionId), Codex JSONL "
     "(leading session_meta event), Pi JSONL "
     "(leading session event), or DeepSeek Harness JSONL "
     "(leading session event with createdAt / slash-typed body events)."
@@ -171,8 +188,9 @@ def _format_mismatch_error(selected: str, detected: str) -> dict:
 def _kind_mismatch_error(fmt: str) -> dict:
     label = FORMAT_LABELS.get(fmt, fmt)
     if fmt in _EVENT_FORMATS:
-        leading = "session_meta" if fmt == "codex" else "session"
-        return {"_error": f"{label} expects a JSONL event array (leading {leading} event)."}
+        shape = "native sessionId message records" if fmt == "claude_code" else (
+            "leading session_meta event" if fmt == "codex" else "leading session event")
+        return {"_error": f"{label} expects a JSONL event array ({shape})."}
     return {"_error": f"{label} expects a JSON object, not an event array."}
 
 
@@ -196,8 +214,6 @@ def _apply_format(payload: Any, fmt: str, *, source_path: str | None = None) -> 
 
     if not isinstance(payload, dict):
         return _kind_mismatch_error(fmt)
-    if fmt == "ccsession":
-        return _convert_claude_code_to_internal(payload)
     if fmt == "codearts":
         # Legacy-JSON exports are detected as CodeArts (so the UI labels them
         # correctly) but have no parser yet: their 'sender'/'content' messages
@@ -219,9 +235,26 @@ def _apply_format(payload: Any, fmt: str, *, source_path: str | None = None) -> 
     return {"_error": f"Unknown trajectory format: {fmt}"}
 
 
-def _load_zip_trajectory(file_path: str, format_hint: str | None, source_sha: str) -> dict:
-    """Load a DSH export zip (``session.jsonl`` + optional ``subagents/``)."""
-    parsed = parse_dsh_zip(file_path)
+def _load_zip_trajectory(file_path: str, format_hint: str | None, source_sha: str,
+                         source_data: bytes | None = None) -> dict:
+    """Load a native Claude Code or DSH session bundle."""
+    # Preserve DSH's established selection rules: unrelated debug JSONL files
+    # are not additional parent sessions in a DSH export.
+    parsed = parse_dsh_zip(file_path, data=source_data)
+    is_dsh = isinstance(parsed, DshZipContents) and detect_format(parsed.parent_events) == "dsh"
+    claude = None if is_dsh else parse_claude_zip(file_path, data=source_data)
+    if isinstance(claude, dict):
+        return claude
+    if isinstance(claude, ClaudeSessionFiles):
+        if format_hint in FORMAT_LABELS and format_hint != "claude_code":
+            return _format_mismatch_error(format_hint, "claude_code")
+        result = convert_claude_code_events(
+            claude.events, source_path=f"{file_path}!/{claude.parent_member}",
+            child_event_lists=claude.children, child_warnings=claude.warnings,
+        )
+        result["_source_path"] = file_path
+        result["_source_sha256"] = source_sha
+        return result
     if not isinstance(parsed, DshZipContents):
         return parsed
     events = parsed.parent_events
@@ -303,16 +336,16 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
 
     Reads the file once (sha256 of those exact bytes), sniffs JSON object vs
     event array vs JSONL, detects format, then converts. ``format_hint``
-    forces a converter when detection is ``unknown`` (unmarked Claude dumps)
+    forces a converter when detection is ``unknown``
     and *requires* that format when detection already succeeded.
 
-    DeepSeek Harness exports may be a ``session.jsonl``, a session directory
-    containing that file plus ``subagents/``, or a zip of that layout.
+    Native Claude Code and DeepSeek Harness sessions may include sub-agent
+    trees beside the parent file, in a session directory, or in a ZIP bundle.
     """
     if _path_ext(file_path) == ".log":
         return {"_error": "Unsupported file type: .log files are no longer supported."}
 
-    file_path, path_error = resolve_dsh_session_path(file_path)
+    file_path, path_error = resolve_session_path(file_path)
     if path_error:
         return {"_error": path_error}
 
@@ -325,7 +358,7 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
 
     ext = _path_ext(file_path)
     if ext == ".zip" or (data.startswith(b"PK") and ext not in {".json", ".jsonl"}):
-        return _load_zip_trajectory(file_path, format_hint, source_sha)
+        return _load_zip_trajectory(file_path, format_hint, source_sha, data)
 
     try:
         text = data.decode("utf-8-sig")
@@ -345,9 +378,14 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
 
     result = _apply_format(payload, fmt, source_path=file_path)
     merged_sources = result.pop("_dsh_merged_sources", None)
+    claude_children = result.pop("_claude_code_child_hashes", None)
     if "_error" in result:
         return result
     result["_source_path"] = file_path
+    if claude_children:
+        result["_source_file_sha256"] = source_sha
+        result["_source_merged_count"] = len(claude_children)
+        source_sha = claude_tree_sha256(source_sha, claude_children)
     if merged_sources:
         # A DSH export is a TREE: the converter merged sibling
         # `subagents/<id>/session.jsonl` logs that are not in `source_sha`, so

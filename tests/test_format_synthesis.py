@@ -23,6 +23,8 @@ import tempfile
 import unittest
 import zipfile
 
+from claude_native_helpers import native_events
+
 from agent_trajviz.insight.formats.sniff import _EVENT_FORMATS, _OBJECT_FORMATS
 from agent_trajviz.insight.loaders import (
     FORMAT_LABELS,
@@ -886,14 +888,10 @@ def opencode_export() -> dict:
     }
 
 
-def claude_code_export() -> dict:
-    return {
-        "format": "ccsession-trajectory",
-        "metadata": {"session_id": "cc-1", "cwd": "/w/proj"},
-        "trajectory": [
+def claude_code_export() -> list[dict]:
+    return native_events([
             {"role": "user", "content": "hi", "timestamp": "2026-08-01T00:00:00Z"},
-        ],
-    }
+        ])
 
 
 def codearts_export() -> dict:
@@ -923,7 +921,7 @@ class FormatPrecedenceTests(unittest.TestCase):
         """A silent mis-claim has no error path: every downstream number would
         be computed by the wrong converter."""
         self.assertEqual(detect_format(opencode_export()), "opencode")
-        self.assertEqual(detect_format(claude_code_export()), "ccsession")
+        self.assertEqual(detect_format(claude_code_export()), "claude_code")
         self.assertEqual(detect_format(codearts_export()), "codearts")
         self.assertEqual(detect_format(codex_events()), "codex")
 

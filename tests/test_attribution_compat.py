@@ -102,6 +102,35 @@ def test_legacy_api_keeps_per_call_provenance_controls(decaf, monkeypatch):
     assert decaf.calls == [("detect", False)]
 
 
+@pytest.mark.parametrize("policy,available,expected", [
+    (None, True, True),     # Auto mode found a usable cached verdict.
+    (None, False, False),   # No usable verdict, including a failed parse.
+    (None, None, False),    # Judge inactive: no availability signal at all.
+    (False, True, False),   # Provenance policy disables the layer explicitly.
+    (True, False, False),   # Enabling the layer does not establish coverage.
+])
+def test_legacy_judge_usage_reports_actual_coverage_not_the_policy_flag(
+        decaf, monkeypatch, policy, available, expected):
+    monkeypatch.setattr(seam, "_llm_layer_policy", lambda *args: (policy, None, []))
+
+    def legacy(agent, name, *, use_judge=None, adjudicate=None):
+        assert use_judge is policy and adjudicate is None
+        return {"agent": agent, "instance_id": name, "blame_status": "unattributed", "faults": []}
+
+    def detect(name, agent, *, use_judge=None):
+        decaf.calls.append(("detect", use_judge))
+        # A task opportunity alone does not mean a cached judge assessed it.
+        signals = {} if available is None else {"judge_available": available}
+        return {"resolved": False, "opportunities": {"requirement_understanding": True},
+                "signals": signals}
+
+    decaf.modules["dossier"].case_record = legacy
+    decaf.modules["detect"].detect = detect
+    result = seam.diagnose(agent="claude_code", instance_id="case-1", source_path=decaf.path)
+    assert result.available and result.used_judge is expected
+    assert decaf.calls == [("detect", policy)]
+
+
 def test_current_canonical_resolution_matches_codex_and_jsonl_fallback(decaf):
     for agent in ("codex", "pi"):
         parent = decaf.config.TRAJECTORY_DIR / agent

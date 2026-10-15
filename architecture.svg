@@ -14,12 +14,12 @@
   <!-- ============ 1. DATA SOURCES ============ -->
   <rect x="20" y="94" width="1200" height="150" rx="14" fill="#f5f8ff" stroke="#c7d7f5" stroke-width="1.5" stroke-dasharray="4 4"/>
   <circle cx="44" cy="120" r="11" fill="#334155"/><text x="44" y="125" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">1</text>
-  <text x="64" y="125" font-size="15" font-weight="700" fill="#334155">DATA SOURCES — agents produce raw trajectory JSON</text>
+  <text x="64" y="125" font-size="15" font-weight="700" fill="#334155">DATA SOURCES — agents produce raw trajectory JSON / JSONL</text>
 
-  <!-- Object formats (Claude Code / OpenCode / CodeArts) -->
+  <!-- Native Claude Code sessions and object exports -->
   <rect x="40" y="140" width="216" height="42" rx="8" fill="#ffffff" stroke="#bcd0f0" stroke-width="1.5"/>
   <text x="56" y="157" font-size="14" font-weight="700" fill="#0f172a">Claude Code</text>
-  <text x="56" y="174" font-size="11" fill="#64748b">trajectory export</text>
+  <text x="56" y="174" font-size="11" fill="#64748b">native jsonl · subagents · zip</text>
 
   <rect x="276" y="140" width="216" height="42" rx="8" fill="#ffffff" stroke="#bcd0f0" stroke-width="1.5"/>
   <text x="292" y="157" font-size="14" font-weight="700" fill="#0f172a">OpenCode</text>
@@ -64,7 +64,7 @@
   <polyline points="824,230 824,272" fill="none" stroke="#2563eb" stroke-width="2"/>
   <polyline points="148,272 932,272" fill="none" stroke="#2563eb" stroke-width="2"/>
   <polyline points="148,272 148,308" fill="none" stroke="#2563eb" stroke-width="2" marker-end="url(#ah-blue)"/>
-  <rect x="346" y="256" width="76" height="17" fill="#ffffff"/><text x="384" y="269" font-size="12" fill="#2563eb" font-style="italic" text-anchor="middle">raw JSON</text>
+  <rect x="331" y="256" width="106" height="17" fill="#ffffff"/><text x="384" y="269" font-size="12" fill="#2563eb" font-style="italic" text-anchor="middle">JSON / JSONL</text>
   <polyline points="1092,230 1092,308" fill="none" stroke="#17a673" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#ah-green)"/>
   <rect x="1100" y="256" width="52" height="17" fill="#ffffff"/><text x="1102" y="269" font-size="12" fill="#17a673" font-style="italic">sidecar</text>
 

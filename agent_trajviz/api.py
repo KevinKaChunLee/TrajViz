@@ -171,6 +171,17 @@ class Trajectory:
         if not isinstance(fmt, str) or not fmt:
             raise ValueError("not an agent-trajviz trajectory: no format")
         raw = data.get("raw")
+        raw = dict(raw) if isinstance(raw, Mapping) else {}
+        if fmt == "ccsession":
+            # Schema-v1 public exports already contain normalized steps. Keep
+            # those saved documents readable after replacing the old source
+            # converter, without accepting its raw session-export wrapper.
+            fmt = "claude_code"
+            for old, new in (("_cc_format", "_claude_code_format"),
+                             ("_cc_parsed_steps", "_claude_code_parsed_steps"),
+                             ("_cc_sub_agents", "_claude_code_sub_agents")):
+                if old in raw:
+                    raw.setdefault(new, raw.pop(old))
         return cls(
             format=fmt,
             steps=cast("list[Step]", list(data["steps"])),
@@ -178,7 +189,7 @@ class Trajectory:
             sha256=data.get("sha256"),
             warnings=tuple(str(w) for w in data.get("warnings") or ()),
             tokens_estimated=bool(data.get("tokens_estimated")),
-            raw=dict(raw) if isinstance(raw, Mapping) else {},
+            raw=raw,
         )
 
     @classmethod

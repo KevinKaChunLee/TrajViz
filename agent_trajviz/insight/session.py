@@ -90,9 +90,7 @@ class LoadedSession:
 
 
 def _path_exists(file_path: str) -> bool:
-    return os.path.isfile(file_path) or (
-        os.path.isdir(file_path) and os.path.isfile(os.path.join(file_path, "session.jsonl"))
-    )
+    return os.path.isfile(file_path) or os.path.isdir(file_path)
 
 
 def load_session(path: str, format_hint: str = "") -> LoadedSession | LoadError:
