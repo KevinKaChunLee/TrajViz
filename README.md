@@ -106,8 +106,10 @@ labeled control on the right edge. It runs an automatic analysis
 when a trajectory loads, then answers follow-up questions. It uses the same
 dashboard statistics (health verdicts, bottlenecks, failures, fruitless
 streaks) and replies in English by default (set `ANALYZE_LANGUAGE`, e.g.
-`Simplified Chinese` or `German`, to change it — the Issues fix judge follows the same setting). It does not
-re-upload the raw file. Configure the model in `.env`:
+`Simplified Chinese` or `German`, to change it — the Issues fix judge follows
+the same setting and runs automatically after each load when configured; the
+button re-runs it). It does not re-upload the raw file. Configure the model in
+`.env`:
 
 ```bash
 cp .env.example .env

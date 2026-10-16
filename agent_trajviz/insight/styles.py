@@ -1731,31 +1731,35 @@ html.tv-theme-dark {
     border-radius: 10px;
 }
 /* Closed right-edge tab: Gradio rotates this button 180deg, so undo that
-   before adding a readable label next to the chevron. */
+   before adding a readable label next to the chevron. Orange fill so first-time
+   users spot the AI analysis entry point. */
 #analysis-sidebar.right:not(.open) .toggle-button {
     transform: none;
     width: auto;
     height: auto;
-    padding: 7px 12px 7px 8px;
-    gap: 8px;
-    border-radius: 8px 0 0 8px;
-    border: 1px solid var(--ov-border, var(--border-color-primary));
+    min-height: 44px;
+    padding: 12px 16px 12px 12px;
+    gap: 10px;
+    border-radius: 10px 0 0 10px;
+    border: 1px solid #ea580c;
     border-right: none;
-    box-shadow: -2px 2px 8px var(--ov-card-shadow, rgba(15, 23, 42, 0.08));
-    background: var(--ov-card, var(--background-fill-secondary));
+    box-shadow: -3px 3px 12px rgba(234, 88, 12, 0.28);
+    background: #ea580c;
+    color: #fff;
 }
 #analysis-sidebar.right:not(.open) .toggle-button .chevron {
-    transform: rotate(180deg);
+    transform: rotate(180deg) scale(1.25);
     padding: 0;
+    color: #fff;
 }
 #analysis-sidebar.right:not(.open) .toggle-button::after {
     content: "AI Trajectory Analysis";
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 700;
     letter-spacing: -0.01em;
-    color: var(--ov-text, var(--body-text-color));
+    color: #fff;
     white-space: nowrap;
-    line-height: 1.2;
+    line-height: 1.25;
 }
 """
 

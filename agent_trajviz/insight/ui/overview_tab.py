@@ -125,9 +125,9 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
     with gr.TabItem("Overview"):
         # Debug hero: Issues first; KPI strip lives above the main Tabs.
         issues_html = gr.HTML("")
-        # Opt-in only: judging sends trajectory excerpts (prompts, commands,
-        # file paths, tool output) to the configured LLM endpoint, so it must
-        # never run without an explicit click.
+        # Judging sends trajectory excerpts (prompts, commands, file paths,
+        # tool output) to the configured LLM endpoint. It runs automatically
+        # after load when ANALYZE_*/LABEL_* are set; the button re-runs it.
         suggest_fixes_btn = gr.Button(
             "Suggest fixes with LLM (sends trajectory excerpts to the configured provider)",
             size="sm",
@@ -454,7 +454,7 @@ def bind(
     refs: OverviewRefs,
     shared: SharedState,
     upload: UploadRefs,
-    load_events: tuple = (),  # kept for the uniform tab-bind signature
+    load_events: tuple = (),
 ) -> None:
     overview_section_names = OVERVIEW_SECTION_NAMES
     overview_sections = _resolve_overview_sections(refs)
@@ -472,7 +472,7 @@ def bind(
     )
 
     def on_suggest_fixes(run):
-        """Run the LLM Issues judge on request; progress shows inside the panel."""
+        """Run the LLM Issues judge after load (or on button click); stream progress into the panel."""
         from ..presenters.issues import render_overview_issues_html
 
         if run is None or not run.steps:
@@ -539,10 +539,12 @@ def bind(
         show_progress="minimal",
         concurrency_id="issues_judge",
     )
-    # Explicit click ONLY. Chaining this onto load_events would ship trajectory
-    # excerpts off-box for every file a user opens, with no consent and no way
-    # to decline; the heuristic (offline) Issues panel is what load renders.
+    # After load (heuristic Issues HTML is already painted), and again on click.
+    # Without ANALYZE_*/LABEL_* configured, this only shows the setup banner —
+    # no network call.
     refs.suggest_fixes_btn.click(**judge_event)
+    for _ev in load_events:
+        _ev.then(**judge_event)
 
     @safe_callback("Context utilization")
     def _rebuild_utilization(agent_key, window_limit, snapshot_key, steps, raw, dark):

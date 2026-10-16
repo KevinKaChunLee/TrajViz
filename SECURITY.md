@@ -22,21 +22,21 @@ print. It is built to keep them on your machine.
   `LoadError` (or a clear message on the command line), never execute
   anything, and never write outside the output you asked for. Content is
   HTML-escaped wherever it is rendered, including the standalone report.
-- **Nothing leaves the machine unless you ask.** The core library, the HTML
-  report and the dashboards make no network calls: Gradio's usage telemetry
-  is switched off, and a `--share` link reaches Gradio's tunnel service only
-  because you asked for one. The LLM features (the AI
+- **Nothing leaves the machine unless you configure an endpoint.** The core
+  library, the HTML report and the dashboards make no network calls: Gradio's
+  usage telemetry is switched off, and a `--share` link reaches Gradio's
+  tunnel service only because you asked for one. The LLM features (the AI
   analysis sidebar, the Issues judge, `agent-trajviz-label`) are off until
-  you configure an endpoint, and in the dashboard they run only on an
-  explicit action: opening the sidebar or pressing the judge button. They
-  send a statistics brief and the step text needed for the question to the
-  endpoint you configured, and nowhere else. Before any request leaves,
-  credential-shaped text in it -- provider API keys, tokens, private keys,
-  passwords in URLs and authorization headers, values of secret-named
-  assignments -- is replaced with `[REDACTED]`. That is a safety net for
-  credentials an agent happened to print, not a guarantee: review what you
-  send to a third-party endpoint. Standalone reports load plotly.js from its
-  CDN unless built with `--inline-plotly`.
+  you configure an endpoint. In the dashboard, the Issues judge runs after
+  each load (and again if you press the button); the AI sidebar runs when
+  you open it. They send a statistics brief and the step text needed for
+  the question to the endpoint you configured, and nowhere else. Before any
+  request leaves, credential-shaped text in it -- provider API keys, tokens,
+  private keys, passwords in URLs and authorization headers, values of
+  secret-named assignments -- is replaced with `[REDACTED]`. That is a
+  safety net for credentials an agent happened to print, not a guarantee:
+  review what you send to a third-party endpoint. Standalone reports load
+  plotly.js from its CDN unless built with `--inline-plotly`.
 - **Dashboards are local by default.** Both bind to `127.0.0.1`. Exposing
   one (`--host 0.0.0.0` or `--share`) lets anyone who can reach it upload
   files and spend the LLM key configured on your machine. Set

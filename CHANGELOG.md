@@ -7,6 +7,12 @@ change the public API (the names exported from `agent_trajviz`).
 
 ## [Unreleased]
 
+### Changed
+
+- The Overview "Suggest fixes with LLM" judge runs automatically after each
+  trajectory load when `ANALYZE_*` / `LABEL_*` are configured (the button still
+  re-runs it). Without a configured endpoint it only shows the setup banner.
+
 ### Fixed
 
 - Keep endpoint URL credentials out of the analysis status and provider error
