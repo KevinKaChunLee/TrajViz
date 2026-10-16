@@ -21,6 +21,7 @@ _LIGHT_TOKENS = """
     --ov-text: #0f172a;
     --ov-muted: #5b6473;
     --ov-accent: #1d4ed8;
+    --ov-ai-accent: #ea580c;
     --ov-success: #059669;
     --ov-warn: #b45309;
     --ov-bad: #dc2626;
@@ -89,6 +90,7 @@ _DARK_TOKENS = """
         --ov-text: #e2e8f0;
         --ov-muted: #94a3b8;
         --ov-accent: #60a5fa;
+        --ov-ai-accent: #fb923c;
         --ov-success: #34d399;
         --ov-warn: #fbbf24;
         --ov-bad: #f87171;
@@ -945,6 +947,11 @@ body, p, td, li { font-size: 13px; font-weight: 400; }
 #wf-filter-hidden {
     display: none !important;
 }
+/* Overview → AI sidebar bridge (Gradio must mount these; hide visually). */
+#tv-issue-ask,
+#tv-issue-ask-btn {
+    display: none !important;
+}
 
 .filter-summary {
     display: flex;
@@ -1142,15 +1149,19 @@ html.tv-theme-dark {
     color: var(--ov-text);
     user-select: none;
 }
-.overview-issues-summary::-webkit-details-marker { display: none; }
-.overview-issues-summary::before {
+.overview-issues-summary::-webkit-details-marker,
+.overview-issue-group-head::-webkit-details-marker { display: none; }
+.overview-issues-summary::before,
+.overview-issue-group-head::before {
     content: "▸";
     display: inline-block;
     width: 0.9em;
+    flex-shrink: 0;
     color: var(--ov-muted);
     transition: transform 0.12s ease;
 }
-.overview-issues-panel[open] > .overview-issues-summary::before {
+.overview-issues-panel[open] > .overview-issues-summary::before,
+.overview-issue-group[open] > .overview-issue-group-head::before {
     transform: rotate(90deg);
 }
 .overview-issues-summary-meta {
@@ -1207,6 +1218,75 @@ html.tv-theme-dark {
     font-size: 12px;
     color: var(--ov-muted);
     cursor: help;
+}
+.overview-issue-analyze {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    padding: 4px 10px;
+    border: 1px solid var(--ov-ai-accent);
+    border-radius: 6px;
+    background: #fff7ed;
+    color: #c2410c;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.3;
+    cursor: pointer;
+}
+.overview-issue-analyze:hover {
+    background: var(--ov-ai-accent);
+    color: #fff;
+}
+.overview-issue-group {
+    padding: 8px 10px 4px;
+    background: var(--ov-card);
+    border-left: 3px solid var(--ov-border);
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+.overview-issue-group-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+}
+.overview-issue-group-meta {
+    font-size: 11px;
+    color: var(--ov-muted);
+    font-weight: 600;
+}
+.overview-issue-group-body {
+    margin-top: 6px;
+    padding-left: 6px;
+    border-left: 1px dashed var(--ov-border);
+}
+.overview-issue-child {
+    margin-bottom: 6px;
+}
+.overview-issue-child .overview-issue-card {
+    margin-bottom: 0;
+    background: var(--ov-bg);
+}
+.overview-issue-more {
+    margin: 2px 0 8px;
+}
+.overview-issue-more-summary {
+    list-style: none;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ov-accent);
+    padding: 4px 0;
+    user-select: none;
+}
+.overview-issue-more-summary::-webkit-details-marker { display: none; }
+.overview-issue-more-body {
+    margin-top: 2px;
 }
 .overview-issues-hint {
     margin: 8px 0;
@@ -1731,31 +1811,35 @@ html.tv-theme-dark {
     border-radius: 10px;
 }
 /* Closed right-edge tab: Gradio rotates this button 180deg, so undo that
-   before adding a readable label next to the chevron. */
+   before adding a readable label next to the chevron. Orange fill so first-time
+   users spot the AI analysis entry point. */
 #analysis-sidebar.right:not(.open) .toggle-button {
     transform: none;
     width: auto;
     height: auto;
-    padding: 7px 12px 7px 8px;
-    gap: 8px;
-    border-radius: 8px 0 0 8px;
-    border: 1px solid var(--ov-border, var(--border-color-primary));
+    min-height: 44px;
+    padding: 12px 16px 12px 12px;
+    gap: 10px;
+    border-radius: 10px 0 0 10px;
+    border: 1px solid var(--ov-ai-accent);
     border-right: none;
-    box-shadow: -2px 2px 8px var(--ov-card-shadow, rgba(15, 23, 42, 0.08));
-    background: var(--ov-card, var(--background-fill-secondary));
+    box-shadow: -3px 3px 12px color-mix(in srgb, var(--ov-ai-accent) 28%, transparent);
+    background: var(--ov-ai-accent);
+    color: #fff;
 }
 #analysis-sidebar.right:not(.open) .toggle-button .chevron {
-    transform: rotate(180deg);
+    transform: rotate(180deg) scale(1.25);
     padding: 0;
+    color: #fff;
 }
 #analysis-sidebar.right:not(.open) .toggle-button::after {
     content: "AI Trajectory Analysis";
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 700;
     letter-spacing: -0.01em;
-    color: var(--ov-text, var(--body-text-color));
+    color: #fff;
     white-space: nowrap;
-    line-height: 1.2;
+    line-height: 1.25;
 }
 """
 

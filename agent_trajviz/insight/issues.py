@@ -65,6 +65,40 @@ def rank_issues(issues: list[OverviewIssue]) -> list[OverviewIssue]:
     )
 
 
+_CASCADE_COVER_FRAC = 0.8
+
+
+def dedupe_overlapping_issues(issues: list[OverviewIssue]) -> list[OverviewIssue]:
+    """Drop issues that restate another issue's failures.
+
+    Failure cascades that are mostly covered by an error-cluster issue add little
+    beyond consecutive-thrash chrome, so they are removed when ≥80% of their
+    steps already appear on a ``fail:`` card (includes ``fail:system:``).
+    """
+    fail_steps = {
+        step
+        for issue in issues
+        if issue.source_id.startswith("fail:")
+        for step in issue.steps
+    }
+    if not fail_steps:
+        return list(issues)
+
+    kept: list[OverviewIssue] = []
+    for issue in issues:
+        if issue.source_id.startswith("cascade:") and issue.steps:
+            covered = sum(1 for s in issue.steps if s in fail_steps)
+            if covered / len(issue.steps) >= _CASCADE_COVER_FRAC:
+                continue
+        kept.append(issue)
+    return kept
+
+
+def prepare_overview_issues(session: LoadedSession | Analysis) -> list[OverviewIssue]:
+    """Collect, drop overlaps, and rank — the dashboard Issues leaf list."""
+    return rank_issues(dedupe_overlapping_issues(collect_overview_issues(session)))
+
+
 def collect_overview_issues(session: LoadedSession | Analysis) -> list[OverviewIssue]:
     """Map the analysis results of *session* into issues (no re-detection)."""
     issues: list[OverviewIssue] = []

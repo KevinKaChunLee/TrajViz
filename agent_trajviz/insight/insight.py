@@ -59,6 +59,7 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
             state_raw=gr.State({}),
             state_analysis_brief=gr.State(""),
             state_run=gr.State(None),
+            state_overview_issues=gr.State([]),
         )
 
         sidebar_refs = sidebar.layout()
@@ -122,6 +123,46 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
                     btn.setAttribute('aria-label', 'AI Trajectory Analysis');
                     btn.setAttribute('title', 'AI Trajectory Analysis');
                 }
+                window.tvSetGradioText = function (rootSel, value) {
+                    const el = document.querySelector(
+                        rootSel + ' textarea, ' + rootSel + ' input'
+                    );
+                    if (!el) return false;
+                    const proto = el.tagName === 'TEXTAREA'
+                        ? window.HTMLTextAreaElement.prototype
+                        : window.HTMLInputElement.prototype;
+                    const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+                    if (descriptor && descriptor.set) {
+                        descriptor.set.call(el, value);
+                    } else {
+                        el.value = value;
+                    }
+                    el.dispatchEvent(new InputEvent('input', {
+                        bubbles: true, composed: true, inputType: 'insertText', data: null
+                    }));
+                    el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                    return true;
+                };
+                // Single consumer: the hidden #tv-issue-ask-btn. Cards pass a
+                // 1-based issue index; the server rebuilds the focused question.
+                // Expand suppresses the automatic whole-run pass while pending.
+                window.tvAnalyzeIssue = function (issueIndex) {
+                    if (issueIndex == null || issueIndex === '') return;
+                    window.tvSetGradioText('#tv-issue-ask', String(issueIndex));
+                    window.setTimeout(function () {
+                        const sidebar = document.querySelector('#analysis-sidebar');
+                        if (sidebar && !sidebar.classList.contains('open')) {
+                            const toggle = sidebar.querySelector('.toggle-button');
+                            if (toggle) toggle.click();
+                        }
+                        window.setTimeout(function () {
+                            const askBtn = document.querySelector(
+                                '#tv-issue-ask-btn button, #tv-issue-ask-btn'
+                            );
+                            if (askBtn) askBtn.click();
+                        }, 250);
+                    }, 80);
+                };
                 if (!window.__tvChartUiBound) {
                     window.__tvChartUiBound = true;
                     const ROW = __TV_ROW__, CHROME = __TV_CHROME__, MIN = __TV_MIN__;

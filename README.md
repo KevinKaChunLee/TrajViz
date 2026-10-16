@@ -106,7 +106,10 @@ labeled control on the right edge. It runs an automatic analysis
 when a trajectory loads, then answers follow-up questions. It uses the same
 dashboard statistics (health verdicts, bottlenecks, failures, fruitless
 streaks) and replies in English by default (set `ANALYZE_LANGUAGE`, e.g.
-`Simplified Chinese` or `German`, to change it — the Issues fix judge follows the same setting). It does not
+`Simplified Chinese` or `German`, to change it — the Issues fix judge follows
+the same setting and runs automatically after each load when configured; the
+button re-runs it). Each Overview issue also has **AI 深入分析**, which opens
+this sidebar and asks a focused follow-up about that issue. It does not
 re-upload the raw file. Configure the model in `.env`:
 
 ```bash

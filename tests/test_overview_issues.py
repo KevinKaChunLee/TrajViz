@@ -3,10 +3,16 @@
 import unittest
 from types import SimpleNamespace
 
+from agent_trajviz.insight.issues import dedupe_overlapping_issues
 from agent_trajviz.insight.presenters.issues import (
+    IssueJudgment,
     OverviewIssue,
     build_overview_issues_html,
     collect_overview_issues,
+    group_issue_families,
+    issue_analysis_question_from_payload,
+    overview_issues_payload,
+    prepare_overview_issues,
     rank_issues,
     render_overview_issues_html,
 )
@@ -186,6 +192,11 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn(">第7步<", html)
         self.assertIn("overview-issue-info", html)
         self.assertIn("title='常见恢复路径：Read'", html)
+        self.assertIn("overview-issue-analyze", html)
+        self.assertIn("AI 深入分析", html)
+        self.assertIn("tvAnalyzeIssue", html)
+        self.assertIn('data-issue-index="1"', html)
+        self.assertNotIn("Analyze this specific Overview issue", html)
         self.assertNotIn("overview-issue-more", html)
         self.assertNotIn("修改位置", html)
         self.assertNotIn("修复建议", html)
@@ -209,6 +220,24 @@ class OverviewIssuesTests(unittest.TestCase):
         html = render_overview_issues_html(issues)
         self.assertNotIn("修复建议", html)
         self.assertNotIn("修改位置", html)
+
+    def test_issue_ask_payload_rebuilds_focused_question(self):
+        issue = OverviewIssue(
+            kind="error",
+            title="Bash: exit 1 (1×)",
+            detail="boom",
+            why="Typical recovery: Read",
+            steps=(3, 7),
+            source_id="fail:Bash: exit 1",
+            judgment=IssueJudgment(where="CLAUDE.md", fix="Check the path", also="", confidence="high"),
+        )
+        payload = overview_issues_payload([issue])
+        question = issue_analysis_question_from_payload(payload, 1)
+        self.assertIsNotNone(question)
+        self.assertIn("Analyze this specific Overview issue directly (issue #1)", question)
+        self.assertIn("Bash: exit 1", question)
+        self.assertIn("Current suggested fix location: CLAUDE.md", question)
+        self.assertIsNone(issue_analysis_question_from_payload(payload, 2))
 
     def test_shows_all_ranked_issues(self):
         issues = [
@@ -295,8 +324,11 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn("过早压缩上下文", html)
         self.assertIn("压缩后上下文反而变大", html)
         self.assertIn("压缩时窗口占用：假定 128k token 窗口的", html)
-        self.assertNotIn("Premature compactions", html)
-        self.assertNotIn("window occupancy at compaction time", html)
+        # Visible chrome is Chinese; the AI ask prompt is rebuilt server-side.
+        self.assertNotIn("overview-issue-title'>Premature compactions", html)
+        self.assertNotIn("overview-issue-detail'>window occupancy at compaction time", html)
+        self.assertNotIn("Title: Premature compactions", html)
+        self.assertIn('data-issue-index="', html)
 
     def test_failure_cascade_skips_single_step_chains(self):
         issues = collect_overview_issues(
@@ -311,6 +343,155 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertEqual(issues[0].kind, "error")
         self.assertIn("cascade", issues[0].title.lower())
         self.assertEqual(issues[0].steps, (3, 4, 5))
+
+    def test_dedupe_drops_cascade_covered_by_failure_pattern(self):
+        session = _session(
+            failure_patterns=[{
+                "cluster_label": "Bash: exit 1",
+                "count": 3,
+                "example_error": "fail",
+                "recovery_path": None,
+                "steps": [3, 4, 5],
+            }],
+            failure_chains=[
+                {"start": 3, "end": 5, "steps": [3, 4, 5]},
+            ],
+        )
+        raw = collect_overview_issues(session)
+        self.assertEqual(len(raw), 2)  # raw collect still has both
+        self.assertEqual(len(dedupe_overlapping_issues(raw)), 1)
+        prepared = prepare_overview_issues(session)
+        self.assertEqual(len(prepared), 1)
+        self.assertTrue(prepared[0].source_id.startswith("fail:"))
+
+    def test_edit_thrash_group_and_search_waste_group(self):
+        issues = rank_issues(collect_overview_issues(
+            _session(
+                fruitless_streaks=[{
+                    "start_step": 4,
+                    "end_step": 6,
+                    "length": 3,
+                }],
+                edit_thrash=[
+                    {
+                        "path": "src/a.py",
+                        "count": 3,
+                        "fail_count": 2,
+                        "steps": [5, 6],
+                        "start_step": 5,
+                        "end_step": 6,
+                    },
+                    {
+                        "path": "src/b.py",
+                        "count": 2,
+                        "fail_count": 1,
+                        "steps": [8, 9],
+                        "start_step": 8,
+                        "end_step": 9,
+                    },
+                ],
+                repeated_searches=[{
+                    "signature": "grep:foo|",
+                    "display": "foo|",
+                    "count": 3,
+                    "steps": [1, 4, 9],
+                }],
+            )
+        ))
+        views = group_issue_families(issues)
+        thrash_groups = [v for v in views if v.parent_title and "失败编辑重试" in v.parent_title]
+        search_groups = [v for v in views if v.parent_title == "搜索浪费"]
+        self.assertEqual(len(thrash_groups), 1)
+        self.assertEqual(len(thrash_groups[0].leaves), 2)
+        self.assertEqual(len(search_groups), 1)
+        self.assertEqual(len(search_groups[0].leaves), 2)
+
+        html = render_overview_issues_html(issues)
+        self.assertIn("overview-issue-group", html)
+        self.assertIn("overview-issue-group-head", html)
+        self.assertIn("失败编辑重试（2 个文件）", html)
+        self.assertIn("搜索浪费", html)
+        for i in range(1, len(issues) + 1):
+            self.assertIn(f'data-issue-index="{i}"', html)
+        self.assertIn(f"{len(issues)} 个问题", html)
+        payload = overview_issues_payload(issues)
+        self.assertEqual(len(payload), len(issues))
+        self.assertIsNotNone(issue_analysis_question_from_payload(payload, 1))
+
+    def test_singleton_family_stays_flat(self):
+        issues = rank_issues(collect_overview_issues(
+            _session(
+                edit_thrash=[{
+                    "path": "src/only.py",
+                    "count": 3,
+                    "fail_count": 2,
+                    "steps": [5, 6],
+                    "start_step": 5,
+                    "end_step": 6,
+                }],
+            )
+        ))
+        views = group_issue_families(issues)
+        self.assertEqual(len(views), 1)
+        self.assertIsNone(views[0].parent_title)
+        html = render_overview_issues_html(issues)
+        self.assertNotIn("overview-issue-group", html)
+        self.assertIn('data-issue-index="1"', html)
+
+    def test_bottleneck_same_cause_groups(self):
+        issues = rank_issues(collect_overview_issues(
+            _session(
+                performance_bottlenecks=[
+                    {
+                        "step_idx": 2,
+                        "cause": "idle",
+                        "title": "Idle bottleneck at #2",
+                        "detail": "wait",
+                    },
+                    {
+                        "step_idx": 7,
+                        "cause": "idle",
+                        "title": "Idle bottleneck at #7",
+                        "detail": "wait again",
+                    },
+                    {
+                        "step_idx": 4,
+                        "cause": "tool",
+                        "title": "Tool bottleneck at #4",
+                        "detail": "slow tool",
+                    },
+                ],
+            )
+        ))
+        views = group_issue_families(issues)
+        idle_groups = [v for v in views if v.parent_title and "空闲" in v.parent_title]
+        self.assertEqual(len(idle_groups), 1)
+        self.assertEqual(len(idle_groups[0].leaves), 2)
+        flat_tool = [v for v in views if v.parent_title is None]
+        self.assertEqual(len(flat_tool), 1)
+        self.assertTrue(flat_tool[0].leaves[0][1].source_id.startswith("bottleneck:tool:"))
+
+    def test_group_preview_hides_beyond_three(self):
+        thrash = [
+            {
+                "path": f"src/f{i}.py",
+                "count": 3,
+                "fail_count": 2,
+                "steps": [i * 2, i * 2 + 1],
+                "start_step": i * 2,
+                "end_step": i * 2 + 1,
+            }
+            for i in range(1, 6)
+        ]
+        issues = rank_issues(collect_overview_issues(_session(edit_thrash=thrash)))
+        self.assertEqual(len(issues), 5)
+        html = render_overview_issues_html(issues)
+        self.assertIn("overview-issue-more", html)
+        self.assertIn("显示其余 2 项", html)
+        for i in range(1, 6):
+            self.assertIn(f'data-issue-index="{i}"', html)
+        html3 = render_overview_issues_html(issues[:3])
+        self.assertNotIn("overview-issue-more", html3)
 
     def test_plan_resets_edit_thrash_repeated_search(self):
         issues = collect_overview_issues(

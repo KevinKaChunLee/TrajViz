@@ -7,6 +7,17 @@ change the public API (the names exported from `agent_trajviz`).
 
 ## [Unreleased]
 
+### Changed
+
+- The Overview "Suggest fixes with LLM" judge runs automatically after each
+  trajectory load when `ANALYZE_*` / `LABEL_*` are configured (the button still
+  re-runs it). Without a configured endpoint it only shows the setup banner.
+- Each Overview issue has an **AI 深入分析** button that opens the AI Trajectory
+  Analysis sidebar and asks a focused follow-up about that issue.
+- Overview Issues dedupe overlapping failure cascades, group same-family cards
+  (edit thrash, search waste, same-cause bottlenecks), and preview three leaves
+  per group with expand/collapse.
+
 ## [0.2.0] - 2026-10-15
 
 ### Added

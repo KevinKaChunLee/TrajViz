@@ -304,6 +304,8 @@ class AnalysisUiTests(unittest.TestCase):
         self.assertIn("🤖 AI Trajectory Analysis", source)
         self.assertIn("analyze_loaded_trajectory", source)
         self.assertIn("answer_question", source)
+        self.assertIn("tv-issue-ask", source)
+        self.assertIn("on_issue_ask", source)
         self.assertNotIn("suggest_btns", source)
         self.assertNotIn("Where did it go wrong?", source)
         self.assertNotIn("analysis-panel-sub", source)
@@ -314,6 +316,7 @@ class AnalysisUiTests(unittest.TestCase):
         self.assertIn("color-scheme: light", APP_CSS)
         self.assertNotIn("resizable-chart .plotly-graph-div", APP_CSS)
         self.assertIn("max-height: none !important", APP_CSS)
+        self.assertIn(".overview-issue-analyze", APP_CSS)
         self.assertIn("position=\"right\"", source)
         self.assertIn("open=False", source)
         self.assertIn('width="max(480px, 25vw)"', source)
@@ -325,3 +328,5 @@ class AnalysisUiTests(unittest.TestCase):
         self.assertIn("analysis_sidebar.expand", source)
         self.assertIn("state_sidebar_open", source)
         self.assertIn("on_trajectory_loaded", source)
+        from agent_trajviz.insight import insight as insight_mod
+        self.assertIn("tvAnalyzeIssue", inspect.getsource(insight_mod))

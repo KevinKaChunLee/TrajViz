@@ -22,8 +22,8 @@ from ..formatting import format_context_pressure_html
 from ..presenters.label_ui import build_label_ui_payload
 from ..presenters.issues import (
     build_overview_issues_html,
-    collect_overview_issues,
-    rank_issues,
+    overview_issues_payload,
+    prepare_overview_issues,
 )
 from ..presenters.overview import (
     build_chart_outputs,
@@ -125,9 +125,9 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
     with gr.TabItem("Overview"):
         # Debug hero: Issues first; KPI strip lives above the main Tabs.
         issues_html = gr.HTML("")
-        # Opt-in only: judging sends trajectory excerpts (prompts, commands,
-        # file paths, tool output) to the configured LLM endpoint, so it must
-        # never run without an explicit click.
+        # Judging sends trajectory excerpts (prompts, commands, file paths,
+        # tool output) to the configured LLM endpoint. It runs automatically
+        # after load when ANALYZE_*/LABEL_* are set; the button re-runs it.
         suggest_fixes_btn = gr.Button(
             "Suggest fixes with LLM (sends trajectory excerpts to the configured provider)",
             size="sm",
@@ -356,6 +356,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
             "overview_kpi_html": gr.update(value="", visible=False),
             "session_detail_html": "",
             "issues_html": "",
+            "state_overview_issues": [],
             "metrics_md": "",
             "token_chart": fig,
             "token_step_html": build_token_step_panel_html([]),
@@ -396,6 +397,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
         "overview_kpi_html": gr.update(value=ov["kpi_html"], visible=True),
         "session_detail_html": ov["session_detail"],
         "issues_html": ov["issues_html"],
+        "state_overview_issues": ov["issues_payload"],
         "metrics_md": ov["metrics_text"],
         "token_chart": ch["tok_fig"],
         "token_step_html": build_token_step_panel_html(session.steps),
@@ -454,7 +456,7 @@ def bind(
     refs: OverviewRefs,
     shared: SharedState,
     upload: UploadRefs,
-    load_events: tuple = (),  # kept for the uniform tab-bind signature
+    load_events: tuple = (),
 ) -> None:
     overview_section_names = OVERVIEW_SECTION_NAMES
     overview_sections = _resolve_overview_sections(refs)
@@ -472,25 +474,26 @@ def bind(
     )
 
     def on_suggest_fixes(run):
-        """Run the LLM Issues judge on request; progress shows inside the panel."""
+        """Run the LLM Issues judge after load (or on button click); stream progress into the panel."""
         from ..presenters.issues import render_overview_issues_html
 
         if run is None or not run.steps:
-            yield render_overview_issues_html([])
+            yield render_overview_issues_html([]), []
             return
 
         cfg = resolve_analysis_config()
         session = session_from_run(run, "")
+        ranked = prepare_overview_issues(session)
+        payload = overview_issues_payload(ranked)
 
         if not cfg.ready:
             missing = ", ".join(cfg.missing)
             banner = f"Configure {missing} in .env to auto-suggest fixes"
-            yield build_overview_issues_html(session, banner=banner)
+            yield build_overview_issues_html(session, issues=ranked, banner=banner), payload
             return
 
-        ranked = rank_issues(collect_overview_issues(session))
         if not ranked:
-            yield build_overview_issues_html(session, issues=ranked)
+            yield build_overview_issues_html(session, issues=ranked), payload
             return
 
         judged = ranked
@@ -507,9 +510,10 @@ def bind(
                 progress_line = (
                     f"Suggesting fixes {progress.current}/{progress.total} — {short}"
                 )
+                # Stream HTML only; refresh State once when judgments are final.
                 yield build_overview_issues_html(
                     session, issues=judged, progress=progress_line,
-                )
+                ), gr.skip()
                 continue
 
             ok = sum(1 for i in judged if i.judgment is not None)
@@ -517,7 +521,7 @@ def bind(
                 banner = f"Judge failed ({len(errors)}). First: {errors[0][:160]}"
                 yield build_overview_issues_html(
                     session, issues=ranked, banner=banner,
-                )
+                ), payload
                 return
 
             banner = ""
@@ -530,19 +534,21 @@ def bind(
                 banner = f"Judged {ok}/{JUDGE_ISSUE_CAP} (capped)."
             yield build_overview_issues_html(
                 session, issues=judged, banner=banner,
-            )
+            ), overview_issues_payload(judged)
 
     judge_event = dict(
         fn=on_suggest_fixes,
         inputs=[shared.state_run],
-        outputs=[refs.issues_html],
+        outputs=[refs.issues_html, shared.state_overview_issues],
         show_progress="minimal",
         concurrency_id="issues_judge",
     )
-    # Explicit click ONLY. Chaining this onto load_events would ship trajectory
-    # excerpts off-box for every file a user opens, with no consent and no way
-    # to decline; the heuristic (offline) Issues panel is what load renders.
+    # After load (heuristic Issues HTML is already painted), and again on click.
+    # Without ANALYZE_*/LABEL_* configured, this only shows the setup banner —
+    # no network call.
     refs.suggest_fixes_btn.click(**judge_event)
+    for _ev in load_events:
+        _ev.then(**judge_event)
 
     @safe_callback("Context utilization")
     def _rebuild_utilization(agent_key, window_limit, snapshot_key, steps, raw, dark):

@@ -324,10 +324,7 @@ class WorkflowFilteringTests(unittest.TestCase):
         hidden_filter_source = source[source.index("wf_filter_hidden = gr.Textbox("):]
         hidden_filter_source = hidden_filter_source[:hidden_filter_source.index("wf_count_html")]
         self.assertIn("visible=True", hidden_filter_source)
-        self.assertIn("hiddenEl.tagName === 'TEXTAREA'", source)
-        self.assertIn("descriptor.set.call(hiddenEl, active.join(','))", source)
-        self.assertIn("new InputEvent('input'", source)
-        self.assertIn("new Event('change'", source)
+        self.assertIn("tvSetGradioText('#wf-filter-hidden'", source)
         self.assertIn("wf_filter_hidden.change(", source)
         self.assertIn("outputs=[workflow_html, wf_count_html, toc_html]", source)
 

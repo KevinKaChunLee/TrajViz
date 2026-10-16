@@ -218,9 +218,9 @@ class Analysis:
     @cached_property
     def issues(self) -> list:
         """Ranked issues (see :mod:`.issues`): errors, then waste, then latency."""
-        from .issues import collect_overview_issues, rank_issues
+        from .issues import prepare_overview_issues
 
-        return rank_issues(collect_overview_issues(self))
+        return prepare_overview_issues(self)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         computed: list[Any] = [k for k in vars(self) if k not in ("steps", "raw", "format")]

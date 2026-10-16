@@ -27,6 +27,9 @@ class SharedState:
     # Handlers that need the run itself read it here rather than re-parsing
     # `state_raw`, which holds nothing for a format registered by a plugin.
     state_run: gr.State
+    # Ranked Overview issues as JSON-friendly dicts (optional judgments).
+    # Cards pass a 1-based index; the sidebar rebuilds the AI question here.
+    state_overview_issues: gr.State
 
 
 def format_choices() -> list[tuple[str, str]]:
