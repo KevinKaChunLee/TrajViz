@@ -25,7 +25,7 @@ from agent_trajviz.insight.rendering import _card_style
 from agent_trajviz.insight.session import load_session
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-CC_RUN = FIXTURES / "reference" / "data" / "trajectory" / "claude_code" / "django__django-11477.json"
+CC_RUN = FIXTURES / "native_claude_code" / "django__django-11477.jsonl"
 
 
 def _data(view):

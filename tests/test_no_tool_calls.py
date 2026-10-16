@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from claude_native_helpers import native_events
+
 import agent_trajviz as tv
 from agent_trajviz.insight.assistant import build_analysis_brief_from_session
 from agent_trajviz.insight.presenters.overview import build_overview_outputs
@@ -28,7 +30,7 @@ def _export_without_tool_calls(directory: str) -> Path:
          "usage": {"input_tokens": 120, "output_tokens": 30}, "timestamp": "2026-01-01T00:00:05.000Z"},
     ]
     path = Path(directory) / "no_tools.json"
-    path.write_text(json.dumps({"format": "ccsession-trajectory", "trajectory": entries}), encoding="utf-8")
+    path.write_text(json.dumps(native_events(entries)), encoding="utf-8")
     return path
 
 

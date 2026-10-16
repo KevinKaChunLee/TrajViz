@@ -9,6 +9,8 @@ import os
 import tempfile
 import unittest
 
+from claude_native_helpers import native_events
+
 from agent_trajviz.insight.loaders import load_trajectory, detect_format
 from agent_trajviz.insight.parser import parse_steps
 from agent_trajviz.insight import rendering, formatting
@@ -245,24 +247,21 @@ class ClaudeCodeLoaderTests(unittest.TestCase):
 
     def _raw(self):
         self._i = 0
-        return {
-            "format": "ccsession-trajectory",
-            "session": {"id": "s", "working_directory": "/p",
-                        "started_at": "2026-01-05T12:00:00Z",
-                        "ended_at": "2026-01-05T12:01:30Z"},
-            "statistics": {},
-            "trajectory": [
+        return native_events([
                 self._entry("m0", "2026-01-05T12:00:00Z", "first"),
                 self._entry("m1", "2026-01-05T12:00:10Z", "second"),
                 self._entry("mNT", None, "no-timestamp"),
                 self._entry("m2", "2026-01-05T12:01:20Z", "third"),
-            ],
-            "sub_agents": [{"agent_id": "sub1", "trajectory": [
-                self._entry("sa0", "2026-01-05T12:00:30Z", "subagent")]}],
-        }
+            ], session_id="s")
 
     def _steps(self):
-        return parse_steps(load_trajectory(_write(self.tmp, "cc.json", self._raw())))
+        path = _write(self.tmp, "s.jsonl", self._raw(), jsonl=True)
+        child_dir = os.path.join(self.tmp, "s", "subagents")
+        os.makedirs(child_dir, exist_ok=True)
+        child = native_events([self._entry("sa0", "2026-01-05T12:00:30Z", "subagent")], session_id="s")
+        child[0].update(agentId="sub1", isSidechain=True)
+        _write(child_dir, "agent-sub1.jsonl", child, jsonl=True)
+        return parse_steps(load_trajectory(path))
 
     def test_missing_timestamp_step_not_sorted_to_front(self):
         steps = self._steps()
@@ -273,10 +272,10 @@ class ClaudeCodeLoaderTests(unittest.TestCase):
         sub = next(s for s in steps if s["agent"] == "sub1")
         self.assertIsNone(sub["duration"])  # single sub-agent step, not 50s
 
-    def test_main_step_duration_spans_next_main_step(self):
+    def test_main_step_duration_does_not_include_idle_until_the_next_message(self):
         steps = self._steps()
         m1 = next(s for s in steps if s["text_preview"].startswith("second"))
-        self.assertEqual(m1["duration"], 70.0)  # 10s -> 80s, skipping interleaved sub-agent
+        self.assertIsNone(m1["duration"])  # One timestamp does not measure generation time.
 
 
 class RobustnessTests(unittest.TestCase):

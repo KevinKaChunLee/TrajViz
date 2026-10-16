@@ -9,11 +9,13 @@ platforms misread). Binary I/O is exempt.
 from __future__ import annotations
 
 import ast
+import tempfile
 import unittest
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parent.parent / "agent_trajviz"
-_NOT_FILE_OPENERS = {"os", "webbrowser", "zipfile", "zf", "tarfile", "sqlite3", "gzip", "resource"}
+_NOT_FILE_OPENERS = {"os", "webbrowser", "zipfile", "zf", "archive", "tarfile", "sqlite3", "gzip", "resource"}
+_BINARY_MODES = {"rb", "rb+", "r+b", "wb", "wb+", "w+b", "ab", "ab+", "a+b", "xb", "xb+", "x+b"}
 
 
 def _text_io_without_encoding(path: Path) -> list[str]:
@@ -34,6 +36,13 @@ def _text_io_without_encoding(path: Path) -> list[str]:
             if isinstance(func, ast.Attribute) and ast.unparse(func.value) in _NOT_FILE_OPENERS:
                 continue
             mode = next((a.value for a in node.args[1:2] if isinstance(a, ast.Constant)), None)
+            # Path.open(mode) has no filename positional argument. Restrict
+            # this fallback to actual mode strings so a file called "blob"
+            # does not accidentally exempt a builtin open("blob") call.
+            if isinstance(func, ast.Attribute) and node.args:
+                first = node.args[0]
+                if isinstance(first, ast.Constant) and first.value in _BINARY_MODES:
+                    mode = first.value
             mode = next((k.value.value for k in node.keywords
                          if k.arg == "mode" and isinstance(k.value, ast.Constant)), mode)
             if isinstance(mode, str) and "b" in mode:
@@ -43,6 +52,18 @@ def _text_io_without_encoding(path: Path) -> list[str]:
 
 
 class TextEncodingTests(unittest.TestCase):
+    def test_binary_path_open_is_exempt_but_text_opens_still_need_encoding(self):
+        cases = {"open('blob')": 1, "open('blob', 'rb')": 0,
+                 "path.open('rb')": 0, "path.open('r')": 1,
+                 "path.open(mode='rb')": 0, "path.open(encoding='utf-8')": 0,
+                 "archive.open(member)": 0}
+        with tempfile.TemporaryDirectory(dir=PACKAGE.parent) as tmp:
+            path = Path(tmp) / "probe.py"
+            for source, count in cases.items():
+                with self.subTest(source=source):
+                    path.write_text(source, encoding="utf-8")
+                    self.assertEqual(len(_text_io_without_encoding(path)), count)
+
     def test_text_io_names_its_encoding(self):
         found = [hit for path in sorted(PACKAGE.rglob("*.py")) for hit in _text_io_without_encoding(path)]
         self.assertEqual(found, [])

@@ -22,7 +22,7 @@ from pathlib import Path
 
 from agent_trajviz.insight.run_group import _unify_path_keys, build_run_group_scorecard
 
-_CC = Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory" / "claude_code"
+_CC = Path(__file__).resolve().parent / "fixtures" / "native_claude_code"
 
 
 def _codex_rollout() -> str:
@@ -53,7 +53,7 @@ class UnifyPathKeysTests(unittest.TestCase):
 class RunIdentityTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        src = sorted(_CC.glob("*.json"))[0]
+        src = sorted(_CC.glob("*.jsonl"))[0]
         self.stem = src.stem
         self.cc = os.path.join(self.tmp, "a", src.name)
         os.makedirs(os.path.dirname(self.cc))
@@ -72,7 +72,7 @@ class RunIdentityTests(unittest.TestCase):
         self.assertFalse(any(i.endswith("-2") for i in ids), ids)
 
     def test_distinct_stems_keep_their_plain_names(self):
-        other = sorted(_CC.glob("*.json"))[1]
+        other = sorted(_CC.glob("*.jsonl"))[1]
         out = build_run_group_scorecard([self.cc, str(other)])
         self.assertEqual(sorted(r["run_id"] for r in out["rows"]), sorted([self.stem, other.stem]))
 

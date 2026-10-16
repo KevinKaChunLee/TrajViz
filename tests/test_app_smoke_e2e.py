@@ -21,8 +21,8 @@ from pathlib import Path
 
 _FIXTURE = (
     Path(__file__).resolve().parent
-    / "fixtures" / "reference" / "data" / "trajectory" / "claude_code"
-    / "astropy__astropy-13033.json"
+    / "fixtures" / "native_claude_code"
+    / "astropy__astropy-13033.jsonl"
 )
 
 # Every tab the composer builds. A tab that stops reaching the browser takes its

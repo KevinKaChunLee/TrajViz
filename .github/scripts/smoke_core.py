@@ -18,7 +18,7 @@ import agent_trajviz as tv
 
 FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
 RUNS = [FIXTURES / "codearts_minimal.json", FIXTURES / "cursor_minimal.json", FIXTURES / "icode_minimal.json",
-        *sorted((FIXTURES / "reference" / "data" / "trajectory").rglob("*.json"))]
+        *sorted((FIXTURES / "native_claude_code").glob("*.jsonl"))]
 
 
 def _views(run: tv.Trajectory) -> dict[str, str]:

@@ -24,7 +24,7 @@ from pathlib import Path
 
 from agent_trajviz.insight.report import report_from_path
 
-_CC = Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory" / "claude_code"
+_CC = Path(__file__).resolve().parent / "fixtures" / "native_claude_code"
 
 
 class ReportCollisionTests(unittest.TestCase):
@@ -32,16 +32,16 @@ class ReportCollisionTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.out = os.path.join(self.tmp, "reports")
         os.makedirs(self.out)
-        self.src = sorted(_CC.glob("*.json"))[0]
+        self.src = sorted(_CC.glob("*.jsonl"))[0]
         self.a = os.path.join(self.tmp, "a", self.src.name)
         self.b = os.path.join(self.tmp, "b", self.src.name)
         for target in (self.a, self.b):
             os.makedirs(os.path.dirname(target))
             shutil.copy(self.src, target)
         # Same stem, different bytes: a second run of "the same task".
-        doc = json.loads(Path(self.b).read_text())
-        doc.setdefault("metadata", {})["note"] = "a different run"
-        Path(self.b).write_text(json.dumps(doc))
+        events = [json.loads(line) for line in Path(self.b).read_text().splitlines()]
+        events[0]["note"] = "a different run"
+        Path(self.b).write_text("".join(json.dumps(event) + "\n" for event in events))
 
     def test_a_different_trajectory_with_the_same_stem_does_not_overwrite(self):
         first = report_from_path(self.a, self.out)
@@ -61,7 +61,7 @@ class ReportCollisionTests(unittest.TestCase):
 
 class OfflineReportTests(unittest.TestCase):
     def test_inline_plotly_needs_no_network(self):
-        src = str(sorted(_CC.glob("*.json"))[0])
+        src = str(sorted(_CC.glob("*.jsonl"))[0])
         tmp = tempfile.mkdtemp()
         default_html = Path(report_from_path(src, os.path.join(tmp, "cdn.html"))).read_text()
         offline_html = Path(report_from_path(src, os.path.join(tmp, "offline.html"), inline_plotly=True)).read_text()

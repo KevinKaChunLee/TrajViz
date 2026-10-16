@@ -66,7 +66,7 @@ requires_reference = pytest.mark.skipif(
 def test_golden_deductive_case_matches_pinned_expectations():
     res = attribution.diagnose(agent=GOLD_AGENT, instance_id=GOLD_INST,
                                source_path=_traj_path(GOLD_AGENT, GOLD_INST),
-                               fmt="ccsession")
+                               fmt="claude_code")
     assert res.available is True
     assert res.mode == "reference"
     assert res.blame_status == GOLD_EXPECT["blame_status"]
@@ -86,7 +86,7 @@ def test_golden_arbiter_refuted_case_is_not_blamed():
     this case would show a blamed primary."""
     res = attribution.diagnose(agent=ARB_AGENT, instance_id=ARB_INST,
                                source_path=_traj_path(ARB_AGENT, ARB_INST),
-                               fmt="ccsession")
+                               fmt="claude_code")
     assert res.available
     assert res.notes == []               # vendored verdicts are provenance-stamped
     assert res.blame_status == ARB_EXPECT["blame_status"]
@@ -195,7 +195,7 @@ def test_byte_identical_copy_passes_identity_check(tmp_path):
     copy = tmp_path / "upload.json"
     shutil.copyfile(_traj_path(GOLD_AGENT, GOLD_INST), copy)
     res = attribution.diagnose(agent=GOLD_AGENT, instance_id=GOLD_INST,
-                               source_path=str(copy), fmt="ccsession")
+                               source_path=str(copy), fmt="claude_code")
     assert res.available is True
     assert res.blame_status == GOLD_EXPECT["blame_status"]
 
@@ -211,7 +211,7 @@ def test_mismatched_displayed_trajectory_is_refused(tmp_path):
     raw["_tampered"] = True
     doctored.write_text(json.dumps(raw))
     res = attribution.diagnose(agent=GOLD_AGENT, instance_id=GOLD_INST,
-                               source_path=str(doctored), fmt="ccsession")
+                               source_path=str(doctored), fmt="claude_code")
     assert res.available is False
     assert "does not match the canonical" in (res.reason or "")
     assert res.faults == [] and res.primary is None

@@ -5,7 +5,7 @@ import os
 import re
 from typing import Any
 
-from .sniff import _OBJECT_FORMATS, _detect_object_format
+from .sniff import _OBJECT_FORMATS, _detect_object_format, _looks_like_claude_code_events
 
 # JSONL lines end at LF, CRLF or a lone CR, and nowhere else. ``str.splitlines``
 # also breaks on U+2028/U+2029/U+0085 (and \x0b\x0c\x1c-\x1e), which JSON
@@ -60,7 +60,7 @@ def _parse_trajectory_text(text: str, file_path: str) -> tuple[Any, str | None]:
     """Sniff content: JSON object, JSON array, or JSONL event stream.
 
     A complete JSON document (object or array) wins even when the path
-    ends in ``.jsonl``, so a Claude/OpenCode dump saved with the wrong
+    ends in ``.jsonl``, so an OpenCode dump saved with the wrong
     extension still loads. Multiple JSON values (``Extra data``) or a
     ``.jsonl`` path that is not one JSON document fall through to the
     JSONL parser (including last-line truncation tolerance).
@@ -85,7 +85,9 @@ def _parse_trajectory_text(text: str, file_path: str) -> tuple[Any, str | None]:
 
 
 def _is_event_record(raw: dict) -> bool:
-    """True when a JSON object is a Codex/Pi/DSH event, not a trajectory dump."""
+    """True when a JSON object is a supported event, not a trajectory dump."""
+    if _looks_like_claude_code_events([raw]):
+        return True
     t = raw.get("type")
     if t == "session_meta":
         return True
@@ -95,7 +97,7 @@ def _is_event_record(raw: dict) -> bool:
 def _unwrap_singleton_object_payload(payload: Any) -> Any:
     """If JSONL parsed as a single object-format dict, treat it as that object.
 
-    Happens when a Claude/OpenCode/CodeArts/Cursor/ICode dump is saved as ``.jsonl`` and
+    Happens when an OpenCode/CodeArts/Cursor/ICode dump is saved as ``.jsonl`` and
     a trailing truncated line forced the JSONL parser (``json.loads`` of
     the whole file then fails).
     """
@@ -106,12 +108,7 @@ def _unwrap_singleton_object_payload(payload: Any) -> Any:
 
 
 def _looks_like_object_dump(raw: dict) -> bool:
-    """True when an unknown dict still looks like a JSON trajectory object.
-
-    Unmarked Claude dumps (no ``format`` field) must stay objects so
-    ``format_hint`` can force ``ccsession``, even if the file was saved as
-    ``.jsonl``.
-    """
+    """True when an unknown dict still looks like a JSON trajectory object."""
     if isinstance(raw.get("trajectory"), list):
         return True
     if isinstance(raw.get("messages"), list):

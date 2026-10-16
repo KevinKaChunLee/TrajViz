@@ -30,7 +30,7 @@ def _min_trajectory(path: Path, *, steps: int = 2) -> Path:
     entries = []
     for i in range(steps):
         entries.append({
-            "type": "assistant",
+            "type": "assistant", "sessionId": "test-session",
             "uuid": f"u{i}",
             "message": {
                 "id": f"m{i}",
@@ -39,7 +39,7 @@ def _min_trajectory(path: Path, *, steps: int = 2) -> Path:
                 "usage": {"input_tokens": 10, "output_tokens": 5},
             },
         })
-    path.write_text(json.dumps({"trajectory": entries}))
+    path.write_text(json.dumps(entries))
     return path
 
 

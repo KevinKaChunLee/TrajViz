@@ -364,7 +364,7 @@ def _normalize_step(step: dict) -> None:
     role = step.get("role")
     if not isinstance(role, str) or not role:
         step["role"] = as_text(role) or "?"
-    for key in _STEP_TEXT_FIELDS:
+    for key in (*_STEP_TEXT_FIELDS, "source_path", "parent_agent_id"):
         if key in step:
             step[key] = as_text(step[key])
     for key in _STEP_TIME_FIELDS:
@@ -375,7 +375,7 @@ def _normalize_step(step: dict) -> None:
     if "session_depth" in step and (isinstance(step["session_depth"], bool)
                                     or not isinstance(step["session_depth"], int)):
         step["session_depth"] = None
-    # Only coerced when present: Claude Code steps omit it on purpose and the
+    # Only coerced when present: custom steps may omit this flag and the
     # metrics layer branches on its absence. `summary` is deliberately left
     # alone — OpenCode records a dict there and consumers test `is True`.
     if "is_sub_agent" in step and not isinstance(step["is_sub_agent"], bool):
@@ -503,13 +503,12 @@ def complete_steps(steps: Iterable[Any]) -> list[dict]:
 
 def parse_steps(raw: dict) -> list[dict]:
     """Normalize each message in trajectory[] into a step dict."""
-    # If already parsed by Claude Code converter, return directly (still backfill
-    # the final step's duration, which the fast-path would otherwise skip).
-    if raw.get("_cc_format") and "_cc_parsed_steps" in raw:
-        steps = raw["_cc_parsed_steps"]
+    # Native Claude timestamps bound observed blocks/tool results. A final
+    # response's timestamp alone does not reveal its generation duration.
+    if raw.get("_claude_code_format") and "_claude_code_parsed_steps" in raw:
+        steps = raw["_claude_code_parsed_steps"]
         for step in steps:
             _normalize_step(step)
-        _fill_missing_last_step_duration(steps, raw)
         return steps
 
     trajectory = raw.get("trajectory", [])

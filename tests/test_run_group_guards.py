@@ -23,13 +23,13 @@ from unittest import mock
 from agent_trajviz.insight import run_group
 from agent_trajviz.insight.run_group import build_run_group_scorecard
 
-_CC = Path(__file__).resolve().parent / "fixtures" / "reference" / "data" / "trajectory" / "claude_code"
+_CC = Path(__file__).resolve().parent / "fixtures" / "native_claude_code"
 
 
 class RunGroupGuardTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.good = sorted(str(p) for p in _CC.glob("*.json"))
+        self.good = sorted(str(p) for p in _CC.glob("*.jsonl"))
         self.assertGreaterEqual(len(self.good), 2)
 
     def _bogus(self) -> str:

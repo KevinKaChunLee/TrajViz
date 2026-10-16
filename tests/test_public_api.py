@@ -19,9 +19,9 @@ from pathlib import Path
 import agent_trajviz as tv
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-CC = FIXTURES / "reference" / "data" / "trajectory" / "claude_code"
-DJANGO = CC / "django__django-11477.json"
-ASTROPY = CC / "astropy__astropy-13033.json"
+CC = FIXTURES / "native_claude_code"
+DJANGO = CC / "django__django-11477.jsonl"
+ASTROPY = CC / "astropy__astropy-13033.jsonl"
 
 
 class ApiSurfaceTests(unittest.TestCase):
@@ -84,7 +84,7 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertTrue(issubclass(tv.ReportError, ValueError))
 
     def test_formats_is_a_read_only_mapping_of_every_supported_format(self):
-        self.assertEqual(set(tv.FORMATS), {"ccsession", "cursor", "codearts", "icode", "opencode", "codex", "pi", "dsh"})
+        self.assertEqual(set(tv.FORMATS), {"claude_code", "cursor", "codearts", "icode", "opencode", "codex", "pi", "dsh"})
         with self.assertRaises(TypeError):
             tv.FORMATS["new"] = "New"  # type: ignore[index]
 
@@ -92,7 +92,7 @@ class ApiSurfaceTests(unittest.TestCase):
 class LoadTests(unittest.TestCase):
     def test_load_returns_a_trajectory_with_provenance(self):
         run = tv.load(DJANGO)
-        self.assertEqual((run.format, run.format_label), ("ccsession", "Claude Code"))
+        self.assertEqual((run.format, run.format_label), ("claude_code", "Claude Code"))
         self.assertGreater(len(run.steps), 0)
         self.assertEqual(run.source, str(DJANGO))
         self.assertEqual(run.sha256, hashlib.sha256(DJANGO.read_bytes()).hexdigest())
@@ -119,7 +119,7 @@ class LoadTests(unittest.TestCase):
     def test_to_dict_is_json_and_versioned(self):
         doc = json.loads(json.dumps(tv.load(DJANGO).to_dict()))
         self.assertEqual(doc["schema_version"], tv.SCHEMA_VERSION)
-        self.assertEqual(doc["format"], "ccsession")
+        self.assertEqual(doc["format"], "claude_code")
         self.assertTrue(doc["steps"])
 
     def test_unreadable_and_unknown_files_raise_load_error(self):
@@ -139,7 +139,7 @@ class LoadTests(unittest.TestCase):
 
     def test_a_format_mismatch_names_the_detected_format(self):
         with self.assertRaises(tv.LoadError) as caught:
-            tv.load(FIXTURES / "codearts_minimal.json", format="ccsession")
+            tv.load(FIXTURES / "codearts_minimal.json", format="claude_code")
         self.assertEqual((caught.exception.code, caught.exception.detected), ("mismatch", "codearts"))
 
     def test_an_undetectable_file_with_steps_is_not_guessed_at(self):
