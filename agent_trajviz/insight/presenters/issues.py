@@ -218,6 +218,36 @@ def _localize_recovery_why(why: str) -> str:
     return why
 
 
+def _issue_analysis_question(issue: OverviewIssue, number: int) -> str:
+    """Focused question that asks the sidebar to analyze this one issue directly."""
+    steps = ", ".join(f"#{s}" for s in issue.steps[:12])
+    lines = [
+        f"Analyze this specific Overview issue directly (issue #{number}).",
+        "Do not rewrite a full-run report — focus only on this issue.",
+        f"Kind: {issue.kind}",
+        f"Title: {issue.title}",
+    ]
+    if issue.detail:
+        lines.append(f"Detail: {issue.detail}")
+    if issue.why:
+        lines.append(f"Why it matters: {issue.why}")
+    if steps:
+        lines.append(f"Related steps: {steps}")
+        if len(issue.steps) > 12:
+            lines.append(f"(+{len(issue.steps) - 12} more steps)")
+    if issue.judgment is not None:
+        j = issue.judgment
+        lines.append(f"Current suggested fix location: {j.where}")
+        lines.append(f"Current suggested fix: {j.fix}")
+        if j.also:
+            lines.append(f"Supporting note: {j.also}")
+    lines.append(
+        "Using the dashboard brief, explain what went wrong at the related steps, "
+        "the likely root cause, and concrete fix actions."
+    )
+    return "\n".join(lines)
+
+
 def _issue_card(issue: OverviewIssue, number: int) -> str:
     """Compact scan row: number + kind badge + title + step chips + optional LLM fix."""
     title_raw, detail_raw, why_raw = _localize_issue_text(issue)
@@ -262,6 +292,14 @@ def _issue_card(issue: OverviewIssue, number: int) -> str:
             f"<span class='overview-issue-info' title='{html.escape(why_raw)}' "
             f"aria-hidden='true'>ⓘ</span>"
         )
+    question = html.escape(_issue_analysis_question(issue, number), quote=True)
+    analyze_html = (
+        f"<button type='button' class='overview-issue-analyze' "
+        f"data-question=\"{question}\" "
+        f"onclick=\"if(window.tvAnalyzeIssue)"
+        f"{{window.tvAnalyzeIssue(this.getAttribute('data-question'));}}\">"
+        f"AI 深入分析</button>"
+    )
     return (
         f"<div class='overview-issue-card' style='border-left-color:{border};'>"
         f"<div class='overview-issue-head'>"
@@ -274,6 +312,7 @@ def _issue_card(issue: OverviewIssue, number: int) -> str:
         f"</div>"
         f"{steps_html}"
         f"{judgment_html}"
+        f"<div class='overview-issue-actions'>{analyze_html}</div>"
         f"</div>"
     )
 
@@ -352,6 +391,7 @@ def render_overview_issues_html(
     )
     hint = (
         f"<div class='overview-issues-hint'>{lead} · 点击步骤可跳转到 Workflow"
+        " · 「AI 深入分析」打开右侧分析面板继续追问"
         " · 鼠标悬停 ⓘ 查看说明</div>"
     )
     return (

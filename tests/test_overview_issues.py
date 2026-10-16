@@ -186,6 +186,10 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn(">第7步<", html)
         self.assertIn("overview-issue-info", html)
         self.assertIn("title='常见恢复路径：Read'", html)
+        self.assertIn("overview-issue-analyze", html)
+        self.assertIn("AI 深入分析", html)
+        self.assertIn("tvAnalyzeIssue", html)
+        self.assertIn("Analyze this specific Overview issue directly (issue #1)", html)
         self.assertNotIn("overview-issue-more", html)
         self.assertNotIn("修改位置", html)
         self.assertNotIn("修复建议", html)
@@ -295,8 +299,10 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn("过早压缩上下文", html)
         self.assertIn("压缩后上下文反而变大", html)
         self.assertIn("压缩时窗口占用：假定 128k token 窗口的", html)
-        self.assertNotIn("Premature compactions", html)
-        self.assertNotIn("window occupancy at compaction time", html)
+        # Visible chrome is Chinese; English titles stay only in the AI ask payload.
+        self.assertNotIn("overview-issue-title'>Premature compactions", html)
+        self.assertNotIn("overview-issue-detail'>window occupancy at compaction time", html)
+        self.assertIn("Title: Premature compactions", html)
 
     def test_failure_cascade_skips_single_step_chains(self):
         issues = collect_overview_issues(

@@ -1208,6 +1208,27 @@ html.tv-theme-dark {
     color: var(--ov-muted);
     cursor: help;
 }
+.overview-issue-actions {
+    margin-top: 8px;
+}
+.overview-issue-analyze {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: 1px solid #ea580c;
+    border-radius: 6px;
+    background: #fff7ed;
+    color: #c2410c;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.3;
+    cursor: pointer;
+}
+.overview-issue-analyze:hover {
+    background: #ea580c;
+    color: #fff;
+}
 .overview-issues-hint {
     margin: 8px 0;
     font-size: 12px;

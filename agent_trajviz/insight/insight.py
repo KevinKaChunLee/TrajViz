@@ -122,6 +122,55 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
                     btn.setAttribute('aria-label', 'AI Trajectory Analysis');
                     btn.setAttribute('title', 'AI Trajectory Analysis');
                 }
+                window.tvSetGradioText = function (rootSel, value) {
+                    const el = document.querySelector(
+                        rootSel + ' textarea, ' + rootSel + ' input'
+                    );
+                    if (!el) return false;
+                    const proto = el.tagName === 'TEXTAREA'
+                        ? window.HTMLTextAreaElement.prototype
+                        : window.HTMLInputElement.prototype;
+                    const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+                    if (descriptor && descriptor.set) {
+                        descriptor.set.call(el, value);
+                    } else {
+                        el.value = value;
+                    }
+                    el.dispatchEvent(new InputEvent('input', {
+                        bubbles: true, composed: true, inputType: 'insertText', data: null
+                    }));
+                    el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                    return true;
+                };
+                window.tvAnalyzeIssue = function (question) {
+                    if (!question) return;
+                    window.tvSetGradioText('#tv-issue-ask', question);
+                    const clickAsk = function () {
+                        const box = document.querySelector(
+                            '#tv-issue-ask textarea, #tv-issue-ask input'
+                        );
+                        if (!box || !(box.value || '').trim()) return;
+                        const askBtn = document.querySelector(
+                            '#tv-issue-ask-btn button, #tv-issue-ask-btn'
+                        );
+                        if (askBtn) askBtn.click();
+                    };
+                    window.setTimeout(function () {
+                        const sidebar = document.querySelector('#analysis-sidebar');
+                        const open = sidebar && sidebar.classList.contains('open');
+                        if (!open) {
+                            const toggle = sidebar && sidebar.querySelector('.toggle-button');
+                            if (toggle) {
+                                toggle.click();
+                                // Expand usually consumes the pending question; if Gradio
+                                // had not synced the textbox yet, retry via the ask button.
+                                window.setTimeout(clickAsk, 500);
+                                return;
+                            }
+                        }
+                        clickAsk();
+                    }, 60);
+                };
                 if (!window.__tvChartUiBound) {
                     window.__tvChartUiBound = true;
                     const ROW = __TV_ROW__, CHROME = __TV_CHROME__, MIN = __TV_MIN__;
