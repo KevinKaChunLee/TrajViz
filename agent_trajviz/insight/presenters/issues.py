@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import html
 import re
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import cast, get_args
 
 from ..issues import (  # noqa: F401  (re-exported: UI and judge import them here)
@@ -18,6 +18,7 @@ from ..issues import (  # noqa: F401  (re-exported: UI and judge import them her
     IssueKind,
     OverviewIssue,
     collect_overview_issues,
+    prepare_overview_issues,
     rank_issues,
 )
 from ..rendering import _step_link_chips
@@ -364,11 +365,130 @@ def _issue_card(issue: OverviewIssue, number: int) -> str:
     )
 
 
-def _issue_cards_html(issues: list[OverviewIssue]) -> str:
-    """Render all issue cards (no preview cap), numbered from 1 in ranked order."""
-    return "".join(
-        _issue_card(issue, number) for number, issue in enumerate(issues, start=1)
+@dataclass(frozen=True)
+class _IssueGroupView:
+    """One flat card or a parent wrapping same-family leaves (UI only)."""
+
+    parent_title: str | None
+    parent_kind: IssueKind
+    leaves: tuple[tuple[int, OverviewIssue], ...]  # (leaf_number, issue)
+
+
+_BOTTLENECK_CAUSE_ZH = {
+    "idle": "空闲/排队瓶颈",
+    "tool": "工具瓶颈",
+    "context": "上下文/缓存瓶颈",
+    "inference": "推理瓶颈",
+}
+
+
+def _issue_family_key(issue: OverviewIssue) -> tuple[str, ...] | None:
+    """Stable family key for grouping, or None for a singleton flat card."""
+    sid = issue.source_id
+    if sid.startswith("antipattern:edit_thrash:"):
+        return ("edit_thrash",)
+    if sid.startswith("antipattern:fruitless") or sid.startswith("antipattern:repeated_search:"):
+        return ("search_waste",)
+    if sid.startswith("bottleneck:"):
+        parts = sid.split(":")
+        cause = parts[1] if len(parts) > 1 else "unknown"
+        return ("bottleneck", cause)
+    return None
+
+
+def _group_parent_title(key: tuple[str, ...], n: int) -> str:
+    kind = key[0]
+    if kind == "edit_thrash":
+        return f"失败编辑重试（{n} 个文件）"
+    if kind == "search_waste":
+        return "搜索浪费"
+    if kind == "bottleneck":
+        label = _BOTTLENECK_CAUSE_ZH.get(key[1] if len(key) > 1 else "unknown", "性能瓶颈")
+        return f"{label}（{n}）"
+    return f"相关问题（{n}）"
+
+
+def group_issue_families(ranked: list[OverviewIssue]) -> list[_IssueGroupView]:
+    """Nest same-family leaves under parents; singletons stay flat.
+
+    Leaf numbers are the contiguous 1-based indices in *ranked* order (for
+    ``data-issue-index`` / State alignment). A group's position is the first
+    member's rank; later siblings are pulled into that group.
+    """
+    numbered = [
+        (i, issue, _issue_family_key(issue))
+        for i, issue in enumerate(ranked, start=1)
+    ]
+    used: set[int] = set()
+    views: list[_IssueGroupView] = []
+
+    for num, issue, key in numbered:
+        if num in used:
+            continue
+        if key is None:
+            used.add(num)
+            views.append(_IssueGroupView(None, issue.kind, ((num, issue),)))
+            continue
+        members = [(n, iss) for n, iss, k in numbered if k == key]
+        used.update(n for n, _ in members)
+        leaves = tuple(members)
+        if len(members) == 1:
+            views.append(_IssueGroupView(None, members[0][1].kind, leaves))
+        else:
+            views.append(
+                _IssueGroupView(
+                    _group_parent_title(key, len(members)),
+                    members[0][1].kind,
+                    leaves,
+                )
+            )
+    return views
+
+
+_GROUP_LEAF_PREVIEW = 3
+
+
+def _issue_group_children_html(leaves: tuple[tuple[int, OverviewIssue], ...]) -> str:
+    cards = [
+        f"<div class='overview-issue-child'>{_issue_card(issue, number)}</div>"
+        for number, issue in leaves
+    ]
+    if len(cards) <= _GROUP_LEAF_PREVIEW:
+        return "".join(cards)
+    more = len(cards) - _GROUP_LEAF_PREVIEW
+    return (
+        f"{''.join(cards[:_GROUP_LEAF_PREVIEW])}"
+        f"<details class='overview-issue-more'>"
+        f"<summary class='overview-issue-more-summary'>显示其余 {more} 项</summary>"
+        f"<div class='overview-issue-more-body'>{''.join(cards[_GROUP_LEAF_PREVIEW:])}</div>"
+        f"</details>"
     )
+
+
+def _issue_group_html(view: _IssueGroupView) -> str:
+    if view.parent_title is None:
+        number, issue = view.leaves[0]
+        return _issue_card(issue, number)
+
+    border = ISSUE_KIND_COLORS[view.parent_kind]
+    return (
+        f"<details class='overview-issue-group' open "
+        f"style='border-left-color:{border};'>"
+        f"<summary class='overview-issue-group-head'>"
+        f"<span class='overview-issue-kind' style='color:{border};'>"
+        f"{_ISSUE_KIND_LABELS_ZH[view.parent_kind]}</span>"
+        f"<span class='overview-issue-title'>{html.escape(view.parent_title)}</span>"
+        f"<span class='overview-issue-group-meta'>{len(view.leaves)} 项</span>"
+        f"</summary>"
+        f"<div class='overview-issue-group-body'>"
+        f"{_issue_group_children_html(view.leaves)}</div>"
+        f"</details>"
+    )
+
+
+def _issue_cards_html(issues: list[OverviewIssue]) -> str:
+    """Render ranked leaf issues, nested under family parents when applicable."""
+    return "".join(_issue_group_html(view) for view in group_issue_families(issues))
 
 
 def render_overview_issues_html(
@@ -463,9 +583,9 @@ def build_overview_issues_html(
     banner: str = "",
     progress: str = "",
 ) -> str:
-    """Collect, rank, and render Overview Issues for *session*."""
+    """Collect (deduped + ranked) and render Overview Issues for *session*."""
     if issues is None:
-        ranked = rank_issues(collect_overview_issues(session))
+        ranked = prepare_overview_issues(session)
     else:
         ranked = list(issues)
     return render_overview_issues_html(ranked, banner=banner, progress=progress)

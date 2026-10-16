@@ -1149,15 +1149,19 @@ html.tv-theme-dark {
     color: var(--ov-text);
     user-select: none;
 }
-.overview-issues-summary::-webkit-details-marker { display: none; }
-.overview-issues-summary::before {
+.overview-issues-summary::-webkit-details-marker,
+.overview-issue-group-head::-webkit-details-marker { display: none; }
+.overview-issues-summary::before,
+.overview-issue-group-head::before {
     content: "▸";
     display: inline-block;
     width: 0.9em;
+    flex-shrink: 0;
     color: var(--ov-muted);
     transition: transform 0.12s ease;
 }
-.overview-issues-panel[open] > .overview-issues-summary::before {
+.overview-issues-panel[open] > .overview-issues-summary::before,
+.overview-issue-group[open] > .overview-issue-group-head::before {
     transform: rotate(90deg);
 }
 .overview-issues-summary-meta {
@@ -1233,6 +1237,56 @@ html.tv-theme-dark {
 .overview-issue-analyze:hover {
     background: var(--ov-ai-accent);
     color: #fff;
+}
+.overview-issue-group {
+    padding: 8px 10px 4px;
+    background: var(--ov-card);
+    border-left: 3px solid var(--ov-border);
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+.overview-issue-group-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+}
+.overview-issue-group-meta {
+    font-size: 11px;
+    color: var(--ov-muted);
+    font-weight: 600;
+}
+.overview-issue-group-body {
+    margin-top: 6px;
+    padding-left: 6px;
+    border-left: 1px dashed var(--ov-border);
+}
+.overview-issue-child {
+    margin-bottom: 6px;
+}
+.overview-issue-child .overview-issue-card {
+    margin-bottom: 0;
+    background: var(--ov-bg);
+}
+.overview-issue-more {
+    margin: 2px 0 8px;
+}
+.overview-issue-more-summary {
+    list-style: none;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ov-accent);
+    padding: 4px 0;
+    user-select: none;
+}
+.overview-issue-more-summary::-webkit-details-marker { display: none; }
+.overview-issue-more-body {
+    margin-top: 2px;
 }
 .overview-issues-hint {
     margin: 8px 0;

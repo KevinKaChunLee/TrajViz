@@ -22,9 +22,8 @@ from ..formatting import format_context_pressure_html
 from ..presenters.label_ui import build_label_ui_payload
 from ..presenters.issues import (
     build_overview_issues_html,
-    collect_overview_issues,
     overview_issues_payload,
-    rank_issues,
+    prepare_overview_issues,
 )
 from ..presenters.overview import (
     build_chart_outputs,
@@ -484,7 +483,7 @@ def bind(
 
         cfg = resolve_analysis_config()
         session = session_from_run(run, "")
-        ranked = rank_issues(collect_overview_issues(session))
+        ranked = prepare_overview_issues(session)
         payload = overview_issues_payload(ranked)
 
         if not cfg.ready:

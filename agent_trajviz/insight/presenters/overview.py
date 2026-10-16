@@ -32,9 +32,8 @@ from .issues import (
     ISSUE_KIND_COLORS,
     OverviewIssue,
     build_overview_issues_html,
-    collect_overview_issues,
     overview_issues_payload,
-    rank_issues,
+    prepare_overview_issues,
 )
 
 from ..session import MAX_STEPS, LoadedSession
@@ -401,7 +400,7 @@ def build_overview_outputs(session: LoadedSession) -> dict:
     wfmt = session.wall_clock
 
     summary = build_summary_outputs(session)
-    ranked_issues = rank_issues(collect_overview_issues(session))
+    ranked_issues = prepare_overview_issues(session)
     kpi_html = build_overview_kpi_html(
         metrics,
         wfmt,
