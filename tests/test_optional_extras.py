@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-FIXTURE = REPO / "tests" / "fixtures" / "reference" / "data" / "trajectory" / "claude_code" / "django__django-11477.json"
+FIXTURE = REPO / "tests" / "fixtures" / "native_claude_code" / "django__django-11477.jsonl"
 THIRD_PARTY = ("gradio", "plotly", "pandas", "numpy", "pygments", "requests", "awe")
 
 
@@ -68,7 +68,7 @@ class CoreWithoutExtrasTests(unittest.TestCase):
             print(run.format, run.metrics["tokens"]["total"] > 0, "alignment" in tv.compare(run, run))
         """)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(proc.stdout.strip(), "ccsession True True")
+        self.assertEqual(proc.stdout.strip(), "claude_code True True")
 
     def test_write_report_without_charts_raises_missing_extra(self):
         proc = _run(f"""

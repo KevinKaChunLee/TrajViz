@@ -38,6 +38,8 @@ from html.parser import HTMLParser
 from unittest.mock import patch
 from urllib.parse import urlparse
 
+from claude_native_helpers import native_events
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Elements that never carry an end tag; the balance checker must not expect one.
@@ -66,22 +68,14 @@ REPORT_HTML = ""
 REPORT_RUN: subprocess.CompletedProcess | None = None
 
 
-def _tiny_trajectory() -> dict:
+def _tiny_trajectory() -> list[dict]:
     """A Claude Code session small enough to read, broad enough to exercise the report.
 
     Three assistant turns, one successful tool call and one failing one, so the
     KPI row, the tool tables, the failure patterns and the charts all have
     something real to render.
     """
-    return {
-        "format": "ccsession-trajectory",
-        "format_version": "1.0",
-        "session": {
-            "session_id": "sess-cli-test",
-            "model": "test-model",
-            "working_directory": "/workspace/project",
-        },
-        "trajectory": [
+    return native_events([
             {
                 "index": 0,
                 "role": "user",
@@ -131,9 +125,7 @@ def _tiny_trajectory() -> dict:
                 "usage": {"input_tokens": 1500, "output_tokens": 60},
                 "content": [{"type": "text", "text": "Fixed the import."}],
             },
-        ],
-        "sub_agents": [],
-    }
+        ])
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess:

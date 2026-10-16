@@ -585,7 +585,7 @@ def _get_step_info(step: dict, trajectory: list[dict]) -> dict:
 def extract_subagent_sessions(
     steps: list[dict], trajectory: list[dict],
 ) -> list[dict]:
-    """Identify sub-agent sessions by grouping consecutive isSubAgent steps.
+    """Identify child sessions, keeping native Claude agents across interleaving.
 
     Returns list of sessions:
     ``[{"session_id": str, "start_step": int, "end_step": int,
@@ -593,13 +593,30 @@ def extract_subagent_sessions(
     """
     sessions: list[dict] = []
     current_session: dict | None = None
+    native_sessions: dict[str, dict] = {}
 
     for s in steps[:_MAX_STEPS]:
         info = _get_step_info(s, trajectory)
         # Prefer step fields (may be inferred from Task spawn metadata).
         is_sub = bool(s.get("is_sub_agent")) or bool(info.get("isSubAgent", False))
         session_id = s.get("session_id") or info.get("sessionID", "")
+        if is_sub and "parent_agent_id" in s:
+            session_id = s.get("agent") or session_id
         step_idx = s.get("index", 0)
+
+        if "parent_agent_id" in s:
+            if current_session is not None:
+                sessions.append(current_session)
+                current_session = None
+            if is_sub and session_id:
+                if session_id not in native_sessions:
+                    native_sessions[session_id] = {
+                        "session_id": session_id, "start_step": step_idx,
+                        "end_step": step_idx, "step_count": 0, "spawn_step": None,
+                    }
+                native_sessions[session_id]["end_step"] = step_idx
+                native_sessions[session_id]["step_count"] += 1
+            continue
 
         if is_sub and session_id:
             if current_session is None or current_session["session_id"] != session_id:
@@ -622,6 +639,8 @@ def extract_subagent_sessions(
 
     if current_session is not None:
         sessions.append(current_session)
+    sessions.extend(native_sessions.values())
+    sessions.sort(key=lambda session: session["start_step"])
 
     # OpenCode-style exports record the spawned child session on the parent
     # task tool part's metadata rather than on the child messages.  Build the
@@ -629,6 +648,12 @@ def extract_subagent_sessions(
     # CodeArts/OpenCode exports can identify the actual delegation step.
     spawn_by_child: dict[str, int] = {}
     for step in steps[:_MAX_STEPS]:
+        if "parent_agent_id" in step:
+            for call in step.get("tool_calls", []):
+                metadata = call.get("metadata")
+                child = metadata.get("agentId") if isinstance(metadata, dict) else None
+                if isinstance(child, str) and child:
+                    spawn_by_child.setdefault(child, step.get("index", 0))
         raw_idx = step.get("raw_index")
         if not isinstance(raw_idx, int) or not (0 <= raw_idx < len(trajectory)):
             continue
@@ -663,7 +688,8 @@ def compute_subagent_metrics(
     for session in sessions:
         start = session["start_step"]
         end = session["end_step"]
-        session_steps = [s for s in steps if start <= s.get("index", 0) <= end]
+        session_steps = [s for s in steps if start <= s.get("index", 0) <= end
+                         and ("parent_agent_id" not in s or s.get("agent") == session["session_id"])]
 
         total_tokens = sum(s["tokens"]["total"] for s in session_steps)
         total_tools = sum(s["tool_call_count"] for s in session_steps)

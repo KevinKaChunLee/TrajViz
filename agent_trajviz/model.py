@@ -61,6 +61,8 @@ class Step(TypedDict, total=False):
 
     index: int
     raw_index: int
+    #: Source file (or archive member) that raw_index refers to, when recorded.
+    source_path: str
     role: str
     text_preview: str
     parts: list[dict[str, Any]]
@@ -76,11 +78,12 @@ class Step(TypedDict, total=False):
     model_id: str
     provider_id: str
     agent: str
-    #: Present for formats with an explicit sub-agent flag; absent for Claude
-    #: Code, where a non-empty ``agent`` names the sub-agent.
+    #: Whether this step belongs to a sub-agent.
     is_sub_agent: bool
     session_id: str
     parent_session_id: str
+    #: Native Claude child identity; children can share their parent's session_id.
+    parent_agent_id: str
     session_depth: int | None
     session_title: str
     message_id: str

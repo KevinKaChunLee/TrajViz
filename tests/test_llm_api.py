@@ -21,7 +21,7 @@ import agent_trajviz as tv
 from agent_trajviz import llm
 
 REPO = Path(__file__).resolve().parent.parent
-CC_RUN = REPO / "tests" / "fixtures" / "reference" / "data" / "trajectory" / "claude_code" / "django__django-11477.json"
+CC_RUN = REPO / "tests" / "fixtures" / "native_claude_code" / "django__django-11477.jsonl"
 CONFIG = llm.LLMConfig(base_url="https://llm.example.test/v1", api_key="KEY", model="m", provider="openai",
                        temperature=None, max_tokens=256, timeout=5, source="analyze")
 

@@ -84,7 +84,7 @@ class OccupancyTests(unittest.TestCase):
 
 class ChartTests(unittest.TestCase):
     def test_token_chart_bars_sum_to_the_total_in_every_branch(self):
-        for fmt in (None, "ccsession", "codex", "opencode"):
+        for fmt in (None, "claude_code", "codex", "opencode"):
             for name, *vals in SHAPES:
                 with self.subTest(fmt=fmt, shape=name):
                     fig = build_token_chart([_step(0, *vals)], format=fmt)

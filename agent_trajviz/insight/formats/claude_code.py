@@ -1,229 +1,42 @@
-"""Claude Code session dump → internal trajectory."""
+"""Claude Code's native session JSONL records → internal trajectory.
 
+Session files contain transcript messages alongside bookkeeping records. Child
+transcripts are supplied by the loader; inline ``agent_progress`` messages are a
+fallback when the corresponding child file is unavailable. No session-export
+package or nonstandard envelope is required.
+"""
+
+from __future__ import annotations
+
+import json
 import math
 import os
+from collections import Counter
 
-from .common import _iso_to_epoch_ms
+from .common import _iso_to_epoch_ms, as_text
+from .sniff import _looks_like_claude_code_events
 
 
 def _cc_token_value(value: object) -> int | float:
-    """A reported token count, or 0 when the value is not a usable number.
-
-    Same reading as ``parser._finite_token``: a string/bool/None/non-finite
-    count carries no information and must be *rejected* rather than coerced.
-    Without it a ``"input_tokens": "50"`` raised ``TypeError: can only
-    concatenate str`` straight out of ``load_trajectory``, which ``run_group``
-    does not catch, so one such file aborted a whole batch.  Local to this
-    module because the dependency runs parser → loaders → formats, so a
-    converter cannot import ``parser``.
-    """
-    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+    """Accept finite reported token counts without coercing malformed values."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return 0
-    if not math.isfinite(value):
-        return 0
-    return value
+    return value if math.isfinite(value) else 0
 
 
 def _cc_extract_usage(usage: dict | None) -> dict:
-    """Extract token usage from a Claude Code message's usage field.
+    """Anthropic input, cache reads and cache creation are disjoint counts.
 
-    Reasoning tokens are omitted: Claude Code / Anthropic usage does not report
-    them, and a fabricated ``0`` was misread as a real measurement in Overview.
+    Thinking tokens are included in output, but their count is not separately
+    reported. Omit ``reasoning`` instead of inventing a measured zero.
     """
-    if not isinstance(usage, dict):
-        return {"total": 0, "input": 0, "output": 0,
-                "cache": {"read": 0, "write": 0}}
+    usage = usage if isinstance(usage, dict) else {}
     inp = _cc_token_value(usage.get("input_tokens"))
     out = _cc_token_value(usage.get("output_tokens"))
-    cache_read = _cc_token_value(usage.get("cache_read_input_tokens"))
-    cache_write = _cc_token_value(usage.get("cache_creation_input_tokens"))
-    # input_tokens, cache_creation_input_tokens and cache_read_input_tokens are
-    # mutually exclusive in the Anthropic usage object, so the processed total is
-    # their sum; cache_creation must be included to agree with the session total.
-    total = inp + out + cache_read + cache_write
-    return {
-        "total": total, "input": inp, "output": out,
-        "cache": {"read": cache_read, "write": cache_write},
-    }
-
-
-def _cc_content_to_parts(content: list, tool_result_map: dict | None = None) -> list:
-    """Convert Claude Code content[] items to internal parts format."""
-    parts = []
-    for item in content:
-        if not isinstance(item, dict):
-            continue
-        ctype = item.get("type", "")
-
-        if ctype == "text":
-            parts.append({"type": "text", "text": item.get("text", "")})
-        elif ctype == "thinking":
-            parts.append({"type": "reasoning", "text": item.get("text", "")})
-        elif ctype == "tool_call" or ctype == "tool_use":
-            tool_id = item.get("id", "")
-            tool_name = item.get("name", "?")
-            tool_input = item.get("input", {})
-            # Check if we already have a result for this tool call
-            result_info = (tool_result_map or {}).get(tool_id, {})
-            status = result_info.get("status", "?")
-            output = result_info.get("output", "")
-            error = result_info.get("error")
-            tool_exec = result_info.get("tool_execution")
-            metadata = dict(tool_exec) if isinstance(tool_exec, dict) else {}
-            parts.append({
-                "type": "tool_call",
-                "tool_name": tool_name,
-                "tool_id": tool_id,
-                "status": status,
-                "title": item.get("caller", {}).get("type", "") if isinstance(item.get("caller"), dict) else "",
-                "input": tool_input,
-                "output": output,
-                "error": error,
-                "time_start": None,
-                "time_end": None,
-                "metadata": metadata,
-            })
-        elif ctype == "tool_result":
-            # These are handled via tool_result_map; skip as standalone parts
-            pass
-        else:
-            parts.append({"type": ctype, "raw": item})
-    return parts
-
-
-def _extract_tool_results(content: list, tool_exec: dict | None, result_map: dict) -> None:
-    """Record tool_result items from a user message's content into *result_map*.
-
-    Shared by the direct-user-message and event-nested ingestion paths of
-    _cc_build_tool_result_map so the id-fallback and is_error semantics
-    cannot diverge between them.
-    """
-    for item in content:
-        if isinstance(item, dict) and item.get("type") == "tool_result":
-            tool_id = item.get("tool_use_id", "") or item.get("tool_call_id", "")
-            is_error = item.get("is_error", False)
-            result_content = item.get("output", item.get("content", ""))
-            if tool_id:
-                result_map[tool_id] = {
-                    "output": result_content,
-                    "status": "error" if is_error else "success",
-                    "error": result_content if is_error else None,
-                    "tool_execution": tool_exec,
-                }
-
-
-def _cc_build_tool_result_map(entries: list) -> dict:
-    """Build a map of tool_use_id -> {output, status, error} from all user messages."""
-    result_map: dict[str, dict] = {}
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        role = entry.get("role", "")
-        content = entry.get("content", [])
-        if not isinstance(content, list):
-            continue
-
-        # Direct user messages with tool_result
-        if role == "user":
-            tool_exec = entry.get("tool_execution")
-            if not isinstance(tool_exec, dict):
-                tool_exec = None
-            _extract_tool_results(content, tool_exec, result_map)
-
-        # Events with nested user messages containing tool_result
-        if role == "event":
-            data = entry.get("data", {})
-            if isinstance(data, dict):
-                msg = data.get("message", {})
-                if isinstance(msg, dict) and msg.get("type") == "user":
-                    inner_msg = msg.get("message", {})
-                    if isinstance(inner_msg, dict):
-                        inner_tool_exec = inner_msg.get("tool_execution")
-                        if not isinstance(inner_tool_exec, dict):
-                            inner_tool_exec = None
-                        inner_content = inner_msg.get("content", [])
-                        if isinstance(inner_content, list):
-                            _extract_tool_results(inner_content, inner_tool_exec, result_map)
-    return result_map
-
-
-def _cc_group_by_message_id(entries: list[dict]) -> list[dict]:
-    """Group trajectory entries that share the same message_id into merged entries.
-
-    Claude Code splits a single API response into multiple trajectory entries
-    (one per content block: thinking, text, tool_call). These share the same
-    message_id and request_id. We merge them to avoid double-counting tokens.
-
-    The merged entry uses:
-    - Content: concatenated from all entries (preserving order)
-    - Usage: from the LAST entry (has final/cumulative output_tokens)
-    - Timestamp: from the FIRST entry
-    - stop_reason: from the LAST entry (only the final chunk has the real stop reason)
-    - Other fields: from the first entry
-    """
-    if not entries:
-        return []
-
-    # Separate entries with and without message_id
-    grouped: dict[str, list[dict]] = {}
-    no_msgid: list[dict] = []
-    order: list[str] = []  # Track insertion order of message_ids
-
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        mid = entry.get("message_id", "")
-        role = entry.get("role", "")
-        if mid and role in ("user", "assistant"):
-            if mid not in grouped:
-                grouped[mid] = []
-                order.append(mid)
-            grouped[mid].append(entry)
-        else:
-            no_msgid.append(entry)
-
-    # Merge groups
-    merged: list[dict] = []
-    for mid in order:
-        group = grouped[mid]
-        if len(group) == 1:
-            merged.append(group[0])
-            continue
-
-        # Sort by index to preserve order
-        group.sort(key=lambda e: e.get("index", 0))
-        first = group[0]
-        last = group[-1]
-
-        # Merge content arrays
-        all_content = []
-        for entry in group:
-            content = entry.get("content", [])
-            if isinstance(content, list):
-                all_content.extend(content)
-
-        merged_entry = {**first}
-        merged_entry["content"] = all_content
-        # Use last entry's usage (has cumulative/final output_tokens)
-        merged_entry["usage"] = last.get("usage", first.get("usage"))
-        # Use last entry's stop_reason (intermediate chunks have null)
-        merged_entry["stop_reason"] = last.get("stop_reason") or first.get("stop_reason")
-        merged.append(merged_entry)
-
-    # Interleave back with non-message-id entries in original order
-    # Use the index field to maintain ordering
-    result = merged + no_msgid
-    # A non-numeric `index` sorts after the numeric ones, keeping its original
-    # relative order (the sort is stable), instead of comparing str with int.
-    result.sort(key=_entry_order)
-    return result
-
-
-def _entry_order(entry: dict) -> tuple[int, float]:
-    idx = entry.get("index", 0)
-    if isinstance(idx, bool) or not isinstance(idx, (int, float)) or idx != idx:
-        return (1, 0.0)
-    return (0, float(idx))
+    read = _cc_token_value(usage.get("cache_read_input_tokens"))
+    write = _cc_token_value(usage.get("cache_creation_input_tokens"))
+    return {"total": inp + out + read + write, "input": inp, "output": out,
+            "cache": {"read": read, "write": write}}
 
 
 def _cc_build_step(parts: list, *, role: str, usage: dict | None = None,
@@ -233,468 +46,476 @@ def _cc_build_step(parts: list, *, role: str, usage: dict | None = None,
                    tool_calls: list | None = None,
                    error_count: int | None = None,
                    has_reasoning: bool | None = None,
-                   text_preview: str = "") -> dict:
-    """Build one internal-format step dict — the single source of the step schema.
-
-    Derived fields (tool_calls, error_count, has_reasoning) are computed from
-    *parts* unless explicitly overridden.  ``usage=None`` yields zeroed token
-    counts (no ``reasoning`` key — Claude Code does not report that field).
-    Callers compute their own ``text_preview`` (the preview heuristics
-    intentionally differ between the main-trajectory and event paths).
-
-    The key set matches ``parser.parse_steps``' generic path except for
-    ``is_sub_agent``, whose ABSENCE is load-bearing (see the return dict), and
-    the fields only an OpenCode session hierarchy (``parent_session_id``,
-    ``session_depth``, ``session_title``) or a compaction checkpoint
-    (``compaction_reason``) ever carries.
-    """
-    if tool_calls is None:
-        tool_calls = [p for p in parts if p.get("type") == "tool_call"]
-    if error_count is None:
-        error_count = sum(1 for tc in tool_calls if tc.get("status") == "error")
-    if has_reasoning is None:
-        has_reasoning = any(p.get("type") == "reasoning" for p in parts)
-    if usage is None:
-        tokens = {"total": 0, "input": 0, "output": 0,
-                  "cache_read": 0, "cache_write": 0}
-    else:
-        tokens = {
-            "total": usage["total"],
-            "input": usage["input"],
-            "output": usage["output"],
-            "cache_read": usage["cache"]["read"],
-            "cache_write": usage["cache"]["write"],
-        }
+                   text_preview: str = "", session_id: str = "",
+                   source_path: str = "") -> dict:
+    """Build a normalized step; explicit flags distinguish main and child."""
+    calls = tool_calls if tool_calls is not None else [
+        p for p in parts if p.get("type") == "tool_call"]
+    usage = usage if usage is not None else _cc_extract_usage(None)
     return {
         "role": role,
-        "tokens": tokens,
-        "duration": None,  # Will be computed from timestamps
-        "parts": parts,
-        "tool_calls": tool_calls,
-        "tool_call_count": len(tool_calls),
-        "error_count": error_count,
-        "has_reasoning": has_reasoning,
-        "text_preview": text_preview,
-        "finish": finish or "",
-        "model_id": model,
-        "provider_id": "",
-        "time_created_ms": timestamp_ms,
-        "time_completed_ms": None,
-        "agent": agent,
-        # is_sub_agent is deliberately ABSENT, not False.  metrics.effective_agent()
-        # reads a MISSING key as the Claude Code convention — a non-empty ``agent``
-        # names a sub-agent — whereas OpenCode sets the key and a named main agent
-        # must map to "".  Adding it here, even as False, re-buckets every
-        # sub-agent step into the main agent and moves every per-agent surface.
-        "mode": "",
-        "message_id": message_id,
-        "id": step_id,
-        "parent_id": parent_id,
-        "session_id": "",
-        "cwd": cwd,
-        "root": "",
-        # Claude Code reports none of the following, but the generic path always
-        # emits them, so they carry neutral values rather than being absent: a
-        # reader that stops using ``.get()`` must not see a different schema for
-        # one format.  ``_metrics_unavailable_fields`` stays EMPTY on purpose —
-        # rendering._unavailable_metric_fields derives the missing labels from
-        # the token values, and populating it here would change which per-step
-        # rows render as "Metrics unavailable".
-        "message_type": "",
-        "is_compaction_checkpoint": False,
-        "summary": False,
-        "_metrics_unavailable_fields": [],
+        "tokens": {"total": usage["total"], "input": usage["input"],
+                   "output": usage["output"], "cache_read": usage["cache"]["read"],
+                   "cache_write": usage["cache"]["write"]},
+        "duration": None, "parts": parts, "tool_calls": calls,
+        "tool_call_count": len(calls),
+        "error_count": (sum(c.get("status") == "error" for c in calls)
+                        if error_count is None else error_count),
+        "has_reasoning": (any(p.get("type") == "reasoning" for p in parts)
+                          if has_reasoning is None else has_reasoning),
+        "text_preview": text_preview, "finish": finish or "", "model_id": model,
+        "provider_id": "anthropic", "time_created_ms": timestamp_ms,
+        "time_completed_ms": None, "agent": agent, "is_sub_agent": bool(agent),
+        "mode": "", "message_id": message_id, "id": step_id,
+        "parent_id": parent_id, "session_id": session_id, "cwd": cwd, "root": "",
+        "source_path": source_path,
+        "parent_session_id": "", "parent_agent_id": "", "session_depth": 0,
+        "session_title": "", "message_type": "", "is_compaction_checkpoint": False,
+        "compaction_reason": "", "summary": False, "_metrics_unavailable_fields": [],
     }
 
 
-def _cc_convert_entry_to_step(entry: dict, tool_result_map: dict,
-                              *, agent_id: str = "") -> dict | None:
-    """Convert a single Claude Code trajectory entry to internal step format."""
-    role = entry.get("role", "")
-    if role not in ("user", "assistant"):
-        return None
+def _content_list(content: object) -> list[dict]:
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    return [item for item in content if isinstance(item, dict)] if isinstance(content, list) else []
 
-    content = entry.get("content", [])
-    if not isinstance(content, list):
+
+def _signature(value: object) -> str:
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def _message(record: dict) -> dict:
+    message = record.get("message")
+    return message if isinstance(message, dict) else {}
+
+
+def _output_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            as_text(item.get("text")) if isinstance(item, dict) and item.get("type") == "text"
+            else _signature(item) for item in content)
+    return "" if content is None else _signature(content)
+
+
+def _timestamp(record: dict) -> int | None:
+    return _iso_to_epoch_ms(record.get("timestamp"))
+
+
+def _ordered(records: list[dict]) -> list[dict]:
+    """Sort timestamped records stably; untimed records retain nearby order."""
+    carried = None
+    ordered = []
+    for index, record in enumerate(records):
+        ts = _timestamp(record)
+        if ts is not None:
+            carried = ts
+        ordered.append((carried if carried is not None else float("-inf"), index, record))
+    return [record for _, _, record in sorted(ordered, key=lambda item: item[:2])]
+
+
+def _merge_messages(records: list[dict]) -> list[dict]:
+    """Merge split assistant blocks and discard repeated transcript records.
+
+    The usage on each block describes the same response, often cumulatively.
+    Only the last usage snapshot is counted, and repeated blocks are not added
+    twice when a transcript contains snapshots of the same message.
+    """
+    groups: dict[tuple, dict] = {}
+    uuid_groups: dict[str, tuple] = {}
+    seen_records: set[str] = set()
+    merged = []
+    for raw_index, record in enumerate(_ordered(records)):
+        kind = record.get("type")
+        if kind == "system" and record.get("subtype") == "compact_boundary":
+            key = as_text(record.get("uuid")) or _signature(record)
+            if key not in seen_records:
+                seen_records.add(key)
+                merged.append({"record": record, "content": [],
+                               "raw_index": record.get("_source_index", raw_index),
+                               "first_ms": _timestamp(record), "last_ms": _timestamp(record),
+                               "block_times": {}, "compaction": True})
+            continue
+        if kind not in ("user", "assistant") or not isinstance(record.get("message"), dict):
+            continue
+        msg = _message(record)
+        role = as_text(msg.get("role")) or kind
+        if role not in ("user", "assistant"):
+            continue
+        # UUIDs identify transcript entries; message.id identifies a whole API
+        # response that Claude Code may persist one content block at a time.
+        mid = as_text(msg.get("id"))
+        uuid = as_text(record.get("uuid"))
+        key = (role, mid or uuid or ("line", raw_index))
+        if uuid:
+            # Replayed UUIDs identify the same native entry, even if a damaged
+            # replay changes its message ID. Do not turn it into a second step.
+            key = uuid_groups.setdefault(uuid, key)
+        if key not in groups:
+            entry = {"record": dict(record), "content": [],
+                     "raw_index": record.get("_source_index", raw_index),
+                     "first_ms": _timestamp(record), "last_ms": _timestamp(record),
+                     "block_times": {}, "pieces": {}, "role": role,
+                     "usage": None, "finish": "", "model": ""}
+            groups[key] = entry
+            merged.append(entry)
+        entry = groups[key]
+        ts = _timestamp(record)
+        if ts is not None:
+            entry["first_ms"] = min(entry["first_ms"], ts) if entry["first_ms"] is not None else ts
+            entry["last_ms"] = max(entry["last_ms"], ts) if entry["last_ms"] is not None else ts
+        content = _content_list(msg.get("content"))
+        piece_id = uuid or (("inline", mid, _signature(content))
+                           if record.get("_inline_progress") and mid else ("line", raw_index))
+        entry["pieces"][piece_id] = content
+        for block in entry["pieces"][piece_id]:
+            tid = as_text(block.get("id"))
+            if tid and tid not in entry["block_times"]:
+                entry["block_times"][tid] = ts
+        if isinstance(msg.get("usage"), dict):
+            entry["usage"] = msg["usage"]
+        entry["finish"] = as_text(msg.get("stop_reason")) or entry["finish"]
+        entry["model"] = as_text(msg.get("model")) or entry["model"]
+    for entry in merged:
+        if entry.get("compaction"):
+            continue
         content = []
-
-    # Skip user messages that contain only tool_result items — their content
-    # is already captured in the corresponding tool_call's output field.
-    if role == "user" and content:
-        has_non_result = any(
-            isinstance(item, dict) and item.get("type") != "tool_result"
-            for item in content
-        )
-        if not has_non_result:
-            return None
-
-    usage = _cc_extract_usage(entry.get("usage"))
-    timestamp_ms = _iso_to_epoch_ms(entry.get("timestamp"))
-
-    parts = _cc_content_to_parts(content, tool_result_map)
-
-    # Preview: prefer text over reasoning (keep scanning after a reasoning hit)
-    text_preview = ""
-    for p in parts:
-        if p.get("type") == "text" and p.get("text"):
-            text_preview = p["text"]
-            break
-        if p.get("type") == "reasoning" and p.get("text") and not text_preview:
-            text_preview = p["text"]
-        if p.get("type") == "tool_call" and not text_preview:
-            text_preview = f"[Tool: {p['tool_name']}]"
-
-    return _cc_build_step(
-        parts,
-        role=role,
-        usage=usage,
-        timestamp_ms=timestamp_ms,
-        model=entry.get("model", ""),
-        finish=entry.get("stop_reason", ""),
-        agent=agent_id or "",
-        message_id=entry.get("message_id", entry.get("uuid", "")),
-        step_id=entry.get("uuid", ""),
-        parent_id=entry.get("parent_uuid", ""),
-        cwd=entry.get("cwd", ""),
-        text_preview=text_preview,
-    )
+        tool_positions = {}
+        for blocks in entry.pop("pieces").values():
+            # A full-message snapshot can follow earlier single-block records.
+            # A matching prefix is a replay, while identical text blocks from
+            # distinct UUIDs remain distinct legitimate content blocks.
+            if (len(blocks) > 1 and content and len(blocks) >= len(content)
+                    and blocks[:len(content)] == content):
+                content = []
+                tool_positions = {}
+            for block in blocks:
+                tool_id = as_text(block.get("id")) if block.get("type") == "tool_use" else ""
+                if tool_id and tool_id in tool_positions:
+                    content[tool_positions[tool_id]] = block
+                else:
+                    if tool_id:
+                        tool_positions[tool_id] = len(content)
+                    content.append(block)
+        entry["content"] = content
+    return merged
 
 
-def _cc_flatten_events(entries: list, tool_result_map: dict) -> list[dict]:
-    """Flatten event entries with nested sub-agent messages into steps."""
-    steps = []
-    for entry in entries:
-        if not isinstance(entry, dict) or entry.get("role") != "event":
+def _tool_results(records: list[dict]) -> dict[str, dict]:
+    results = {}
+    for record in _ordered(records):
+        if record.get("type") != "user":
             continue
-        event_type = entry.get("event_type", "")
-        if event_type != "progress":
-            continue
-
-        data = entry.get("data", {})
-        if not isinstance(data, dict):
-            continue
-
-        agent_id = data.get("agentId", "")
-        msg = data.get("message", {})
-        if not isinstance(msg, dict):
-            continue
-
-        msg_type = msg.get("type", "")
-        inner_msg = msg.get("message", {})
-        if not isinstance(inner_msg, dict):
-            continue
-
-        # Map event message type to role
-        if msg_type == "assistant":
-            inner_content = inner_msg.get("content", [])
-            if not isinstance(inner_content, list):
+        metadata = record.get("toolUseResult")
+        metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        for item in _content_list(_message(record).get("content")):
+            if item.get("type") != "tool_result":
                 continue
-            usage = _cc_extract_usage(inner_msg.get("usage"))
-            timestamp_ms = _iso_to_epoch_ms(msg.get("timestamp") or entry.get("timestamp"))
-
-            parts = _cc_content_to_parts(inner_content, tool_result_map)
-            # Preview: first text-or-reasoning part wins (event-path heuristic)
-            text_preview = ""
-            for p in parts:
-                if p.get("type") in ("text", "reasoning") and p.get("text"):
-                    text_preview = p["text"]
-                    break
-                if p.get("type") == "tool_call" and not text_preview:
-                    text_preview = f"[Tool: {p['tool_name']}]"
-
-            steps.append(_cc_build_step(
-                parts,
-                role="assistant",
-                usage=usage,
-                timestamp_ms=timestamp_ms,
-                model=inner_msg.get("model", ""),
-                finish=inner_msg.get("stop_reason", ""),
-                agent=agent_id,
-                message_id=inner_msg.get("id", ""),
-                step_id=msg.get("uuid", entry.get("uuid", "")),
-                parent_id=entry.get("parent_uuid", ""),
-                cwd=entry.get("cwd", ""),
-                text_preview=text_preview,
-            ))
-        elif msg_type == "user":
-            # User messages in events are typically tool results — already handled via
-            # tool_result_map. But if they have text content, include them.
-            inner_content = inner_msg.get("content", [])
-            if not isinstance(inner_content, list):
+            tool_id = as_text(item.get("tool_use_id"))
+            if not tool_id:
                 continue
-            has_text = any(
-                isinstance(item, dict) and item.get("type") == "text"
-                for item in inner_content
-            )
-            if has_text:
-                timestamp_ms = _iso_to_epoch_ms(msg.get("timestamp") or entry.get("timestamp"))
-                parts = _cc_content_to_parts(inner_content, tool_result_map)
-                steps.append(_cc_build_step(
-                    parts,
-                    role="user",
-                    timestamp_ms=timestamp_ms,
-                    agent=agent_id,
-                    step_id=msg.get("uuid", entry.get("uuid", "")),
-                    parent_id=entry.get("parent_uuid", ""),
-                    cwd=entry.get("cwd", ""),
-                    # Event-path user steps never carry tool calls/usage
-                    tool_calls=[],
-                    error_count=0,
-                    has_reasoning=False,
-                    text_preview=next(
-                        (p["text"] for p in parts if p.get("type") == "text" and p.get("text")),
-                        ""
-                    ),
-                ))
-
-    return steps
+            output = item.get("content", "")
+            results[tool_id] = {"output": output,
+                                "status": "error" if item.get("is_error") else "success",
+                                "error": _output_text(output) if item.get("is_error") else None,
+                                "time_end": _timestamp(record), "metadata": metadata}
+    return results
 
 
-def _cc_convert_sub_agent_trajectory(sub_agent: dict) -> list[dict]:
-    """Convert a sub_agents[] entry's full trajectory into internal steps.
+def _parts(entry: dict, results: dict[str, dict]) -> list[dict]:
+    parts = []
+    for item in entry["content"]:
+        kind = item.get("type")
+        if kind == "tool_result":
+            continue
+        if kind == "text":
+            parts.append({"type": "text", "text": as_text(item.get("text"))})
+        elif kind == "thinking":
+            parts.append({"type": "reasoning", "text": as_text(item.get("thinking"))})
+        elif kind == "redacted_thinking":
+            parts.append({"type": "reasoning", "text": "", "redacted": True, "raw": item})
+        elif kind == "tool_use":
+            tool_id = as_text(item.get("id"))
+            result = results.get(tool_id, {})
+            metadata = dict(result.get("metadata", {}))
+            start = entry["block_times"].get(tool_id)
+            end = result.get("time_end")
+            valid_interval = start is not None and end is not None and end >= start
+            reported_duration = next((value for key in ("totalDurationMs", "durationMs")
+                                      if isinstance(value := metadata.get(key), (int, float))
+                                      and not isinstance(value, bool) and math.isfinite(value) and value >= 0), None)
+            if reported_duration is not None:
+                metadata["timing_source"] = "tool_result"
+            elif valid_interval:
+                metadata["timing_source"] = "transcript"
+            parts.append({
+                "type": "tool_call", "tool_name": as_text(item.get("name")) or "?",
+                "tool_id": tool_id, "status": result.get("status", "unknown"),
+                "title": "", "input": item.get("input", {}),
+                "output": result.get("output", ""), "error": result.get("error"),
+                "time_start": start, "time_end": end,
+                "duration_ms": (reported_duration if reported_duration is not None
+                                else end - start if valid_interval else None),
+                "metadata": metadata,
+            })
+        else:
+            parts.append({"type": as_text(kind), "raw": item})
+    return parts
 
-    The sub_agents[] top-level array contains complete sub-agent sessions with
-    their own trajectory arrays — richer than the inline progress events.
+
+def convert_claude_code_events(events: list[dict], *, source_path: str | None = None,
+                               child_event_lists: dict | None = None,
+                               child_warnings: list[str] | None = None) -> dict:
+    """Convert a native parent transcript and its optional child transcripts.
+
+    ``child_event_lists`` maps an agent ID to records, or to a bundle containing
+    ``events``, ``source_path``, ``parent_agent_id`` and ``spawned_by``. The loader
+    owns filesystem discovery; conversion never opens paths or scans sessions.
     """
-    agent_id = sub_agent.get("agent_id", "")
-    sa_trajectory = sub_agent.get("trajectory", [])
-    if not isinstance(sa_trajectory, list):
-        return []
+    if not isinstance(events, list) or not _looks_like_claude_code_events(events):
+        return {"_error": "Claude Code expects native session JSONL records with nested message objects.",
+                "_error_code": "unknown_format"}
 
-    # Merge entries that share the same message_id before processing
-    sa_trajectory = _cc_group_by_message_id(sa_trajectory)
+    main_records = [record for record in events if isinstance(record, dict)]
+    root_sid = next((as_text(r.get("sessionId")) for r in main_records if r.get("sessionId")), "")
+    source_name = os.path.basename(source_path or "")
+    root_agent = source_name[6:-6] if source_name.startswith("agent-") and source_name.endswith(".jsonl") else ""
+    actual: dict[str, list[dict]] = {"": []}
+    inline: dict[str, list[dict]] = {}
+    info: dict[str, dict] = {"": {"source_path": source_path or ""}}
 
-    # Build tool result map from sub-agent's own trajectory
-    tool_result_map = _cc_build_tool_result_map(sa_trajectory)
+    def note_agent(agent_id: str, *, parent: str = "", spawned_by: str = "", **fields):
+        if not agent_id:
+            return
+        agent_info = info.setdefault(agent_id, {})
+        if parent or "parent_agent_id" not in agent_info:
+            agent_info["parent_agent_id"] = parent
+        if spawned_by:
+            agent_info.setdefault("spawned_by", spawned_by)
+        for name, value in fields.items():
+            if value not in (None, ""):
+                agent_info.setdefault(name, value)
+
+    def scan(records: list, owner: str, target: dict[str, list[dict]], depth: int = 0,
+             stream_path: str = "", source_index: int | None = None):
+        if depth > 32:
+            return
+        for record_index, original in enumerate(records):
+            if not isinstance(original, dict):
+                continue
+            record = dict(original)
+            record["_source_index"] = record_index if source_index is None else source_index
+            record["_source_path"] = stream_path
+            own_agent = as_text(record.get("agentId")) or owner
+            if own_agent:
+                note_agent(own_agent, parent=owner if own_agent != owner else "")
+            kind = record.get("type")
+            if kind in ("user", "assistant", "system"):
+                target.setdefault(own_agent, []).append(record)
+            # Parent tool-result records often carry the child's native ID even
+            # when no progress events were retained.
+            result = record.get("toolUseResult")
+            if isinstance(result, dict) and result.get("agentId"):
+                child = as_text(result.get("agentId"))
+                result_blocks = [b for b in _content_list(_message(record).get("content"))
+                                 if b.get("type") == "tool_result"]
+                spawned = as_text(result_blocks[0].get("tool_use_id")) if len(result_blocks) == 1 else ""
+                note_agent(child, parent=own_agent, spawned_by=spawned,
+                           description=result.get("description"), native_summary=result)
+            if kind != "progress":
+                continue
+            data = record.get("data")
+            if not isinstance(data, dict):
+                continue
+            child = as_text(data.get("agentId"))
+            nested = data.get("message")
+            if not child:
+                continue
+            note_agent(child, parent=own_agent,
+                       spawned_by=as_text(record.get("parentToolUseID")) or as_text(data.get("parentToolUseID")),
+                       description=data.get("description"))
+            if not isinstance(nested, dict):
+                continue
+            if nested.get("role") in ("user", "assistant") and "message" not in nested:
+                nested = {"type": nested["role"], "message": nested}
+            nested = dict(nested)
+            nested.setdefault("timestamp", record.get("timestamp"))
+            nested.setdefault("sessionId", record.get("sessionId") or root_sid)
+            nested.setdefault("cwd", record.get("cwd"))
+            nested.setdefault("agentId", child)
+            nested["_inline_progress"] = True
+            scan([nested], child, inline, depth + 1, stream_path, record["_source_index"])
+
+    scan(events, root_agent, actual, stream_path=source_path or "")
+    for child, bundle in (child_event_lists or {}).items():
+        child = as_text(child)
+        if not child:
+            continue
+        fields = bundle if isinstance(bundle, dict) else {}
+        records = fields.get("events", []) if fields else bundle
+        if not isinstance(records, list):
+            continue
+        note_agent(child, parent=as_text(fields.get("parent_agent_id")),
+                   spawned_by=as_text(fields.get("spawned_by")),
+                   source_path=fields.get("source_path"),
+                   parent_session_id=fields.get("parent_session_id"))
+        scan(records, child, actual, stream_path=as_text(fields.get("source_path")))
+
+    streams = dict(actual)
+    warnings = list(child_warnings or [])
+    for child, records in inline.items():
+        # An actual transcript is authoritative. The same response can appear
+        # there and in several progress snapshots with different wrapper UUIDs.
+        if not any(r.get("type") in ("user", "assistant") for r in actual.get(child, [])):
+            streams[child] = records
+            warnings.append(f"Sub-agent {child} has no complete child log; loaded inline progress snapshots only.")
+    for child in info:
+        if child and not any(r.get("type") in ("user", "assistant") for r in streams.get(child, [])):
+            warnings.append(f"Sub-agent {child} was referenced but its transcript is unavailable.")
 
     steps = []
-    for entry in sa_trajectory:
-        if not isinstance(entry, dict):
-            continue
-        role = entry.get("role", "")
-        if role in ("user", "assistant"):
-            step = _cc_convert_entry_to_step(entry, tool_result_map, agent_id=agent_id)
-            if step is not None:
-                steps.append(step)
-    return steps
+    turn_durations = []
+    for agent, records in streams.items():
+        results = _tool_results(records)
+        for record in records:
+            if record.get("type") == "system" and record.get("subtype") == "turn_duration":
+                duration = record.get("durationMs")
+                if isinstance(duration, (int, float)) and not isinstance(duration, bool) and math.isfinite(duration) and duration >= 0:
+                    turn_durations.append({"agent_id": agent, "duration_ms": duration,
+                                           "timestamp": record.get("timestamp"),
+                                           "parent_uuid": record.get("parentUuid")})
+        for entry in _merge_messages(records):
+            record = entry["record"]
+            if entry.get("compaction"):
+                compact = record.get("compactMetadata")
+                compact = compact if isinstance(compact, dict) else {}
+                text = as_text(record.get("content"))
+                step = _cc_build_step([{"type": "text", "text": text}] if text else [],
+                                      role="compaction", timestamp_ms=entry["first_ms"],
+                                      agent=agent, step_id=as_text(record.get("uuid")),
+                                      parent_id=as_text(record.get("parentUuid")),
+                                      session_id=as_text(record.get("sessionId")) or root_sid,
+                                      cwd=as_text(record.get("cwd")), text_preview=text or "Context compacted",
+                                      source_path=as_text(record.get("_source_path")))
+                step.update(message_type="compaction", is_compaction_checkpoint=True,
+                            compaction_reason=as_text(compact.get("trigger")),
+                            compaction_metadata=compact)
+            else:
+                parts = _parts(entry, results)
+                if entry["role"] == "user" and not parts:
+                    continue  # Tool results are attached to their invoking call.
+                if not parts and not isinstance(entry.get("usage"), dict):
+                    continue
+                preview = next((p.get("text", "") for p in parts
+                                if p.get("type") == "text" and p.get("text")), "")
+                if not preview:
+                    preview = next((p.get("text", "") for p in parts
+                                    if p.get("type") == "reasoning" and p.get("text")), "")
+                if not preview:
+                    preview = next((f"[Tool: {p['tool_name']}]" for p in parts
+                                    if p.get("type") == "tool_call"), "")
+                step = _cc_build_step(parts, role=entry["role"], usage=_cc_extract_usage(entry["usage"]),
+                                      timestamp_ms=entry["first_ms"], model=entry["model"],
+                                      finish=entry["finish"], agent=agent,
+                                      message_id=as_text(_message(record).get("id")) or as_text(record.get("uuid")),
+                                      step_id=as_text(record.get("uuid")),
+                                      parent_id=as_text(record.get("parentUuid")),
+                                      cwd=as_text(record.get("cwd")), text_preview=preview,
+                                      session_id=as_text(record.get("sessionId")) or root_sid,
+                                      source_path=as_text(record.get("_source_path")))
+                boundaries = [entry["last_ms"]] + [p.get("time_end") for p in step["tool_calls"]]
+                finish_ms = max((ts for ts in boundaries if ts is not None), default=None)
+                if finish_ms is not None and entry["first_ms"] is not None and finish_ms > entry["first_ms"]:
+                    step["time_completed_ms"] = finish_ms
+                    step["duration"] = (finish_ms - entry["first_ms"]) / 1000
+                    step["timing_source"] = "transcript"
+            step["raw_index"] = entry["raw_index"]
+            if agent:
+                agent_info = info.get(agent, {})
+                step["parent_agent_id"] = as_text(agent_info.get("parent_agent_id"))
+                step["parent_session_id"] = as_text(agent_info.get("parent_session_id")) or root_sid
+                step["session_title"] = as_text(agent_info.get("description"))
+            steps.append(step)
 
+    def agent_depth(agent: str) -> int:
+        seen = set()
+        while agent and agent not in seen:
+            seen.add(agent)
+            agent = as_text(info.get(agent, {}).get("parent_agent_id"))
+        return len(seen)
 
-def _convert_claude_code_to_internal(raw: dict) -> dict:
-    """Convert Claude Code (ccsession-trajectory) format to internal format.
+    # Agent timelines were converted independently. Stable global ordering is
+    # for presentation only and never changes a step's measured interval.
+    carried = {}
+    for step in steps:
+        agent = step["agent"]
+        if step["time_created_ms"] is not None:
+            carried[agent] = step["time_created_ms"]
+        step["_sort_timestamp"] = carried.get(agent, float("-inf"))
+        step["session_depth"] = agent_depth(agent)
+    steps.sort(key=lambda step: step["_sort_timestamp"])
+    for index, step in enumerate(steps):
+        step.pop("_sort_timestamp", None)
+        step["index"] = index
 
-    Transforms the raw JSON into the structure expected by parse_steps() and
-    compute_metrics(), so downstream code works unchanged.
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-
-    # --- Format version check ---
-    fmt_version = raw.get("format_version", "")
-    if fmt_version and fmt_version != "1.0":
-        logger.warning("Claude Code trajectory format_version %s (expected 1.0) — "
-                        "some fields may not parse correctly", fmt_version)
-
-    session = raw.get("session", {}) if isinstance(raw.get("session"), dict) else {}
-    stats_raw = raw.get("statistics", {}) if isinstance(raw.get("statistics"), dict) else {}
-    trajectory = raw.get("trajectory", []) if isinstance(raw.get("trajectory"), list) else []
-    sub_agents_raw = raw.get("sub_agents", []) if isinstance(raw.get("sub_agents"), list) else []
-
-    # --- Metadata ---
-    started_at = session.get("started_at", "")
-    ended_at = session.get("ended_at", "")
-    models_used = session.get("models_used", [])
-    model = models_used[0] if isinstance(models_used, list) and models_used else None
-    generator = raw.get("generator", {}) if isinstance(raw.get("generator"), dict) else {}
-
-    metadata = {
-        "session_id": session.get("id", ""),
-        "slug": session.get("slug", ""),
-        "directory": session.get("working_directory") or "",
-        "directory_name": os.path.basename(session.get("working_directory") or ""),
-        "agent": "claude-code",
-        "model": model,
-        "hostname": "",
-        "platform": session.get("platform", ""),
-        "python_version": "",
-        "timestamp_utc": started_at,
-        "branch": session.get("git_branch", ""),
-        "ground_truth_patch": "",
-        "baseline_commit": "",
-        "sanitized": False,
-        "server_url": "",
-        "server_version": session.get("claude_code_version", ""),
-        "generator_name": generator.get("name", ""),
-        "generator_version": generator.get("version", ""),
-        "format_version": fmt_version,
-        "sub_agent_count": stats_raw.get("sub_agent_count", 0),
-        "event_count": stats_raw.get("events", 0),
-    }
-
-    # --- Timing ---
-    duration_seconds = session.get("duration_seconds")
-    if duration_seconds is None and started_at and ended_at:
-        start_ms = _iso_to_epoch_ms(started_at)
-        end_ms = _iso_to_epoch_ms(ended_at)
-        if start_ms is not None and end_ms is not None:
-            duration_seconds = (end_ms - start_ms) / 1000.0
-    timing = {
-        "total_duration": round(duration_seconds, 3) if duration_seconds else 0,
-        "started_at": started_at,
-        "finished_at": ended_at,
-    }
-
-    # --- Stats & token usage ---
-    tokens_raw = stats_raw.get("tokens", {}) if isinstance(stats_raw.get("tokens"), dict) else {}
-    token_usage = {
-        "total_tokens": (
-            _cc_token_value(tokens_raw.get("input"))
-            + _cc_token_value(tokens_raw.get("output"))
-            + _cc_token_value(tokens_raw.get("cache_read"))
-            + _cc_token_value(tokens_raw.get("cache_creation"))
-        ),
-        "prompt_tokens": _cc_token_value(tokens_raw.get("input")),
-        "completion_tokens": _cc_token_value(tokens_raw.get("output")),
-    }
-    stats = {
-        "total_messages": stats_raw.get("turns", 0),
-        "user_messages": stats_raw.get("user_turns", 0),
-        "assistant_messages": stats_raw.get("assistant_turns", 0),
-        "total_tool_calls": stats_raw.get("tool_calls", 0),
-        "tool_call_breakdown": stats_raw.get("tool_calls_by_name", {}),
-        "failed_tool_calls": 0,
-        "reasoning_steps": stats_raw.get("assistant_turns", 0),
-    }
-
-    # --- Convert main trajectory entries ---
-    # Merge entries that share the same message_id to avoid double-counting tokens
-    merged_trajectory = _cc_group_by_message_id(trajectory)
-
-    # Build tool result map from merged trajectory
-    tool_result_map = _cc_build_tool_result_map(merged_trajectory)
-
-    converted_trajectory = []
-    for entry in merged_trajectory:
-        if not isinstance(entry, dict):
-            continue
-        role = entry.get("role", "")
-        if role in ("user", "assistant"):
-            step = _cc_convert_entry_to_step(entry, tool_result_map)
-            if step is not None:
-                converted_trajectory.append(step)
-
-    # --- Convert sub-agent trajectories from sub_agents[] ---
-    # Prefer the full sub_agents[] trajectories over inline progress events,
-    # as they contain complete message content, token usage, and timing.
-    sub_agent_ids_processed = set()
-    for sa in sub_agents_raw:
-        if not isinstance(sa, dict):
-            continue
-        agent_id = sa.get("agent_id", "")
-        sa_steps = _cc_convert_sub_agent_trajectory(sa)
-        converted_trajectory.extend(sa_steps)
-        if agent_id:
-            sub_agent_ids_processed.add(agent_id)
-
-    # Fallback: flatten inline progress events for any sub-agents NOT in sub_agents[].
-    # This handles cases where progress events exist but sub_agents[] is missing.
-    if not sub_agents_raw:
-        event_steps = _cc_flatten_events(merged_trajectory, tool_result_map)
-        converted_trajectory.extend(event_steps)
-    else:
-        # Only flatten events for agents not already processed via sub_agents[]
-        event_steps = _cc_flatten_events(merged_trajectory, tool_result_map)
-        for step in event_steps:
-            if step.get("agent", "") not in sub_agent_ids_processed:
-                converted_trajectory.append(step)
-
-    # Sort chronologically for display order.  A step whose timestamp is missing
-    # keeps its original position (it carries the previous step's timestamp)
-    # instead of collapsing to 0 and jumping ahead of the opening user prompt.
-    _orig_order = {id(s): i for i, s in enumerate(converted_trajectory)}
-    _carry: dict[int, float | None] = {}
-    _last_ts: float | None = None
-    for s in converted_trajectory:
-        ts = s.get("time_created_ms")
-        if isinstance(ts, (int, float)):
-            _last_ts = ts
-        _carry[id(s)] = _last_ts
-    converted_trajectory.sort(key=lambda s: (
-        _carry[id(s)] if _carry[id(s)] is not None else float("-inf"),
-        _orig_order[id(s)],
-    ))
-
-    for idx, step in enumerate(converted_trajectory):
-        step["index"] = idx
-        # raw_index is the generic path's position in the SOURCE trajectory.
-        # Claude Code merges entries by message_id and re-sorts by timestamp,
-        # and exports ``trajectory`` as [] (the steps live in
-        # ``_cc_parsed_steps``), so there is no distinct source position to
-        # point at — equal to ``index`` is the honest value, and patterns.py's
-        # raw-trajectory lookups bail on the empty list either way.
-        step["raw_index"] = idx
-
-    # Compute per-step durations WITHIN each agent's own timeline.  A delegated
-    # sub-agent runs concurrently while the main agent is blocked on the Task
-    # tool, so the gap to the next step in the globally-interleaved list would
-    # otherwise charge the main agent's idle wait to the sub-agent's step.
-    by_agent: dict[str, list[dict]] = {}
-    for step in converted_trajectory:
-        by_agent.setdefault(step.get("agent", ""), []).append(step)
-    for agent_steps in by_agent.values():
-        # Pair consecutive *timestamped* steps within the agent, stepping over
-        # any untimed step so its missing timestamp does not blank out the
-        # duration of the timestamped step before it.
-        timed = [s for s in agent_steps
-                 if isinstance(s.get("time_created_ms"), (int, float))]
-        for i in range(len(timed) - 1):
-            # Skip assistant->user turn boundaries: any user step surviving
-            # conversion is a real human prompt (tool_result-only user
-            # messages were dropped), so the gap is human idle time between
-            # turns, not model latency.  The turn-final assistant step keeps
-            # duration=None, same as the last step of each agent timeline.
-            if timed[i].get("role") == "assistant" and timed[i + 1].get("role") == "user":
-                continue
-            t1 = timed[i]["time_created_ms"]
-            t2 = timed[i + 1]["time_created_ms"]
-            if t2 >= t1:
-                timed[i]["duration"] = round((t2 - t1) / 1000.0, 2)
-                timed[i]["time_completed_ms"] = t2
-
-    # --- Sub-agent summary for session display ---
-    sub_agent_info = []
-    for sa in sub_agents_raw:
-        if not isinstance(sa, dict):
-            continue
-        sa_stats = sa.get("statistics", {}) if isinstance(sa.get("statistics"), dict) else {}
-        sa_tokens = sa_stats.get("tokens", {}) if isinstance(sa_stats.get("tokens"), dict) else {}
-        sub_agent_info.append({
-            "agent_id": sa.get("agent_id", ""),
-            "started_at": sa.get("started_at", ""),
-            "ended_at": sa.get("ended_at", ""),
-            "duration_seconds": sa.get("duration_seconds", 0),
-            "spawned_by": sa.get("spawned_by_tool_call_id", ""),
-            "turns": sa_stats.get("turns", 0),
-            "tool_calls": sa_stats.get("tool_calls", 0),
-            "tool_calls_by_name": sa_stats.get("tool_calls_by_name", {}),
-            "tokens": {
-                "input": sa_tokens.get("input", 0),
-                "output": sa_tokens.get("output", 0),
-                "cache_read": sa_tokens.get("cache_read", 0),
-                "cache_creation": sa_tokens.get("cache_creation", 0),
-            },
+    all_records = [r for records in streams.values() for r in records]
+    timed_records = [(ts, r) for r in all_records if (ts := _timestamp(r)) is not None]
+    started = min(timed_records, key=lambda pair: pair[0]) if timed_records else None
+    ended = max(timed_records, key=lambda pair: pair[0]) if timed_records else None
+    cwd = next((as_text(r.get("cwd")) for r in main_records if r.get("cwd")), "")
+    model = next((s["model_id"] for s in steps if s["model_id"]), None)
+    main_prompt = next((s["text_preview"] for s in steps if s["role"] == "user" and not s["agent"]), "")
+    assistant = [s for s in steps if s["role"] == "assistant"]
+    tool_counts = Counter(c["tool_name"] for s in steps for c in s["tool_calls"])
+    sub_agents = []
+    for agent in dict.fromkeys(s["agent"] for s in steps if s["agent"]):
+        own = [s for s in steps if s["agent"] == agent]
+        own_records = streams.get(agent, [])
+        timed = [(ts, r) for r in own_records if (ts := _timestamp(r)) is not None]
+        start = min(timed, key=lambda pair: pair[0]) if timed else None
+        end = max(timed, key=lambda pair: pair[0]) if timed else None
+        sub_agents.append({
+            **info.get(agent, {}), "agent_id": agent,
+            "session_id": next((s["session_id"] for s in own if s["session_id"]), root_sid),
+            "parent_session_id": as_text(info.get(agent, {}).get("parent_session_id")) or root_sid,
+            "session_depth": agent_depth(agent),
+            "started_at": start[1].get("timestamp", "") if start else "",
+            "ended_at": end[1].get("timestamp", "") if end else "",
+            "duration_seconds": (end[0] - start[0]) / 1000 if start and end else None,
+            "spawned_by": as_text(info.get(agent, {}).get("spawned_by")),
+            "turns": len(own), "tool_calls": sum(s["tool_call_count"] for s in own),
+            "tool_calls_by_name": dict(Counter(c["tool_name"] for s in own for c in s["tool_calls"])),
+            "tokens": {out: sum(s["tokens"][field] for s in own if s["role"] == "assistant")
+                       for out, field in (("input", "input"), ("output", "output"),
+                                          ("cache_read", "cache_read"), ("cache_creation", "cache_write"))},
+            "source": "file" if any(r.get("type") in ("user", "assistant") for r in actual.get(agent, [])) else "inline",
         })
-
-    # Build the internal format that parse_steps()/compute_metrics() expects.
     return {
-        "metadata": metadata,
-        "input": {"prompt": "", "prompt_length": 0},
-        "output": {"patch": "", "patch_length": 0, "patch_lines": 0,
-                    "has_patch": False, "error": None},
-        "timing": timing,
-        "token_usage": token_usage,
-        "stats": stats,
-        "trajectory": [],  # Empty — we use _cc_parsed_steps instead
-        "_cc_parsed_steps": converted_trajectory,
-        "_cc_format": True,
-        "_cc_sub_agents": sub_agent_info,
+        "metadata": {
+            "session_id": root_sid, "slug": next((as_text(r.get("slug")) for r in main_records if r.get("slug")), ""),
+            "directory": cwd, "directory_name": os.path.basename(cwd),
+            "agent": "claude-code", "model": model, "hostname": "", "platform": "",
+            "python_version": "", "timestamp_utc": started[1].get("timestamp", "") if started else "",
+            "branch": next((as_text(r.get("gitBranch")) for r in main_records if r.get("gitBranch")), ""),
+            "ground_truth_patch": "", "baseline_commit": "", "sanitized": False,
+            "server_url": "", "server_version": next((as_text(r.get("version")) for r in main_records if r.get("version")), ""),
+            "sub_agent_count": len(sub_agents), "event_count": len(all_records),
+        },
+        "input": {"prompt": main_prompt, "prompt_length": len(main_prompt)},
+        "output": {"patch": "", "patch_length": 0, "patch_lines": 0, "has_patch": False, "error": None},
+        "timing": {"total_duration": (ended[0] - started[0]) / 1000 if started and ended else 0,
+                   "started_at": started[1].get("timestamp", "") if started else "",
+                   "finished_at": ended[1].get("timestamp", "") if ended else ""},
+        "token_usage": {"total_tokens": sum(s["tokens"]["total"] for s in assistant),
+                        "prompt_tokens": sum(s["tokens"]["input"] for s in assistant),
+                        "completion_tokens": sum(s["tokens"]["output"] for s in assistant)},
+        "stats": {"total_messages": len(steps), "user_messages": sum(s["role"] == "user" for s in steps),
+                  "assistant_messages": len(assistant), "total_tool_calls": sum(tool_counts.values()),
+                  "tool_call_breakdown": dict(tool_counts), "failed_tool_calls": sum(s["error_count"] for s in steps),
+                  "reasoning_steps": sum(s["has_reasoning"] for s in steps)},
+        "trajectory": [], "_claude_code_format": True, "_claude_code_parsed_steps": steps,
+        "_claude_code_sub_agents": sub_agents, "_claude_code_turn_durations": turn_durations,
+        "_load_warnings": list(dict.fromkeys(warnings)),
     }

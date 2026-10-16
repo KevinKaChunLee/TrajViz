@@ -14,6 +14,30 @@ change the public API (the names exported from `agent_trajviz`).
   re-runs it). Without a configured endpoint it only shows the setup banner.
 - Each Overview issue has an **AI 深入分析** button that opens the AI Trajectory
   Analysis sidebar and asks a focused follow-up about that issue.
+- Overview Issues dedupe overlapping failure cascades, group same-family cards
+  (edit thrash, search waste, same-cause bottlenecks), and preview three leaves
+  per group with expand/collapse.
+
+## [0.2.0] - 2026-10-15
+
+### Added
+
+- Read Claude Code's native session JSONL directly, including associated
+  subagent logs. Local parent files discover children; session directories and
+  ZIP bundles preserve the parent/subagent layout for loading or uploading.
+
+### Changed
+
+- Claude Code's format key is `claude_code`. Replace `format="ccsession"`
+  with `format="claude_code"`, or use auto-detection with native session logs.
+  Existing normalized TrajViz exports migrate automatically, preserving agent
+  labels and subagent spawn links.
+
+### Removed
+
+- The non-native `ccsession-trajectory` input wrapper. Claude Code no longer
+  needs an intermediate export. TrajViz's public `trajectory.json` round-trip
+  format remains supported.
 
 ### Fixed
 
@@ -26,6 +50,10 @@ change the public API (the names exported from `agent_trajviz`).
   leaves a newly allocated scratch directory behind.
 - Create dashboard reports inside Gradio's cache so the download serves the
   session-owned file directly instead of retaining a second cached copy.
+- Support current DECAF APIs while preserving offline attribution, verified
+  cache provenance, and canonical source identity.
+- Report whether DECAF actually used an available judge verdict when its
+  automatic cache mode is enabled.
 
 ## [0.1.0] - 2026-10-12
 
@@ -191,4 +219,6 @@ First release as the `agent-trajviz` package.
   passwords, authorization headers and generated-looking values of
   secret-named assignments become `[REDACTED]`.
 
+[Unreleased]: https://github.com/rshu/TrajViz/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rshu/TrajViz/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rshu/TrajViz/releases/tag/v0.1.0
