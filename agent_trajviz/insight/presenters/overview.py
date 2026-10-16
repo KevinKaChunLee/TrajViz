@@ -33,6 +33,7 @@ from .issues import (
     OverviewIssue,
     build_overview_issues_html,
     collect_overview_issues,
+    overview_issues_payload,
     rank_issues,
 )
 
@@ -411,6 +412,7 @@ def build_overview_outputs(session: LoadedSession) -> dict:
         tokens_estimated=tokens_are_estimates(session.raw),
     )
     issues_html = build_overview_issues_html(session, issues=ranked_issues)
+    issues_payload = overview_issues_payload(ranked_issues)
     metrics_text = format_performance_md(metrics, wfmt)
 
     behavior_text = format_behavioral_md(metrics, diag_metrics=session.diagnostic_metrics)
@@ -433,6 +435,7 @@ def build_overview_outputs(session: LoadedSession) -> dict:
         **summary,
         "kpi_html": kpi_html,
         "issues_html": issues_html,
+        "issues_payload": issues_payload,
         "session_detail": session_detail,
         "metrics_text": metrics_text,
         "behavior_text": behavior_text,

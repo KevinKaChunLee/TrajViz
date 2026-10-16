@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import html
 import re
+from dataclasses import asdict
+from typing import cast, get_args
 
 from ..issues import (  # noqa: F401  (re-exported: UI and judge import them here)
     Confidence,
@@ -20,6 +22,9 @@ from ..issues import (  # noqa: F401  (re-exported: UI and judge import them her
 )
 from ..rendering import _step_link_chips
 from ..session import LoadedSession
+
+_ISSUE_KINDS = frozenset(get_args(IssueKind))
+_CONFIDENCES = frozenset(get_args(Confidence))
 
 ISSUE_KIND_COLORS: dict[IssueKind, str] = {
     "error": "var(--ov-bad)",
@@ -218,9 +223,42 @@ def _localize_recovery_why(why: str) -> str:
     return why
 
 
-def _issue_analysis_question(issue: OverviewIssue, number: int) -> str:
-    """Focused question that asks the sidebar to analyze this one issue directly."""
-    steps = ", ".join(f"#{s}" for s in issue.steps[:12])
+def overview_issues_payload(issues: list[OverviewIssue]) -> list[dict]:
+    """JSON-friendly ranked issues for Gradio State (same shape as ``asdict`` / views)."""
+    return [asdict(issue) for issue in issues]
+
+
+def overview_issue_from_payload(row: dict) -> OverviewIssue:
+    """Rebuild an OverviewIssue from :func:`overview_issues_payload` / ``asdict``."""
+    judgment = None
+    raw_j = row.get("judgment")
+    if isinstance(raw_j, dict) and raw_j.get("where") and raw_j.get("fix"):
+        conf = str(raw_j.get("confidence") or "medium").strip().lower()
+        if conf not in _CONFIDENCES:
+            conf = "medium"
+        judgment = IssueJudgment(
+            where=str(raw_j["where"]),
+            fix=str(raw_j["fix"]),
+            also=str(raw_j.get("also") or ""),
+            confidence=cast(Confidence, conf),
+        )
+    steps = tuple(int(s) for s in (row.get("steps") or ())[:12])
+    kind = row.get("kind") if row.get("kind") in _ISSUE_KINDS else "error"
+    return OverviewIssue(
+        kind=cast(IssueKind, kind),
+        title=str(row.get("title") or ""),
+        detail=str(row.get("detail") or ""),
+        why=str(row.get("why") or ""),
+        steps=steps,
+        source_id=str(row.get("source_id") or ""),
+        judgment=judgment,
+    )
+
+
+def issue_analysis_question(issue: OverviewIssue, number: int) -> str:
+    """Focused sidebar question for one ranked Overview issue."""
+    step_ids = issue.steps[:12]
+    steps = ", ".join(f"#{s}" for s in step_ids)
     lines = [
         f"Analyze this specific Overview issue directly (issue #{number}).",
         "Do not rewrite a full-run report — focus only on this issue.",
@@ -246,6 +284,16 @@ def _issue_analysis_question(issue: OverviewIssue, number: int) -> str:
         "the likely root cause, and concrete fix actions."
     )
     return "\n".join(lines)
+
+
+def issue_analysis_question_from_payload(rows: list, number: int) -> str | None:
+    """Build the focused question for 1-based *number* from a State payload."""
+    if number < 1 or number > len(rows):
+        return None
+    row = rows[number - 1]
+    if not isinstance(row, dict):
+        return None
+    return issue_analysis_question(overview_issue_from_payload(row), number)
 
 
 def _issue_card(issue: OverviewIssue, number: int) -> str:
@@ -292,12 +340,11 @@ def _issue_card(issue: OverviewIssue, number: int) -> str:
             f"<span class='overview-issue-info' title='{html.escape(why_raw)}' "
             f"aria-hidden='true'>ⓘ</span>"
         )
-    question = html.escape(_issue_analysis_question(issue, number), quote=True)
     analyze_html = (
         f"<button type='button' class='overview-issue-analyze' "
-        f"data-question=\"{question}\" "
+        f"data-issue-index=\"{number}\" "
         f"onclick=\"if(window.tvAnalyzeIssue)"
-        f"{{window.tvAnalyzeIssue(this.getAttribute('data-question'));}}\">"
+        f"{{window.tvAnalyzeIssue(this.getAttribute('data-issue-index'));}}\">"
         f"AI 深入分析</button>"
     )
     return (
@@ -312,7 +359,7 @@ def _issue_card(issue: OverviewIssue, number: int) -> str:
         f"</div>"
         f"{steps_html}"
         f"{judgment_html}"
-        f"<div class='overview-issue-actions'>{analyze_html}</div>"
+        f"{analyze_html}"
         f"</div>"
     )
 

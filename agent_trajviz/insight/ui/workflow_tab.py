@@ -22,29 +22,9 @@ WORKFLOW_JS = """
                                 if (!bar) return;
                                 var active = Array.from(bar.querySelectorAll('.filter-chip.chip-active'))
                                     .map(function(c) { return c.dataset.filter; });
-                                var hiddenEl = document.querySelector(
-                                    '#wf-filter-hidden textarea, #wf-filter-hidden input'
-                                );
-                                if (!hiddenEl) return;
-                                var proto = hiddenEl.tagName === 'TEXTAREA'
-                                    ? window.HTMLTextAreaElement.prototype
-                                    : window.HTMLInputElement.prototype;
-                                var descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
-                                if (descriptor && descriptor.set) {
-                                    descriptor.set.call(hiddenEl, active.join(','));
-                                } else {
-                                    hiddenEl.value = active.join(',');
+                                if (typeof window.tvSetGradioText === 'function') {
+                                    window.tvSetGradioText('#wf-filter-hidden', active.join(','));
                                 }
-                                hiddenEl.dispatchEvent(new InputEvent('input', {
-                                    bubbles: true,
-                                    composed: true,
-                                    inputType: 'insertText',
-                                    data: null
-                                }));
-                                hiddenEl.dispatchEvent(new Event('change', {
-                                    bubbles: true,
-                                    composed: true
-                                }));
                             };
                             window.__setWorkflowChipActive = function(chip, active) {
                                 if (!chip) return;

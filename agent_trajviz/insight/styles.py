@@ -21,6 +21,7 @@ _LIGHT_TOKENS = """
     --ov-text: #0f172a;
     --ov-muted: #5b6473;
     --ov-accent: #1d4ed8;
+    --ov-ai-accent: #ea580c;
     --ov-success: #059669;
     --ov-warn: #b45309;
     --ov-bad: #dc2626;
@@ -89,6 +90,7 @@ _DARK_TOKENS = """
         --ov-text: #e2e8f0;
         --ov-muted: #94a3b8;
         --ov-accent: #60a5fa;
+        --ov-ai-accent: #fb923c;
         --ov-success: #34d399;
         --ov-warn: #fbbf24;
         --ov-bad: #f87171;
@@ -945,6 +947,11 @@ body, p, td, li { font-size: 13px; font-weight: 400; }
 #wf-filter-hidden {
     display: none !important;
 }
+/* Overview → AI sidebar bridge (Gradio must mount these; hide visually). */
+#tv-issue-ask,
+#tv-issue-ask-btn {
+    display: none !important;
+}
 
 .filter-summary {
     display: flex;
@@ -1208,15 +1215,13 @@ html.tv-theme-dark {
     color: var(--ov-muted);
     cursor: help;
 }
-.overview-issue-actions {
-    margin-top: 8px;
-}
 .overview-issue-analyze {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    margin-top: 8px;
     padding: 4px 10px;
-    border: 1px solid #ea580c;
+    border: 1px solid var(--ov-ai-accent);
     border-radius: 6px;
     background: #fff7ed;
     color: #c2410c;
@@ -1226,7 +1231,7 @@ html.tv-theme-dark {
     cursor: pointer;
 }
 .overview-issue-analyze:hover {
-    background: #ea580c;
+    background: var(--ov-ai-accent);
     color: #fff;
 }
 .overview-issues-hint {
@@ -1762,10 +1767,10 @@ html.tv-theme-dark {
     padding: 12px 16px 12px 12px;
     gap: 10px;
     border-radius: 10px 0 0 10px;
-    border: 1px solid #ea580c;
+    border: 1px solid var(--ov-ai-accent);
     border-right: none;
-    box-shadow: -3px 3px 12px rgba(234, 88, 12, 0.28);
-    background: #ea580c;
+    box-shadow: -3px 3px 12px color-mix(in srgb, var(--ov-ai-accent) 28%, transparent);
+    background: var(--ov-ai-accent);
     color: #fff;
 }
 #analysis-sidebar.right:not(.open) .toggle-button .chevron {

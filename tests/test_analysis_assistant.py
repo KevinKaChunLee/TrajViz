@@ -305,7 +305,7 @@ class AnalysisUiTests(unittest.TestCase):
         self.assertIn("analyze_loaded_trajectory", source)
         self.assertIn("answer_question", source)
         self.assertIn("tv-issue-ask", source)
-        self.assertIn("_ask_about_issue", source)
+        self.assertIn("on_issue_ask", source)
         self.assertNotIn("suggest_btns", source)
         self.assertNotIn("Where did it go wrong?", source)
         self.assertNotIn("analysis-panel-sub", source)

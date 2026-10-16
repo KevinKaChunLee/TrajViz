@@ -34,11 +34,8 @@ class IssuesJudgeLoadTests(unittest.TestCase):
 
     def test_judge_is_bound_to_click_and_load(self):
         deps = _deps_for(self.demo, "on_suggest_fixes")
-        self.assertGreaterEqual(len(deps), 1)
-        events = set()
-        for bf in deps:
-            events.update(event for _block_id, event in bf.targets)
-        self.assertEqual(events, {"click", "then"})
+        events = [event for bf in deps for _block_id, event in bf.targets]
+        self.assertEqual(sorted(events), ["click", "then"])
 
     def test_judge_button_names_the_egress(self):
         blocks = self.demo.blocks

@@ -23,6 +23,7 @@ from ..presenters.label_ui import build_label_ui_payload
 from ..presenters.issues import (
     build_overview_issues_html,
     collect_overview_issues,
+    overview_issues_payload,
     rank_issues,
 )
 from ..presenters.overview import (
@@ -356,6 +357,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
             "overview_kpi_html": gr.update(value="", visible=False),
             "session_detail_html": "",
             "issues_html": "",
+            "state_overview_issues": [],
             "metrics_md": "",
             "token_chart": fig,
             "token_step_html": build_token_step_panel_html([]),
@@ -396,6 +398,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
         "overview_kpi_html": gr.update(value=ov["kpi_html"], visible=True),
         "session_detail_html": ov["session_detail"],
         "issues_html": ov["issues_html"],
+        "state_overview_issues": ov["issues_payload"],
         "metrics_md": ov["metrics_text"],
         "token_chart": ch["tok_fig"],
         "token_step_html": build_token_step_panel_html(session.steps),
@@ -476,21 +479,22 @@ def bind(
         from ..presenters.issues import render_overview_issues_html
 
         if run is None or not run.steps:
-            yield render_overview_issues_html([])
+            yield render_overview_issues_html([]), []
             return
 
         cfg = resolve_analysis_config()
         session = session_from_run(run, "")
+        ranked = rank_issues(collect_overview_issues(session))
+        payload = overview_issues_payload(ranked)
 
         if not cfg.ready:
             missing = ", ".join(cfg.missing)
             banner = f"Configure {missing} in .env to auto-suggest fixes"
-            yield build_overview_issues_html(session, banner=banner)
+            yield build_overview_issues_html(session, issues=ranked, banner=banner), payload
             return
 
-        ranked = rank_issues(collect_overview_issues(session))
         if not ranked:
-            yield build_overview_issues_html(session, issues=ranked)
+            yield build_overview_issues_html(session, issues=ranked), payload
             return
 
         judged = ranked
@@ -507,9 +511,10 @@ def bind(
                 progress_line = (
                     f"Suggesting fixes {progress.current}/{progress.total} — {short}"
                 )
+                # Stream HTML only; refresh State once when judgments are final.
                 yield build_overview_issues_html(
                     session, issues=judged, progress=progress_line,
-                )
+                ), gr.skip()
                 continue
 
             ok = sum(1 for i in judged if i.judgment is not None)
@@ -517,7 +522,7 @@ def bind(
                 banner = f"Judge failed ({len(errors)}). First: {errors[0][:160]}"
                 yield build_overview_issues_html(
                     session, issues=ranked, banner=banner,
-                )
+                ), payload
                 return
 
             banner = ""
@@ -530,12 +535,12 @@ def bind(
                 banner = f"Judged {ok}/{JUDGE_ISSUE_CAP} (capped)."
             yield build_overview_issues_html(
                 session, issues=judged, banner=banner,
-            )
+            ), overview_issues_payload(judged)
 
     judge_event = dict(
         fn=on_suggest_fixes,
         inputs=[shared.state_run],
-        outputs=[refs.issues_html],
+        outputs=[refs.issues_html, shared.state_overview_issues],
         show_progress="minimal",
         concurrency_id="issues_judge",
     )

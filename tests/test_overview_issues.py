@@ -4,9 +4,12 @@ import unittest
 from types import SimpleNamespace
 
 from agent_trajviz.insight.presenters.issues import (
+    IssueJudgment,
     OverviewIssue,
     build_overview_issues_html,
     collect_overview_issues,
+    issue_analysis_question_from_payload,
+    overview_issues_payload,
     rank_issues,
     render_overview_issues_html,
 )
@@ -189,7 +192,8 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn("overview-issue-analyze", html)
         self.assertIn("AI 深入分析", html)
         self.assertIn("tvAnalyzeIssue", html)
-        self.assertIn("Analyze this specific Overview issue directly (issue #1)", html)
+        self.assertIn('data-issue-index="1"', html)
+        self.assertNotIn("Analyze this specific Overview issue", html)
         self.assertNotIn("overview-issue-more", html)
         self.assertNotIn("修改位置", html)
         self.assertNotIn("修复建议", html)
@@ -213,6 +217,24 @@ class OverviewIssuesTests(unittest.TestCase):
         html = render_overview_issues_html(issues)
         self.assertNotIn("修复建议", html)
         self.assertNotIn("修改位置", html)
+
+    def test_issue_ask_payload_rebuilds_focused_question(self):
+        issue = OverviewIssue(
+            kind="error",
+            title="Bash: exit 1 (1×)",
+            detail="boom",
+            why="Typical recovery: Read",
+            steps=(3, 7),
+            source_id="fail:Bash: exit 1",
+            judgment=IssueJudgment(where="CLAUDE.md", fix="Check the path", also="", confidence="high"),
+        )
+        payload = overview_issues_payload([issue])
+        question = issue_analysis_question_from_payload(payload, 1)
+        self.assertIsNotNone(question)
+        self.assertIn("Analyze this specific Overview issue directly (issue #1)", question)
+        self.assertIn("Bash: exit 1", question)
+        self.assertIn("Current suggested fix location: CLAUDE.md", question)
+        self.assertIsNone(issue_analysis_question_from_payload(payload, 2))
 
     def test_shows_all_ranked_issues(self):
         issues = [
@@ -299,10 +321,11 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn("过早压缩上下文", html)
         self.assertIn("压缩后上下文反而变大", html)
         self.assertIn("压缩时窗口占用：假定 128k token 窗口的", html)
-        # Visible chrome is Chinese; English titles stay only in the AI ask payload.
+        # Visible chrome is Chinese; the AI ask prompt is rebuilt server-side.
         self.assertNotIn("overview-issue-title'>Premature compactions", html)
         self.assertNotIn("overview-issue-detail'>window occupancy at compaction time", html)
-        self.assertIn("Title: Premature compactions", html)
+        self.assertNotIn("Title: Premature compactions", html)
+        self.assertIn('data-issue-index="', html)
 
     def test_failure_cascade_skips_single_step_chains(self):
         issues = collect_overview_issues(

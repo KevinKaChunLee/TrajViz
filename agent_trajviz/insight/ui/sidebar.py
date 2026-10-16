@@ -8,10 +8,8 @@ import gradio as gr
 
 from ..assistant import analyze_loaded_trajectory, answer_question
 from ..llm_config import config_status_html
+from ..presenters.issues import issue_analysis_question_from_payload
 from .shared import SharedState
-
-ISSUE_ASK_BOX_ID = "tv-issue-ask"
-ISSUE_ASK_BTN_ID = "tv-issue-ask-btn"
 
 
 @dataclass
@@ -23,6 +21,10 @@ class SidebarRefs:
     analysis_clear: gr.Button
     issue_ask_box: gr.Textbox
     issue_ask_btn: gr.Button
+
+
+def _brief_text(brief: object) -> str:
+    return brief if isinstance(brief, str) else ""
 
 
 def layout() -> SidebarRefs:
@@ -63,17 +65,20 @@ def layout() -> SidebarRefs:
                 elem_id="analysis-input",
             )
         analysis_clear = gr.Button("Clear chat", size="sm", variant="secondary")
-        # Filled by Overview issue "AI 深入分析" via JS; consumed on expand or click.
+        # Gradio omits visible=False from the DOM; keep mounted and hide with CSS
+        # (same bridge pattern as #wf-filter-hidden). Filled by Overview
+        # "AI 深入分析"; the hidden button is the sole consumer.
         issue_ask_box = gr.Textbox(
             value="",
-            visible=False,
-            elem_id=ISSUE_ASK_BOX_ID,
+            visible=True,
+            elem_id="tv-issue-ask",
             show_label=False,
+            container=False,
         )
         issue_ask_btn = gr.Button(
             "Analyze issue",
-            visible=False,
-            elem_id=ISSUE_ASK_BTN_ID,
+            visible=True,
+            elem_id="tv-issue-ask-btn",
         )
     return SidebarRefs(
         analysis_sidebar=analysis_sidebar,
@@ -90,22 +95,9 @@ def _run_analysis(steps, brief):
     """First LLM pass using the brief packed from LoadedSession at load."""
     if not steps:
         return "", [], config_status_html(loaded_steps=0)
-    packed = brief if isinstance(brief, str) else ""
+    packed = _brief_text(brief)
     brief, history = analyze_loaded_trajectory(steps, brief=packed)
     return brief, history, config_status_html(loaded_steps=len(steps))
-
-
-def _ask_about_issue(question, history, brief, steps):
-    """Ask the focused issue question only — no automatic whole-run first pass."""
-    pending = (question or "").strip()
-    packed = brief if isinstance(brief, str) else ""
-    hist = list(history or [])
-    n = len(steps) if steps else 0
-    status = config_status_html(loaded_steps=n)
-    if not pending:
-        return packed, hist, status, ""
-    hist = answer_question(pending, hist, packed)
-    return packed, hist, status, ""
 
 
 def bind(refs: SidebarRefs, shared: SharedState, load_events) -> None:
@@ -118,7 +110,7 @@ def bind(refs: SidebarRefs, shared: SharedState, load_events) -> None:
         """Pack status on load; run LLM only if the analysis panel is open."""
         if not steps:
             return "", [], config_status_html(loaded_steps=0)
-        packed = brief if isinstance(brief, str) else ""
+        packed = _brief_text(brief)
         status = config_status_html(loaded_steps=len(steps))
         if sidebar_open:
             return _run_analysis(steps, packed)
@@ -133,24 +125,16 @@ def bind(refs: SidebarRefs, shared: SharedState, load_events) -> None:
 
     def on_sidebar_expand(steps, brief, history, pending_q):
         open_state = True
-        pending = (pending_q or "").strip()
-        if pending:
-            brief_out, history_out, status, cleared = _ask_about_issue(
-                pending, history, brief, steps,
-            )
-            return brief_out, history_out, status, open_state, cleared
+        packed = _brief_text(brief)
+        n = len(steps) if steps else 0
+        # Pending issue ask is handled by issue_ask_btn; suppress the automatic
+        # whole-run first pass so the focused question is the first reply.
+        if (pending_q or "").strip():
+            return packed, history, config_status_html(loaded_steps=n), open_state
         if history:
-            # Already analyzed for this load (or user has chat); don't re-fire.
-            n = len(steps) if steps else 0
-            return (
-                brief if isinstance(brief, str) else "",
-                history,
-                config_status_html(loaded_steps=n),
-                open_state,
-                "",
-            )
-        brief_out, history_out, status = _run_analysis(steps, brief)
-        return brief_out, history_out, status, open_state, ""
+            return packed, history, config_status_html(loaded_steps=n), open_state
+        brief_out, history_out, status = _run_analysis(steps, packed)
+        return brief_out, history_out, status, open_state
 
     def on_sidebar_collapse():
         return False
@@ -168,7 +152,6 @@ def bind(refs: SidebarRefs, shared: SharedState, load_events) -> None:
             refs.analysis_chatbot,
             refs.analysis_status,
             state_sidebar_open,
-            refs.issue_ask_box,
         ],
     )
     refs.analysis_sidebar.collapse(
@@ -186,11 +169,20 @@ def bind(refs: SidebarRefs, shared: SharedState, load_events) -> None:
     )
     refs.analysis_clear.click(fn=lambda: [], outputs=[refs.analysis_chatbot])
 
-    def on_issue_ask(pending_q, history, brief, steps):
-        brief_out, history_out, status, cleared = _ask_about_issue(
-            pending_q, history, brief, steps,
-        )
-        return history_out, brief_out, status, True, cleared
+    def on_issue_ask(pending_q, history, brief, steps, issue_rows):
+        packed = _brief_text(brief)
+        hist = list(history or [])
+        status = config_status_html(loaded_steps=len(steps) if steps else 0)
+        raw = (pending_q or "").strip()
+        try:
+            number = int(raw)
+        except ValueError:
+            number = 0
+        rows = issue_rows if isinstance(issue_rows, list) else []
+        question = issue_analysis_question_from_payload(rows, number)
+        if question:
+            hist = answer_question(question, hist, packed)
+        return hist, packed, status, True, ""
 
     refs.issue_ask_btn.click(
         fn=on_issue_ask,
@@ -199,6 +191,7 @@ def bind(refs: SidebarRefs, shared: SharedState, load_events) -> None:
             refs.analysis_chatbot,
             state_analysis_brief,
             shared.state_steps,
+            shared.state_overview_issues,
         ],
         outputs=[
             refs.analysis_chatbot,

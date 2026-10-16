@@ -80,10 +80,17 @@ def _tab_unit(mod: Any) -> LoadUnit:
     return LoadUnit(name=name, pack=mod.pack_load, slots=slots, module=mod)
 
 
+def _overview_slots(ctx: LoadContext) -> dict[str, Any]:
+    """Overview components plus the shared ranked-issues State for AI follow-ups."""
+    slots = overview_tab.load_slots(ctx.refs[overview_tab])
+    slots["state_overview_issues"] = ctx.shared.state_overview_issues
+    return slots
+
+
 LOAD_UNITS: tuple[LoadUnit, ...] = (
     LoadUnit("shell", pack_shell, _shell_slots),
     _tab_unit(upload),
-    _tab_unit(overview_tab),
+    LoadUnit("overview_tab", overview_tab.pack_load, _overview_slots, overview_tab),
     _tab_unit(patterns_tab),
     _tab_unit(workflow_tab),
     _tab_unit(raw_tab),
