@@ -780,6 +780,18 @@ body, p, td, li { font-size: 13px; font-weight: 400; }
     font-style: italic;
 }
 
+/* Shown under Token Usage by Step until a bar is clicked. */
+.tv-token-hint {
+    margin: 4px 0 10px;
+    padding: 8px 12px;
+    border: 1px solid var(--ov-insight-border);
+    border-radius: 8px;
+    background: var(--ov-insight-bg);
+    color: var(--ov-text);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
 /* ===== Overview Contents section guide (summary + hover panel) ===== */
 .section-guide {
     position: relative;

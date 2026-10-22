@@ -48,7 +48,8 @@ USER_MSG_WRAPPER_TOKENS = 3
 TOOL_CALL_SYNTAX_TOKENS = 24
 ASSISTANT_MSG_WRAPPER_TOKENS = 3
 
-_HINT = "点击上方 Token Usage 图表的任意柱子，查看该步 token 构成的来源说明。"
+_HINT_EN = "Click a bar to see that step's token breakdown."
+_HINT_ZH = "点击上方 Token Usage 图表的柱子，查看该步 token 构成。"
 
 # HTML collapses runs of plain spaces, so indentation must use &nbsp;.
 # Level 1: top-level items (新增内容 / 页尾重算 / 首调构成项).
@@ -86,15 +87,18 @@ def build_token_step_panel_html(steps: list[dict]) -> str:
     is needed per click. The estimation-method note sits below the step
     divs so it stays visible whichever step is shown.
     """
+    hint = (
+        f"<div class='tv-token-hint'>{_esc(_HINT_EN)}<br>{_esc(_HINT_ZH)}</div>"
+    )
     if not steps:
-        return f"<div class='tv-token-hint'>{_esc(_HINT)}</div>"
+        return hint
     details = [
         f"<div class='tv-token-step-detail' data-step='{i}' style='display:none;'>"
         f"{build_token_step_explanation_html(steps, i)}"
         f"</div>"
         for i in range(len(steps))
     ]
-    return f"<div class='tv-token-hint'>{_esc(_HINT)}</div>" + "".join(details) + _METHOD_DETAILS_HTML
+    return hint + "".join(details) + _METHOD_DETAILS_HTML
 
 
 def _est_tokens(text: Any) -> int:

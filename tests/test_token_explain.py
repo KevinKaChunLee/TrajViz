@@ -145,6 +145,7 @@ class TokenStepExplanationTests(unittest.TestCase):
         panel = build_token_step_panel_html([])
         self.assertIn("tv-token-hint", panel)
         self.assertIn("点击上方 Token Usage", panel)
+        self.assertIn("Click a bar to see that step", panel)
         self.assertNotIn("data-step", panel)
         self.assertNotIn("tv-token-method", panel)
 
