@@ -28,6 +28,7 @@ from ..rendering import (
     build_root_cause_html,
     render_agent_summary_cards,
 )
+from ..charts import build_execution_gantt_chart
 from .issues import (
     ISSUE_KIND_COLORS,
     OverviewIssue,
@@ -152,6 +153,7 @@ def _build_session_detail_html(
 
 _ISSUE_KIND_LABELS = (
     ("error", "error"),
+    ("risk", "risk"),
     ("antipattern", "pattern"),
     ("bottleneck", "bottleneck"),
 )
@@ -477,7 +479,11 @@ CHART_VIEWS = {
 def build_chart_outputs(session: LoadedSession, dark: bool = False) -> dict:
     """Build Overview chart figures, each from the session's public view."""
     charts = {slot: view_figure(session, view_id, dark=dark) for slot, view_id in CHART_VIEWS.items()}
-    return {**charts, "agent_cards_html": render_agent_summary_cards(session.agent_summaries)}
+    return {
+        **charts,
+        "gantt_fig": build_execution_gantt_chart(session.steps, dark=dark) or empty_plotly_fig(),
+        "agent_cards_html": render_agent_summary_cards(session.agent_summaries),
+    }
 
 
 def build_diagnostics_outputs(session: LoadedSession, dark: bool = False) -> dict:

@@ -131,11 +131,13 @@ def build_filtered_workflow_outputs(
     filter_csv: str,
     keyword: str,
     current_toc: str = "",
+    expanded: bool = False,
 ) -> tuple[str, str, str]:
     """Build filtered Workflow cards, count, and matching TOC HTML.
 
     ``current_toc`` carries the previous TOC HTML so a user-collapsed
     sidebar (``toc-hidden``) stays collapsed across re-renders.
+    ``expanded`` draws the full step content under each card.
     """
     if not steps:
         return (
@@ -155,7 +157,7 @@ def build_filtered_workflow_outputs(
             "Select at least one role to see steps.</div>"
         )
     else:
-        workflow_html = render_workflow_html(filtered_steps)
+        workflow_html = render_workflow_html(filtered_steps, expanded=expanded)
 
     count_html = f"<div class='wf-count'>Showing {len(filtered_steps)} of {len(steps)} steps</div>"
     collapsed = "toc-hidden" in (current_toc or "")

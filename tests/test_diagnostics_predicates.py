@@ -135,6 +135,7 @@ class SessionFieldAccessTests(unittest.TestCase):
             phase_regressions=[],
             performance_bottlenecks=[],
             premature_compactions=[],
+            compaction_aftermath=[],
             file_interactions=[],
             format="",
         )

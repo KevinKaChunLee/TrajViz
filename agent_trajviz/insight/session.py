@@ -82,6 +82,9 @@ class LoadedSession:
     # product decision about what the Overview claims, not a cleanup.
     phase_regressions: list
     premature_compactions: list
+    #: A compaction between two consecutive writes whose file reads shrank
+    #: afterward (see detect_compaction_aftermath).
+    compaction_aftermath: list = dataclasses.field(default_factory=list)
     truncated: bool = False
     #: The trajectory as loaded (every step): comparisons and run groups use it.
     run: Trajectory | None = None
@@ -189,6 +192,7 @@ def session_from_run(run: Trajectory, path: str | None = None) -> LoadedSession:
         repeated_searches=a.repeated_searches,
         phase_regressions=a.phase_regressions,
         premature_compactions=a.premature_compactions,
+        compaction_aftermath=a.compaction_aftermath,
         truncated=truncated,
         run=run,
         shown=shown,

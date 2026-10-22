@@ -9,7 +9,8 @@ from dataclasses import dataclass
 import gradio as gr
 import plotly.graph_objects as go
 
-from ..charts import build_context_pressure_chart
+from ..charts import build_context_pressure_chart, build_execution_gantt_chart
+from ..charts.gantt import GANTT_AXIS_SKIP_IDLE, GANTT_AXIS_WALLCLOCK
 from ..context_usage import (
     DEFAULT_CONTEXT_WINDOW_LIMIT,
     PRESSURE_ALL_AGENTS,
@@ -58,6 +59,8 @@ class OverviewRefs:
     token_chart: gr.Plot
     token_step_html: gr.HTML
     duration_chart: gr.Plot
+    gantt_chart: gr.Plot
+    gantt_axis_mode: gr.Radio
     behavior_md: gr.Markdown
     tool_chart: gr.Plot
     tool_duration_chart: gr.Plot
@@ -164,6 +167,21 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
                     token_step_html = gr.HTML(
                         build_token_step_panel_html([]),
                         elem_classes=["token-step-explain"],
+                    )
+                    with gr.Row(equal_height=True):
+                        gantt_chart = gr.Plot(
+                            show_label=False,
+                            label="Execution Timeline",
+                            elem_id="gantt-chart",
+                        )
+                    gantt_axis_mode = gr.Radio(
+                        label="Timeline axis",
+                        choices=[
+                            ("Skip idle gaps (default)", GANTT_AXIS_SKIP_IDLE),
+                            ("True wall-clock", GANTT_AXIS_WALLCLOCK),
+                        ],
+                        value=GANTT_AXIS_SKIP_IDLE,
+                        interactive=True,
                     )
 
                 with gr.Column(visible=False) as context_section:
@@ -284,6 +302,8 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
         token_chart=token_chart,
         token_step_html=token_step_html,
         duration_chart=duration_chart,
+        gantt_chart=gantt_chart,
+        gantt_axis_mode=gantt_axis_mode,
         behavior_md=behavior_md,
         tool_chart=tool_chart,
         tool_duration_chart=tool_duration_chart,
@@ -325,6 +345,8 @@ def load_slots(refs: OverviewRefs) -> dict:
         "token_chart": refs.token_chart,
         "token_step_html": refs.token_step_html,
         "duration_chart": refs.duration_chart,
+        "gantt_chart": refs.gantt_chart,
+        "gantt_axis_mode": refs.gantt_axis_mode,
         "behavior_md": refs.behavior_md,
         "tool_chart": refs.tool_chart,
         "tool_duration_chart": refs.tool_duration_chart,
@@ -361,6 +383,8 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
             "token_chart": fig,
             "token_step_html": build_token_step_panel_html([]),
             "duration_chart": fig,
+            "gantt_chart": fig,
+            "gantt_axis_mode": GANTT_AXIS_SKIP_IDLE,
             "behavior_md": "",
             "tool_chart": fig,
             "tool_duration_chart": fig,
@@ -402,6 +426,8 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
         "token_chart": ch["tok_fig"],
         "token_step_html": build_token_step_panel_html(session.steps),
         "duration_chart": ch["dur_fig"],
+        "gantt_chart": ch["gantt_fig"],
+        "gantt_axis_mode": GANTT_AXIS_SKIP_IDLE,
         "behavior_md": ov["behavior_text"],
         "tool_chart": ch["tl_fig"],
         "tool_duration_chart": ch["tool_dur_fig"],
@@ -471,6 +497,22 @@ def bind(
     ).then(
         fn=None,
         js="() => { if (window.tvExpandFileTimeline) { window.tvExpandFileTimeline(); setTimeout(window.tvExpandFileTimeline, 200); } }",
+    )
+
+    @safe_callback("Execution Timeline")
+    def on_gantt_axis_change(axis_mode, steps, dark):
+        """Rebuild the Gantt when the user toggles idle-gap compression."""
+        fig = build_execution_gantt_chart(
+            steps or [],
+            dark=dark,
+            axis_mode=axis_mode or GANTT_AXIS_SKIP_IDLE,
+        )
+        return fig or empty_plotly_fig()
+
+    refs.gantt_axis_mode.change(
+        fn=on_gantt_axis_change,
+        inputs=[refs.gantt_axis_mode, shared.state_steps, shared.state_dark],
+        outputs=[refs.gantt_chart],
     )
 
     def on_suggest_fixes(run):

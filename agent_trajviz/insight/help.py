@@ -164,7 +164,9 @@ SECTION_GUIDES: dict[str, SectionGuide] = {
             ),
             (
                 "Message Hotspots（热点步骤）",
-                "耗时最长、token 最多、缓存命中率最低的前 5 步。",
+                "耗时最长、token 最多、缓存命中率最低、上下文增量最大的前 5 步"
+                "（增量 = 该步输出+思考 与其触发的工具结果/新消息合计让下一次请求变大的部分）。"
+                "点击 Step 列的数字可跳转到 Workflow 中该步的卡片查看详情。",
             ),
             (
                 "Per-Message Diagnostics（逐条消息）",

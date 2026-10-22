@@ -358,9 +358,13 @@ class WorkflowFilteringTests(unittest.TestCase):
         source = inspect.getsource(workflow_tab)
 
         self.assertIn(
-            "inputs=[state_steps, wf_filter_hidden, wf_search, toc_html]", source,
+            "filter_inputs = [state_steps, wf_filter_hidden, wf_search, toc_html, wf_view_mode]",
+            source,
         )
         self.assertIn("outputs=[workflow_html, wf_count_html, toc_html]", source)
+        # The view-mode radio re-renders through the same filtered path so
+        # Cards/Expanded and the filters compose.
+        self.assertIn("wf_view_mode.change(", source)
 
     def test_hidden_selection_watcher_reacts_to_rerenders_not_page_load(self):
         # The message must come from a DOM watcher (re-renders never re-run

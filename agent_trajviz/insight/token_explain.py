@@ -19,7 +19,6 @@ import html
 from typing import Any
 
 from .parser import infer_non_cache_input
-from .rendering import _diag_jump_onclick
 from .shell_cmd import tool_call_hint
 from .timeline_agents import timeline_agent_id_of
 
@@ -49,7 +48,8 @@ USER_MSG_WRAPPER_TOKENS = 3
 TOOL_CALL_SYNTAX_TOKENS = 24
 ASSISTANT_MSG_WRAPPER_TOKENS = 3
 
-_HINT = "点击上方 Token Usage 图表的任意柱子，查看该步 token 构成的来源说明。"
+_HINT_EN = "Click a bar to see that step's token breakdown."
+_HINT_ZH = "点击上方 Token Usage 图表的柱子，查看该步 token 构成。"
 
 # HTML collapses runs of plain spaces, so indentation must use &nbsp;.
 # Level 1: top-level items (新增内容 / 页尾重算 / 首调构成项).
@@ -87,15 +87,18 @@ def build_token_step_panel_html(steps: list[dict]) -> str:
     is needed per click. The estimation-method note sits below the step
     divs so it stays visible whichever step is shown.
     """
+    hint = (
+        f"<div class='tv-token-hint'>{_esc(_HINT_EN)}<br>{_esc(_HINT_ZH)}</div>"
+    )
     if not steps:
-        return f"<div class='tv-token-hint'>{_esc(_HINT)}</div>"
+        return hint
     details = [
         f"<div class='tv-token-step-detail' data-step='{i}' style='display:none;'>"
         f"{build_token_step_explanation_html(steps, i)}"
         f"</div>"
         for i in range(len(steps))
     ]
-    return f"<div class='tv-token-hint'>{_esc(_HINT)}</div>" + "".join(details) + _METHOD_DETAILS_HTML
+    return hint + "".join(details) + _METHOD_DETAILS_HTML
 
 
 def _est_tokens(text: Any) -> int:
@@ -351,6 +354,10 @@ def build_token_step_explanation_html(steps: list[dict], step_index: int) -> str
     header = f"第 {step_index} 步 · {_esc(role)}"
     if model:
         header += f" · {_esc(model)}"
+    # Imported lazily: rendering pulls in pygments, and core analysis modules
+    # import this file for the token estimator (they must stay dependency-free).
+    from .rendering import _diag_jump_onclick
+
     jump = (
         f"<span class='insight-step-link' onclick=\"{_diag_jump_onclick(step_index)}\" "
         f"style='margin-left:10px;font-weight:400;'>在 Workflow 中查看该步 →</span>"

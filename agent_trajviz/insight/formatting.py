@@ -108,6 +108,18 @@ def _friendly_finish(raw: str | None) -> str:
 
 
 
+def _step_link_md(idx) -> str:
+    """A step number as a link that jumps to the Workflow card for that step.
+
+    An anchor with a fragment href: the dashboard's delegated click handler
+    (insight.py) turns ``#tv-step-N`` into a Workflow jump. A raw ``onclick``
+    would be stripped by the client-side markdown sanitizer (DOMPurify
+    removes event-handler attributes), which is why the HTML panels can use
+    onclick spans but markdown tables cannot.
+    """
+    return f"<a href='#tv-step-{idx}' class='insight-step-link'>{idx}</a>"
+
+
 def _build_hotspots_md(rows: list[dict]) -> str:
     """Build markdown tables for top latency/token/cache-miss hotspots."""
     picked = hotspots(rows)
@@ -130,7 +142,9 @@ def _build_hotspots_md(rows: list[dict]) -> str:
                 format(r[f], ef) if isinstance(r[f], (int, float)) and ef else str(r[f])
                 for f, _, ef in extra
             )
-            lines.append(f"| {r['index']} | `{_md_cell_text(r['role'])}` | {v_str} | {extras} |")
+            lines.append(
+                f"| {_step_link_md(r['index'])} | `{_md_cell_text(r['role'])}` | {v_str} | {extras} |"
+            )
         return "\n".join(lines)
 
     sections = [
@@ -157,12 +171,33 @@ def _build_hotspots_md(rows: list[dict]) -> str:
         ]
         for r in low_cache:
             lines.append(
-                f"| {r['index']} | `{_md_cell_text(r['role'])}` | {r['cache_ratio'] * 100:.1f}% | "
+                f"| {_step_link_md(r['index'])} | `{_md_cell_text(r['role'])}` | "
+                f"{r['cache_ratio'] * 100:.1f}% | "
                 f"{r['non_cache_tokens']:,} | {r['tokens_total']:,} |"
             )
         sections.append(
             "\n\n**Lowest cache read steps** (optimization targets)\n\n"
             + "\n".join(lines)
+        )
+
+    # Steps that enlarged the next prompt the most: what actually pushed the
+    # context window forward. Skipped when no step has a successor call.
+    growth = picked["top_growth"]
+    if growth:
+        lines = [
+            "| Step | Context Growth | Own Completion | New Content | Tool Calls |",
+            "|---:|---:|---:|---:|---:|",
+        ]
+        for r in growth:
+            lines.append(
+                f"| {_step_link_md(r['index'])} | +{r['growth']:,} | {r['own_completion']:,} | "
+                f"{r['new_content']:,} | {r['tool_calls']} |"
+            )
+        sections.append(
+            "\n\n**Top context-growth steps** (how much each step enlarged the next prompt)\n\n"
+            + "\n".join(lines)
+            + "\n\n*Own Completion = the step's output + reasoning; "
+            "New Content = tool results and user messages that landed in the next prompt.*"
         )
 
     return "".join(sections)
