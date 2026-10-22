@@ -406,6 +406,27 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
                         gd.on('plotly_click', handler);
                         gd.style.cursor = 'pointer';
                     };
+                    // Markdown tables (Deep Dive hotspots) link steps as
+                    // #tv-step-N anchors: the client-side markdown sanitizer
+                    // (DOMPurify) strips onclick attributes, so the jump goes
+                    // through this document-level delegation instead. Bound
+                    // once; delegation survives every markdown re-render.
+                    if (!window.__tvStepLinkHandler) {
+                        window.__tvStepLinkHandler = function (e) {
+                            const a = e.target && e.target.closest
+                                ? e.target.closest("a[href^='#tv-step-']") : null;
+                            if (!a) return;
+                            const m = /^#tv-step-(\\d+)$/.exec(
+                                a.getAttribute('href') || ''
+                            );
+                            if (!m) return;
+                            e.preventDefault();
+                            if (typeof window.tvGotoWorkflowStep === 'function') {
+                                window.tvGotoWorkflowStep(Number(m[1]));
+                            }
+                        };
+                        document.addEventListener('click', window.__tvStepLinkHandler);
+                    }
                     let timer = null;
                     const schedule = () => {
                         if (timer) clearTimeout(timer);

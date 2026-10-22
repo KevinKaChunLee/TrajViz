@@ -19,7 +19,6 @@ import html
 from typing import Any
 
 from .parser import infer_non_cache_input
-from .rendering import _diag_jump_onclick
 from .shell_cmd import tool_call_hint
 from .timeline_agents import timeline_agent_id_of
 
@@ -351,6 +350,10 @@ def build_token_step_explanation_html(steps: list[dict], step_index: int) -> str
     header = f"第 {step_index} 步 · {_esc(role)}"
     if model:
         header += f" · {_esc(model)}"
+    # Imported lazily: rendering pulls in pygments, and core analysis modules
+    # import this file for the token estimator (they must stay dependency-free).
+    from .rendering import _diag_jump_onclick
+
     jump = (
         f"<span class='insight-step-link' onclick=\"{_diag_jump_onclick(step_index)}\" "
         f"style='margin-left:10px;font-weight:400;'>在 Workflow 中查看该步 →</span>"

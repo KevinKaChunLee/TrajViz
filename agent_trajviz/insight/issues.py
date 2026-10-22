@@ -17,14 +17,16 @@ if TYPE_CHECKING:
     from .analysis import Analysis
     from .session import LoadedSession
 
-IssueKind = Literal["error", "antipattern", "bottleneck"]
+IssueKind = Literal["error", "risk", "antipattern", "bottleneck"]
 Confidence = Literal["high", "medium", "low"]
 
-# Lower = more urgent. Errors before waste before latency.
+# Lower = more urgent. Errors before correctness risks before waste before
+# latency.
 _SEVERITY: dict[IssueKind, int] = {
     "error": 0,
-    "antipattern": 1,
-    "bottleneck": 2,
+    "risk": 1,
+    "antipattern": 2,
+    "bottleneck": 3,
 }
 
 @dataclass(frozen=True)
@@ -106,6 +108,7 @@ def collect_overview_issues(session: LoadedSession | Analysis) -> list[OverviewI
     issues.extend(_from_failure_chains(session))
     issues.extend(_from_antipatterns(session))
     issues.extend(_from_premature_compactions(session))
+    issues.extend(_from_compaction_aftermath(session))
     issues.extend(_from_bottlenecks(session))
     return issues
 
@@ -416,6 +419,48 @@ def _from_premature_compactions(session: LoadedSession | Analysis) -> list[Overv
                 ),
                 steps=tuple(int(c.get("step", 0)) for c in premature),
                 source_id="antipattern:compaction_premature",
+            )
+        )
+    return out
+
+
+def _from_compaction_aftermath(session: LoadedSession | Analysis) -> list[OverviewIssue]:
+    """Correctness-risk card: a compaction between two consecutive writes
+    thinned the reads feeding the second write (see
+    ``detect_compaction_aftermath``)."""
+    out: list[OverviewIssue] = []
+    for i, ev in enumerate(session.compaction_aftermath or []):
+        if not isinstance(ev, dict) or not isinstance(ev.get("reads_before_tokens"), int):
+            continue
+        c_step = int(ev.get("step") or 0)
+        before = int(ev.get("reads_before_tokens") or 0)
+        after = int(ev.get("reads_after_tokens") or 0)
+        pct = ev.get("shrink_pct")
+        w_prev = ev.get("prev_write_step")
+        w_next = ev.get("next_write_step")
+        dropped = ev.get("dropped")
+        segs = []
+        if isinstance(dropped, int):
+            segs.append(f"compaction dropped {format_token_count(dropped)} tokens")
+        segs.append(
+            f"consecutive writes at steps {w_prev} and {w_next} span it: "
+            f"~{format_token_count(before)} tokens of file reads before vs "
+            f"~{format_token_count(after)} after ({pct}% less)"
+        )
+        out.append(
+            OverviewIssue(
+                kind="risk",
+                title=f"Post-compaction write may rest on summarized context (#{c_step})",
+                detail="; ".join(segs),
+                why=(
+                    "Two consecutive writes span this compaction, and the file reads "
+                    "between them shrank after it: the information behind the second "
+                    "write survives mostly as the compaction summary rather than fresh "
+                    "reads. How much a write needs to read varies with the task — "
+                    "follow the step links to review the second write."
+                ),
+                steps=(c_step, int(w_next or c_step)),
+                source_id=f"antipattern:compaction_thin_read:{i}:{c_step}",
             )
         )
     return out

@@ -18,6 +18,7 @@ from .analytics import compute_step_analytics
 from .context_usage import (
     PRESSURE_ALL_AGENTS,
     context_pressure_series,
+    detect_compaction_aftermath,
     detect_premature_compactions,
     pressure_agent_choices,
 )
@@ -56,6 +57,46 @@ from .patterns import (
 NOISY_ROOT_CAUSE_FORMATS = frozenset({"opencode", "codearts", "codex"})
 
 
+def _prompt_tokens(r: dict) -> int:
+    """The live prompt size a row's LLM call saw (fresh input + cache read)."""
+    return (r.get("tokens_input") or 0) + (r.get("cache_read") or 0)
+
+
+def _top_growth_rows(message_rows: list[dict], limit: int) -> list[dict]:
+    """Steps that grew the live context the most before the agent's next call.
+
+    The growth of an assistant step is how much larger the next prompt of
+    the same agent is: the step's own completion (output + reasoning) plus
+    the new content it triggered (tool results, user messages). Rows from
+    other agents interleaved between the two calls are skipped, so
+    sub-agent traffic never counts as the parent's growth. The last call of
+    an agent has no successor and thus no growth to report.
+    """
+    out: list[dict] = []
+    for i, r in enumerate(message_rows):
+        if r.get("role") != "assistant" or _prompt_tokens(r) <= 0:
+            continue
+        nxt = None
+        for cand in message_rows[i + 1:]:
+            if cand.get("agent") == r.get("agent") and cand.get("role") == "assistant":
+                if _prompt_tokens(cand) > 0:
+                    nxt = cand
+                    break
+        if nxt is None:
+            continue
+        growth = _prompt_tokens(nxt) - _prompt_tokens(r)
+        if growth <= 0:
+            continue
+        own = max(r["tokens_total"] - _prompt_tokens(r), 0)
+        row = dict(r)
+        row["growth"] = growth
+        row["own_completion"] = own
+        row["new_content"] = max(growth - own, 0)
+        out.append(row)
+    out.sort(key=lambda r: r["growth"], reverse=True)
+    return out[:limit]
+
+
 def hotspots(message_rows: list[dict], limit: int = 5) -> dict[str, list[dict]]:
     """The steps worth looking at first, from the per-step metrics rows.
 
@@ -64,6 +105,8 @@ def hotspots(message_rows: list[dict], limit: int = 5) -> dict[str, list[dict]]:
     smallest cache-read share -- empty when no step reports any cache read,
     because a ranking of zeros points at nothing. Rows whose cache share is
     unknown (a self-inconsistent record) are never ranked by it.
+    ``top_growth`` is the *limit* assistant steps that enlarged the next
+    prompt of the same agent the most.
     """
     with_duration = [r for r in message_rows if r.get("duration") is not None]
     with_cache = [
@@ -77,6 +120,7 @@ def hotspots(message_rows: list[dict], limit: int = 5) -> dict[str, list[dict]]:
             sorted(with_cache, key=lambda r: r["cache_ratio"])[:limit]
             if with_cache and any(r["cache_ratio"] > 0 for r in with_cache) else []
         ),
+        "top_growth": _top_growth_rows(message_rows, limit),
     }
 
 
@@ -168,6 +212,10 @@ class Analysis:
     @cached_property
     def premature_compactions(self) -> list:
         return detect_premature_compactions(self.steps, self.raw)
+
+    @cached_property
+    def compaction_aftermath(self) -> list:
+        return detect_compaction_aftermath(self.steps)
 
     # -- plan and phases --------------------------------------------------
     @cached_property

@@ -24,6 +24,7 @@ _LIGHT_TOKENS = """
     --ov-ai-accent: #ea580c;
     --ov-success: #059669;
     --ov-warn: #b45309;
+    --ov-risk: #ea580c;
     --ov-bad: #dc2626;
     /* Component-level light tokens */
     --ov-card-bg: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
@@ -93,6 +94,7 @@ _DARK_TOKENS = """
         --ov-ai-accent: #fb923c;
         --ov-success: #34d399;
         --ov-warn: #fbbf24;
+        --ov-risk: #fb923c;
         --ov-bad: #f87171;
         /* Component-level dark tokens */
         --ov-card-bg: linear-gradient(180deg, #1e1f33 0%, #1a1b2e 100%);
@@ -1911,6 +1913,10 @@ WORKFLOW_CSS = """
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     max-height: 1.4em; line-height: 1.4;
 }
+
+/* Expanded view: full step content below the card header. */
+.wf-expand-body { margin-top: 8px; }
+.wf-expand-body .tv-text { font-size: 13px; }
 
 .wf-code-block {
     background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
