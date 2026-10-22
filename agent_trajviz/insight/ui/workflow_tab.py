@@ -447,8 +447,10 @@ def bind(refs: WorkflowRefs, shared: SharedState) -> None:
     @safe_callback("Workflow filter")
     def do_filter_workflow(steps, filter_csv, keyword, current_toc, view_mode):
         """Re-render Workflow cards, count, and TOC with filters applied."""
-        mode = "expanded" if str(view_mode) == "Expanded" else "cards"
-        return build_filtered_workflow_outputs(steps, filter_csv, keyword, current_toc, view_mode=mode)
+        return build_filtered_workflow_outputs(
+            steps, filter_csv, keyword, current_toc,
+            expanded=str(view_mode) == "Expanded",
+        )
 
     @safe_callback("Workflow contents")
     def on_toc_toggle(current_toc):

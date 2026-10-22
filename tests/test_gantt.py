@@ -83,14 +83,16 @@ def _bars(fig) -> list[dict]:
     for tr in fig.data:
         if tr.type != "bar":
             continue
-        for y, base, width in zip(tr.y, tr.base, tr.x, strict=True):
+        hover = tr.hovertext
+        hovers = [hover] * len(tr.y) if isinstance(hover, str) or hover is None else list(hover)
+        for y, base, width, text in zip(tr.y, tr.base, tr.x, hovers, strict=True):
             out.append(
                 {
                     "lane": y,
                     "start": float(base),
                     "end": float(base) + float(width),
                     "color": tr.marker.color,
-                    "hovertext": tr.hovertext,
+                    "hovertext": text,
                 }
             )
     return out

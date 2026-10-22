@@ -854,50 +854,19 @@ def detect_premature_compactions(
 
 #: Read tools whose output puts file content into the context window.
 _AFTERMATH_READ_TOOLS = frozenset({"Read", "read"})
-#: Path-bearing input keys used by read tools across scaffolds.
-_AFTERMATH_READ_PATH_KEYS = ("filePath", "file_path", "path", "notebook_path")
-#: The pre-compaction reads must exceed the post-compaction reads by this
-#: factor before a hint is emitted (1.2 == "20% less after the compaction").
+#: Pre-compaction reads must exceed post-compaction reads by this factor
+#: (1.2 == "20% less after") before a hint is emitted.
 _AFTERMATH_READ_SHRINK_RATIO = 1.2
 
 
-def _aftermath_read_path(tool_input: object) -> str:
-    """The file path a read tool was pointed at, or ""."""
-    if not isinstance(tool_input, dict):
-        return ""
-    for key in _AFTERMATH_READ_PATH_KEYS:
-        value = tool_input.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
-
-
 def detect_compaction_aftermath(steps: list[dict]) -> list[dict]:
-    """Hint-grade check: a compaction sat between two consecutive writes and
-    the reads feeding the second write thinned out.
+    """A compaction between two consecutive writes whose file reads then shrank.
 
-    For each explicit compaction, take the writes immediately around it —
-    the last successful write before and the first successful write after
-    (by construction consecutive: nothing else wrote in between). The file
-    reads between those two writes are the information the agent gathered
-    for the second write; the compaction splits them into what was read
-    before it (now surviving only as the summary) and what was read after
-    it (still fresh in the window). When the pre-compaction read volume
-    exceeds the post-compaction volume by more than
-    ``_AFTERMATH_READ_SHRINK_RATIO`` (default: 20% less after), the second
-    write leans mostly on the summary rather than fresh reads — emitted as
-    a single advisory event for the issues panel.
-
-    Deliberately minimal: no content comparison, no attribution, no
-    verdict — just the read-volume fact around a compaction between two
-    writes. Compactions without a write on both sides, or whose
-    post-compaction reads kept pace, produce nothing.
-
-    Returns
-    -------
-    list[dict]
-        ``{"step", "agent", "dropped", "prev_write_step", "next_write_step",
-        "reads_before_tokens", "reads_after_tokens", "shrink_pct"}``
+    The reads between the last successful write before the compaction and the
+    first after it are what the second write was working from. When the
+    pre-compaction volume exceeds the post-compaction volume by
+    ``_AFTERMATH_READ_SHRINK_RATIO``, emit one advisory event. No write on
+    both sides, or reads that kept pace, produces nothing.
     """
     from .token_explain import _est_tokens
     from .tool_failure import tool_call_failed
@@ -907,43 +876,53 @@ def detect_compaction_aftermath(steps: list[dict]) -> list[dict]:
         return []
 
     by_index = {int(s.get("index", i)): s for i, s in enumerate(steps)}
+    # Tokenize each file read once. Which compaction it belongs to is a
+    # filter on step index and session, not a reason to rescan the output.
+    reads: list[tuple[int, int, str, int]] = []
+    writes: list[tuple[int, int, str]] = []
+    for s in steps:
+        sid = str(s.get("session_id") or "")
+        idx = int(s.get("index", 0))
+        for pos, tc in enumerate(s.get("tool_calls") or []):
+            name = str(tc.get("tool_name") or "")
+            inp = tc.get("input")
+            if name in _AFTERMATH_READ_TOOLS and write_target_path(inp if isinstance(inp, dict) else {}):
+                reads.append((idx, pos, sid, _est_tokens(str(tc.get("output") or ""))))
+            elif name in WRITE_TOOL_NAMES:
+                if write_target_path(inp if isinstance(inp, dict) else {}) and not tool_call_failed(tc):
+                    writes.append((idx, pos, sid))
+
+    def _in_session(session: str, sid: str) -> bool:
+        # A blank id on either side stays visible: an unscoped compaction
+        # sees every step, and a step with no session belongs to every one.
+        return not (session and sid and sid != session)
+
     out: list[dict] = []
     for event in events:
         c_idx = int(event.get("step", 0))
         session = str(by_index.get(c_idx, {}).get("session_id") or "")
 
-        # Reads and successful writes of this compaction's session, as
-        # (step, position) pairs so calls inside one step keep their order.
-        reads: list[tuple[tuple[int, int], int]] = []
-        writes: list[tuple[int, int]] = []
-        for s in steps:
-            sid = str(s.get("session_id") or "")
-            if session and sid and sid != session:
-                continue
-            idx = int(s.get("index", 0))
-            if idx == c_idx:
-                continue  # the compaction step itself carries no tool calls
-            for pos, tc in enumerate(s.get("tool_calls") or []):
-                name = str(tc.get("tool_name") or "")
-                inp = tc.get("input")
-                if name in _AFTERMATH_READ_TOOLS:
-                    if _aftermath_read_path(inp):
-                        reads.append(
-                            ((idx, pos), _est_tokens(str(tc.get("output") or "")))
-                        )
-                elif name in WRITE_TOOL_NAMES:
-                    if write_target_path(inp if isinstance(inp, dict) else {}) and not tool_call_failed(tc):
-                        writes.append((idx, pos))
-
-        prev_writes = [w for w in writes if w[0] < c_idx]
-        next_writes = [w for w in writes if w[0] > c_idx]
+        prev_writes = [
+            (idx, pos) for idx, pos, sid in writes
+            if idx < c_idx and _in_session(session, sid)
+        ]
+        next_writes = [
+            (idx, pos) for idx, pos, sid in writes
+            if idx > c_idx and _in_session(session, sid)
+        ]
         if not prev_writes or not next_writes:
             continue  # no consecutive-write pair spans this compaction
         w_prev = max(prev_writes)
         w_next = min(next_writes)
 
-        before_tokens = sum(t for (idx, _), t in reads if w_prev < (idx, _) and idx < c_idx)
-        after_tokens = sum(t for (idx, _), t in reads if idx > c_idx and (idx, _) < w_next)
+        before_tokens = sum(
+            tokens for idx, pos, sid, tokens in reads
+            if _in_session(session, sid) and w_prev < (idx, pos) and idx < c_idx
+        )
+        after_tokens = sum(
+            tokens for idx, pos, sid, tokens in reads
+            if _in_session(session, sid) and idx > c_idx and (idx, pos) < w_next
+        )
         if before_tokens <= 0 or before_tokens <= _AFTERMATH_READ_SHRINK_RATIO * after_tokens:
             continue
 

@@ -72,27 +72,32 @@ def _top_growth_rows(message_rows: list[dict], limit: int) -> list[dict]:
     sub-agent traffic never counts as the parent's growth. The last call of
     an agent has no successor and thus no growth to report.
     """
+    # One reverse pass remembers each agent's next positive-prompt assistant,
+    # so a long single-agent trajectory stays linear. A stable sort then keeps
+    # equal-growth ties in forward encounter order.
+    successor: dict = {}
     out: list[dict] = []
-    for i, r in enumerate(message_rows):
-        if r.get("role") != "assistant" or _prompt_tokens(r) <= 0:
+    for r in reversed(message_rows):
+        if r.get("role") != "assistant":
             continue
-        nxt = None
-        for cand in message_rows[i + 1:]:
-            if cand.get("agent") == r.get("agent") and cand.get("role") == "assistant":
-                if _prompt_tokens(cand) > 0:
-                    nxt = cand
-                    break
+        prompt = _prompt_tokens(r)
+        if prompt <= 0:
+            continue
+        agent = r.get("agent")
+        nxt = successor.get(agent)
+        successor[agent] = r
         if nxt is None:
             continue
-        growth = _prompt_tokens(nxt) - _prompt_tokens(r)
+        growth = _prompt_tokens(nxt) - prompt
         if growth <= 0:
             continue
-        own = max(r["tokens_total"] - _prompt_tokens(r), 0)
+        own = max(r["tokens_total"] - prompt, 0)
         row = dict(r)
         row["growth"] = growth
         row["own_completion"] = own
         row["new_content"] = max(growth - own, 0)
         out.append(row)
+    out.reverse()
     out.sort(key=lambda r: r["growth"], reverse=True)
     return out[:limit]
 

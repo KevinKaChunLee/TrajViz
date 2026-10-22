@@ -112,35 +112,26 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
         )
 
     if sid.startswith("antipattern:compaction_thin_read"):
-        m = re.match(
-            r"Post-compaction write may rest on summarized context \(#(\d+)\)$",
-            title,
+        step_m = re.search(r"#(\d+)", title)
+        if step_m:
+            title = f"压缩后的写操作可能基于摘要而非新鲜读取（第 {step_m.group(1)} 步压缩之后）"
+        dropped = re.search(r"compaction dropped (\S+) tokens", detail)
+        span = re.search(
+            r"steps (\d+) and (\d+) span it: ~(\S+) tokens of file reads before vs ~(\S+) after \((\d+)% less\)",
+            detail,
         )
-        if m:
-            title = f"压缩后的写操作可能基于摘要而非新鲜读取（第 {m.group(1)} 步压缩之后）"
-        segs = [s.strip() for s in detail.split(";") if s.strip()]
-        zh: list[str] = []
-        for seg in segs:
-            m = re.match(r"compaction dropped (\S+) tokens$", seg)
-            if m:
-                zh.append(f"压缩丢弃约 {m.group(1)} token")
-                continue
-            m = re.match(
-                r"consecutive writes at steps (\d+) and (\d+) span it: "
-                r"~(\S+) tokens of file reads before vs ~(\S+) after \((\d+)% less\)$",
-                seg,
+        zh = []
+        if dropped:
+            zh.append(f"压缩丢弃约 {dropped.group(1)} token")
+        if span:
+            zh.append(
+                f"第 {span.group(1)}、{span.group(2)} 步两次连续写之间发生压缩："
+                f"压缩前读取 ≈{span.group(3)} token，压缩后仅 ≈{span.group(4)} token"
+                f"（少 {span.group(5)}%）"
             )
-            if m:
-                zh.append(
-                    f"第 {m.group(1)}、{m.group(2)} 步两次连续写之间发生压缩："
-                    f"压缩前读取 ≈{m.group(3)} token，压缩后仅 ≈{m.group(4)} token"
-                    f"（少 {m.group(5)}%）"
-                )
-                continue
-            zh.append(seg)
         return (
             title,
-            "；".join(zh),
+            "；".join(zh) or detail,
             "两次连续写之间发生压缩，且压缩后的文件读取量比压缩前少 20% 以上："
             "第二次写所依据的信息大部分只剩压缩摘要，而非上下文中的新鲜读取，"
             "写出的内容可能偏离文件真实状态。写操作需要读多少因任务而异，"

@@ -7,14 +7,15 @@ import math
 
 import plotly.graph_objects as go
 
+from ..palette import CHART_ACCENT, TOKEN_COLORS
+from ..timeline_agents import _legend_label, bind_timeline_agents
 from ..workflow_role import workflow_role
 from ._layout import _apply_chart_layout, _apply_dark
-from ..timeline_agents import _legend_label, bind_timeline_agents
 
 # Two-color scheme: the step body is the agent's own thinking time; tool
 # execution windows are overlaid in a contrasting color on the same lane.
-STEP_BAR_COLOR = "#6366f1"  # indigo — thinking / step body
-TOOL_BAR_COLOR = "#f59e0b"  # amber — tool execution
+STEP_BAR_COLOR = CHART_ACCENT  # indigo — thinking / step body
+TOOL_BAR_COLOR = TOKEN_COLORS["output"]  # amber — tool execution
 USER_MARKER_COLOR = "#10b981"  # green — user prompt markers
 WAIT_BAND_COLOR = "#e11d48"  # rose — idle / waiting-for-user band
 
@@ -200,10 +201,13 @@ def build_execution_gantt_chart(
     lane_ids.sort(key=lambda aid: color_map.get(aid, 10**9))
     y_labels = [_legend_label(aid, label_map) for aid in lane_ids]
 
-    # Real-second spans of everything that will be drawn, so idle gaps (and
-    # the axis compression) can be derived before any trace is added.
+    # One record per drawable window. Idle-gap compression needs every span
+    # before any trace is mapped onto the axis, and each series is one Bar
+    # trace rather than one trace per step or tool call.
     spans: list[tuple[float, float]] = []
     user_marks: list[tuple[float, str]] = []
+    step_bars: list[tuple[str, float, float, str]] = []
+    tool_bars: list[tuple[str, float, float, str]] = []
     for s in timed:
         start_ms = _epoch_ms(s["time_created_ms"])
         if workflow_role(s) == "user":
@@ -211,35 +215,14 @@ def build_execution_gantt_chart(
             user_marks.append(((start_ms - t0) / 1000.0, preview[:80]))
             continue
         end_ms = _step_end_ms(s, start_ms)
-        if end_ms is not None and end_ms > start_ms:
-            spans.append(((start_ms - t0) / 1000.0, (end_ms - t0) / 1000.0))
-        for tc in s.get("tool_calls") or []:
-            if not isinstance(tc, dict):
-                continue
-            ts = _epoch_ms(tc.get("time_start"))
-            te = _epoch_ms(tc.get("time_end"))
-            if ts is not None and te is not None and te > ts:
-                spans.append(((ts - t0) / 1000.0, (te - t0) / 1000.0))
-    axis = _IdleGapAxis(spans, compress=axis_mode != GANTT_AXIS_WALLCLOCK)
-    real_max = max((e for _, e in spans), default=0.0)
-
-    fig = go.Figure()
-    step_legend_shown = False
-    tool_legend_shown = False
-
-    for s in timed:
-        if workflow_role(s) == "user":
-            continue
-        label = _legend_label(agent_id_of(s), label_map)
-        start_ms = _epoch_ms(s["time_created_ms"])
-        end_ms = _step_end_ms(s, start_ms)
         if end_ms is None or end_ms <= start_ms:
             # No positive time extent: the step cannot be placed on a
             # wall-clock axis, but its lane still exists for the others.
             continue
-
+        label = _legend_label(agent_id_of(s), label_map)
         start_s = (start_ms - t0) / 1000.0
         end_s = (end_ms - t0) / 1000.0
+        spans.append((start_s, end_s))
         idx = int(s.get("index") if s.get("index") is not None else 0)
         tok = int((s.get("tokens") or {}).get("total") or 0)
         tool_names = [
@@ -248,28 +231,17 @@ def build_execution_gantt_chart(
             if isinstance(tc, dict)
         ]
         tools_line = ", ".join(tool_names) if tool_names else "—"
-
-        fig.add_trace(
-            go.Bar(
-                y=[label],
-                x=[axis.map(end_s) - axis.map(start_s)],
-                base=[axis.map(start_s)],
-                orientation="h",
-                marker_color=STEP_BAR_COLOR,
-                name=_STEP_LEGEND,
-                legendgroup=_STEP_LEGEND,
-                showlegend=not step_legend_shown,
-                hovertext=(
-                    f"<b>Step {idx}</b> · {label}<br>"
-                    f"{start_s:.1f}s → {end_s:.1f}s ({end_s - start_s:.1f}s)<br>"
-                    f"tools: {tools_line}<br>"
-                    f"{tok:,} tokens"
-                ),
-                hoverinfo="text",
-            )
-        )
-        step_legend_shown = True
-
+        step_bars.append((
+            label,
+            start_s,
+            end_s,
+            (
+                f"<b>Step {idx}</b> · {label}<br>"
+                f"{start_s:.1f}s → {end_s:.1f}s ({end_s - start_s:.1f}s)<br>"
+                f"tools: {tools_line}<br>"
+                f"{tok:,} tokens"
+            ),
+        ))
         for tc in s.get("tool_calls") or []:
             if not isinstance(tc, dict):
                 continue
@@ -279,6 +251,7 @@ def build_execution_gantt_chart(
                 continue
             tool_start_s = (ts - t0) / 1000.0
             tool_end_s = (te - t0) / 1000.0
+            spans.append((tool_start_s, tool_end_s))
             tool_name = str(tc.get("tool_name") or "tool")
             # A task call blocks the parent while the sub-agent works: the
             # wall-clock overlap with the child lane is waiting, not parallel
@@ -289,27 +262,42 @@ def build_execution_gantt_chart(
                 if tool_name == "task"
                 else ""
             )
-            fig.add_trace(
-                go.Bar(
-                    y=[label],
-                    x=[axis.map(tool_end_s) - axis.map(tool_start_s)],
-                    base=[axis.map(tool_start_s)],
-                    orientation="h",
-                    marker_color=TOOL_BAR_COLOR,
-                    name=_TOOL_LEGEND,
-                    legendgroup=_TOOL_LEGEND,
-                    showlegend=not tool_legend_shown,
-                    hovertext=(
-                        f"<b>Step {idx}</b> · {label}<br>"
-                        f"{tool_name}: "
-                        f"{tool_start_s:.1f}s → {tool_end_s:.1f}s "
-                        f"({tool_end_s - tool_start_s:.1f}s)"
-                        f"{wait_note}"
-                    ),
-                    hoverinfo="text",
-                )
+            tool_bars.append((
+                label,
+                tool_start_s,
+                tool_end_s,
+                (
+                    f"<b>Step {idx}</b> · {label}<br>"
+                    f"{tool_name}: "
+                    f"{tool_start_s:.1f}s → {tool_end_s:.1f}s "
+                    f"({tool_end_s - tool_start_s:.1f}s)"
+                    f"{wait_note}"
+                ),
+            ))
+    axis = _IdleGapAxis(spans, compress=axis_mode != GANTT_AXIS_WALLCLOCK)
+    real_max = max((e for _, e in spans), default=0.0)
+
+    fig = go.Figure()
+
+    def _add_bars(bars: list[tuple[str, float, float, str]], *, color: str, name: str) -> None:
+        if not bars:
+            return
+        fig.add_trace(
+            go.Bar(
+                y=[label for label, _, _, _ in bars],
+                x=[axis.map(end) - axis.map(start) for _, start, end, _ in bars],
+                base=[axis.map(start) for _, start, _, _ in bars],
+                orientation="h",
+                marker_color=color,
+                name=name,
+                legendgroup=name,
+                hovertext=[hover for _, _, _, hover in bars],
+                hoverinfo="text",
             )
-            tool_legend_shown = True
+        )
+
+    _add_bars(step_bars, color=STEP_BAR_COLOR, name=_STEP_LEGEND)
+    _add_bars(tool_bars, color=TOOL_BAR_COLOR, name=_TOOL_LEGEND)
 
     # User prompts become markers on a dedicated top lane: they explain the
     # idle gaps between steps (the human was away, not the model stalling).

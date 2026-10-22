@@ -537,10 +537,10 @@ def render_workflow_html(steps: list[dict], *, expanded: bool = False) -> str:
             sid = str(step.get("session_id") or "")
             if sid and sid in spawn_step_of and sid not in shown_spawn:
                 spawn_idx = spawn_step_of[sid]
-                spawn_badge = (
-                    f"<span class='insight-step-link' style='{_STEP_CHIP_STYLE}' "
-                    f"title='Jump to the step that spawned this sub-agent' "
-                    f"onclick=\"{_diag_jump_onclick(spawn_idx)}\">spawned by #{spawn_idx}</span>"
+                spawn_badge = _step_link_chip(
+                    spawn_idx,
+                    label="spawned by #{n}",
+                    title="Jump to the step that spawned this sub-agent",
                 )
                 shown_spawn.add(sid)
 
@@ -1393,14 +1393,16 @@ _STEP_CHIP_STYLE = (
 )
 
 
-def _step_link_chip(idx: int, *, label: str = "#{n}") -> str:
+def _step_link_chip(idx: int, *, label: str = "#{n}", title: str = "") -> str:
     """Clickable chip (``#N`` by default) that jumps to Workflow step *idx*.
 
     *label* is a trusted ``str.format`` template with ``{n}`` for the step.
+    *title* is an optional tooltip; it is escaped.
     """
     n = _step_index(idx)
+    title_attr = f" title='{html.escape(title, quote=True)}'" if title else ""
     return (
-        f"<span class='insight-step-link' style='{_STEP_CHIP_STYLE}' "
+        f"<span class='insight-step-link' style='{_STEP_CHIP_STYLE}'{title_attr} "
         f"onclick=\"{_diag_jump_onclick(n)}\">{label.format(n=n)}</span>"
     )
 

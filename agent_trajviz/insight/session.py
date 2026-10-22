@@ -82,8 +82,8 @@ class LoadedSession:
     # product decision about what the Overview claims, not a cleanup.
     phase_regressions: list
     premature_compactions: list
-    #: Behavioral evidence that a compaction degraded the run after it
-    #: (re-reads, failed edits, repeated searches, user corrections).
+    #: A compaction between two consecutive writes whose file reads shrank
+    #: afterward (see detect_compaction_aftermath).
     compaction_aftermath: list = dataclasses.field(default_factory=list)
     truncated: bool = False
     #: The trajectory as loaded (every step): comparisons and run groups use it.

@@ -1,9 +1,9 @@
-"""Tests for the chat-style full-conversation Transcript presenter."""
+"""Tests for the expanded-step body (full text, collapsed reasoning and tools)."""
 
 import unittest
 
 from agent_trajviz.insight.parser import parse_steps
-from agent_trajviz.insight.presenters.transcript import build_transcript_html
+from agent_trajviz.insight.presenters.transcript import TRANSCRIPT_CSS, build_step_parts_html
 
 
 def _step(role="assistant", index=0, parts=None, text_preview="", tokens=None,
@@ -23,93 +23,27 @@ def _step(role="assistant", index=0, parts=None, text_preview="", tokens=None,
     }
 
 
-class TranscriptOrderAndFullTextTests(unittest.TestCase):
-    def test_messages_render_in_order_with_full_text(self):
-        # The Workflow card shows a one-line preview; the transcript must show
-        # the whole text, including the tail a preview would cut off.
+def _html(steps) -> str:
+    return "\n".join(build_step_parts_html(step) for step in steps)
+
+
+class StepBodyTests(unittest.TestCase):
+    def test_full_text_is_not_the_preview(self):
         long_text = "HEAD " + "x" * 3000
-        steps = [
-            _step(role="user", index=0, text_preview=long_text[:80],
-                  parts=[{"type": "text", "text": long_text}],
-                  time_created_ms=1_000_000),
-            _step(role="assistant", index=1,
-                  text_preview="short preview",
-                  parts=[{"type": "text", "text": "middle message"}],
-                  time_created_ms=1_001_500),
-            _step(role="user", index=2,
-                  parts=[{"type": "text", "text": "last message"}],
-                  time_created_ms=1_004_000),
-        ]
-        html_out = build_transcript_html(steps)
-        # Step numbers match the Workflow cards (#N) and appear in order.
-        self.assertIn("#0", html_out)
-        self.assertIn("#1", html_out)
-        self.assertIn("#2", html_out)
-        self.assertLess(html_out.index("tv-msg-0"), html_out.index("tv-msg-1"))
-        self.assertLess(html_out.index("tv-msg-1"), html_out.index("tv-msg-2"))
-        # Full text, not the preview truncation.
+        html_out = _html([
+            _step(text_preview=long_text[:80], parts=[{"type": "text", "text": long_text}]),
+            _step(index=1, text_preview="short preview", parts=[{"type": "text", "text": "middle message"}]),
+        ])
         self.assertIn("x" * 3000, html_out)
         self.assertIn("middle message", html_out)
-        self.assertIn("last message", html_out)
-        # Line breaks are preserved via white-space:pre-wrap.
-        self.assertIn("white-space: pre-wrap", html_out)
+        self.assertIn("white-space: pre-wrap", TRANSCRIPT_CSS)
 
-    def test_relative_time_is_based_on_earliest_message(self):
-        steps = [
-            _step(index=0, time_created_ms=1_000_000,
-                  parts=[{"type": "text", "text": "first"}]),
-            _step(index=1, time_created_ms=1_001_500,
-                  parts=[{"type": "text", "text": "second"}]),
-        ]
-        html_out = build_transcript_html(steps)
-        self.assertIn("+0.0s", html_out)
-        self.assertIn("+1.5s", html_out)
-
-    def test_steps_without_timestamps_get_a_placeholder_time(self):
-        steps = [_step(index=0, parts=[{"type": "text", "text": "hi"}])]
-        self.assertIn("\u2014", build_transcript_html(steps))
-
-    def test_empty_step_list_renders_a_placeholder(self):
-        self.assertIn("No messages to display", build_transcript_html([]))
-
-
-class TranscriptBadgeTests(unittest.TestCase):
-    def test_user_and_assistant_role_badges(self):
-        steps = [
-            _step(role="user", index=0, parts=[{"type": "text", "text": "q"}]),
-            _step(role="assistant", index=1, parts=[{"type": "text", "text": "a"}]),
-        ]
-        html_out = build_transcript_html(steps)
-        self.assertIn("User", html_out)
-        self.assertIn("Assistant", html_out)
-        self.assertIn("var(--wf-border-user)", html_out)
-        self.assertIn("var(--wf-border-assistant)", html_out)
-
-    def test_sub_agent_message_gets_sub_agent_badge_and_indent(self):
-        # Real sub-agents sit in their own session (like the sample exports),
-        # which is what engages the per-agent colored badges.
-        steps = [
-            _step(role="assistant", index=0, agent="build", session_id="ses_root",
-                  parts=[{"type": "text", "text": "root"}]),
-            _step(role="assistant", index=1, agent="explore", is_sub_agent=True,
-                  session_id="ses_sub",
-                  parts=[{"type": "text", "text": "child"}]),
-        ]
-        html_out = build_transcript_html(steps)
-        self.assertIn(">sub-agent<", html_out)
-        self.assertIn("margin-left:24px;", html_out)
-        # Agent names appear as colored badges.
-        self.assertIn("build", html_out)
-        self.assertIn("explore", html_out)
-
-
-class TranscriptDetailsTests(unittest.TestCase):
     def test_reasoning_is_collapsed_with_char_count(self):
         reasoning = "thinking " * 100  # 900 chars
         steps = [_step(index=0, parts=[
             {"type": "reasoning", "text": reasoning},
         ])]
-        html_out = build_transcript_html(steps)
+        html_out = _html(steps)
         self.assertIn("<details", html_out)
         self.assertIn(f"Reasoning ({len(reasoning)} chars)", html_out)
         # Default collapsed: no `open` attribute on the reasoning block.
@@ -125,7 +59,7 @@ class TranscriptDetailsTests(unittest.TestCase):
             {"type": "reasoning", "text": reasoning},
         ], tokens={"total": 9100, "input": 0, "output": 100,
                    "reasoning": 9000, "cache_read": 0, "cache_write": 0})]
-        html_out = build_transcript_html(steps)
+        html_out = _html(steps)
         self.assertIn("Reasoning (9,000 tok)", html_out)
         self.assertNotIn("chars)", html_out)
 
@@ -138,7 +72,7 @@ class TranscriptDetailsTests(unittest.TestCase):
             {"type": "reasoning", "text": "second thought"},
         ], tokens={"total": 500, "input": 0, "output": 100,
                    "reasoning": 400, "cache_read": 0, "cache_write": 0})]
-        html_out = build_transcript_html(steps)
+        html_out = _html(steps)
         self.assertIn("Reasoning (400 tok · part 1/2)", html_out)
         self.assertIn("Reasoning (400 tok · part 2/2)", html_out)
 
@@ -150,7 +84,7 @@ class TranscriptDetailsTests(unittest.TestCase):
             "output": "3 passed",
             "time_start": 1_000_000, "time_end": 1_000_750,
         }])]
-        html_out = build_transcript_html(steps)
+        html_out = _html(steps)
         self.assertIn("<details", html_out)
         self.assertIn("bash", html_out)
         self.assertIn("run tests", html_out)
@@ -167,7 +101,7 @@ class TranscriptDetailsTests(unittest.TestCase):
             "status": "completed", "input": {"file_path": "/tmp/big.txt"},
             "output": long_output,
         }])]
-        html_out = build_transcript_html(steps)
+        html_out = _html(steps)
         self.assertIn(long_output, html_out)
         self.assertNotIn("truncated", html_out)
         self.assertNotIn("...", html_out[html_out.index("big file"):])
@@ -178,7 +112,7 @@ class TranscriptDetailsTests(unittest.TestCase):
             "status": "error", "input": {"command": "ls /nope"},
             "output": "", "error": "No such file or directory",
         }])]
-        html_out = build_transcript_html(steps)
+        html_out = _html(steps)
         self.assertIn("error", html_out)
         self.assertIn("No such file or directory", html_out)
 
@@ -188,7 +122,7 @@ class TranscriptDetailsTests(unittest.TestCase):
             "status": "completed", "input": {"command": "echo hi"},
             "output": "hi",
         }])]
-        self.assertIn("echo hi", build_transcript_html(steps))
+        self.assertIn("echo hi", _html(steps))
 
 
 class TranscriptEscapingTests(unittest.TestCase):
@@ -196,45 +130,28 @@ class TranscriptEscapingTests(unittest.TestCase):
         # html.escape(quote=True) is the project bar (test_render_injection):
         # both element-content and attribute-context breakouts must be inert.
         hostile_text = '<script>alert("x")</script> " onmouseover="evil \' onclick=\'evil'
-        # Agent labels are truncated to 20 chars downstream, so the agent
-        # payload must fit that cap to prove the badge sink escapes too.
-        hostile_agent = "<svg onload=x()>"
-        self.assertLess(len(hostile_agent), 20)
-        steps = [
-            _step(role="user", index=0, session_id="ses_root", parts=[
-                {"type": "text", "text": hostile_text},
-            ]),
-            _step(role="assistant", index=1, agent=hostile_agent,
-                  session_id="ses_child",
-                  parts=[{
-                      "type": "tool_call", "tool_name": "bash",
-                      "title": '" onmouseover="evil',
-                      "status": "completed",
-                      "input": {"command": "' onclick='evil"},
-                      "output": hostile_text,
-                  }]),
-        ]
-        html_out = build_transcript_html(steps)
+        html_out = _html([
+            _step(parts=[{"type": "text", "text": hostile_text}]),
+            _step(index=1, parts=[{
+                "type": "tool_call", "tool_name": "bash",
+                "title": '" onmouseover="evil',
+                "status": "completed",
+                "input": {"command": "' onclick='evil"},
+                "output": hostile_text,
+            }]),
+        ])
         self.assertNotIn("<script>", html_out)
-        self.assertNotIn("<svg onload=x()>", html_out)
         self.assertNotIn('" onmouseover="', html_out)
         self.assertNotIn("' onclick='", html_out)
         self.assertIn("&lt;script&gt;", html_out)
-        self.assertIn("&lt;svg onload=x()&gt;", html_out)
         self.assertIn("&quot; onmouseover=&quot;", html_out)
         self.assertIn("&#x27; onclick=&#x27;", html_out)
-
-    def test_step_numbers_stay_plain_integers(self):
-        steps = [_step(role="user", index=7, parts=[{"type": "text", "text": "hi"}])]
-        html_out = build_transcript_html(steps)
-        self.assertIn("#7", html_out)
-        self.assertIn("id='tv-msg-7'", html_out)
 
 
 class TranscriptPlaceholderTests(unittest.TestCase):
     def test_message_without_parts_shows_placeholder(self):
         steps = [_step(role="assistant", index=0, parts=[], text_preview="")]
-        html_out = build_transcript_html(steps)
+        html_out = _html(steps)
         self.assertIn("(no content)", html_out)
 
     def test_message_with_only_step_markers_shows_placeholder(self):
@@ -243,37 +160,7 @@ class TranscriptPlaceholderTests(unittest.TestCase):
             {"type": "step_start", "name": "main"},
             {"type": "step_finish", "name": "main", "reason": "stop"},
         ])]
-        self.assertIn("(no content)", build_transcript_html(steps))
-
-
-class TranscriptStatsTests(unittest.TestCase):
-    def test_stats_row_counts_messages_roles_subagents_and_tokens(self):
-        steps = [
-            _step(role="user", index=0, parts=[{"type": "text", "text": "q"}]),
-            _step(role="assistant", index=1, is_sub_agent=True,
-                  tokens={"total": 100, "input": 80, "output": 20,
-                          "cache_read": 0, "cache_write": 0},
-                  parts=[{"type": "text", "text": "a1"}]),
-            _step(role="assistant", index=2,
-                  tokens={"total": 250, "input": 200, "output": 50,
-                          "cache_read": 0, "cache_write": 0},
-                  parts=[{"type": "text", "text": "a2"}]),
-        ]
-        html_out = build_transcript_html(steps)
-        self.assertIn("<strong>3</strong> messages", html_out)
-        self.assertIn("<strong>1</strong> user", html_out)
-        self.assertIn("<strong>2</strong> assistant", html_out)
-        self.assertIn("<strong>1</strong> sub-agent", html_out)
-        self.assertIn("<strong>350</strong> tokens", html_out)
-
-    def test_stats_tokens_are_formatted_with_thousands_separator(self):
-        steps = [
-            _step(role="assistant", index=0,
-                  tokens={"total": 12345, "input": 10000, "output": 2345,
-                          "cache_read": 0, "cache_write": 0},
-                  parts=[{"type": "text", "text": "a"}]),
-        ]
-        self.assertIn("<strong>12,345</strong> tokens", build_transcript_html(steps))
+        self.assertIn("(no content)", _html(steps))
 
 
 class TranscriptFromParserTests(unittest.TestCase):
@@ -315,7 +202,7 @@ class TranscriptFromParserTests(unittest.TestCase):
 
     def test_parsed_steps_render_full_conversation(self):
         steps = parse_steps(self.RAW)
-        html_out = build_transcript_html(steps)
+        html_out = _html(steps)
         reasoning_text = "I should run pytest first."
         self.assertIn("please run the tests", html_out)
         self.assertIn("Running the suite now.", html_out)
@@ -323,14 +210,7 @@ class TranscriptFromParserTests(unittest.TestCase):
         self.assertIn(reasoning_text, html_out)
         self.assertIn("pytest -q", html_out)
         self.assertIn("2 passed in 0.5s", html_out)
-        self.assertIn("<strong>2</strong> messages", html_out)
-        self.assertIn("<strong>500</strong> tokens", html_out)
-        # Tool duration from state.time start/end: 1000 ms.
         self.assertIn("1.00s", html_out)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class WorkflowExpandedViewTests(unittest.TestCase):
@@ -398,16 +278,16 @@ class WorkflowExpandedViewTests(unittest.TestCase):
 
         steps = self._steps()
         cards, _, _ = build_filtered_workflow_outputs(
-            steps, "Assistant,User,All", "", view_mode="cards")
+            steps, "Assistant,User,All", "")
         expanded, count, _ = build_filtered_workflow_outputs(
-            steps, "Assistant,User,All", "", view_mode="expanded")
+            steps, "Assistant,User,All", "", expanded=True)
         self.assertNotIn("<div class='wf-expand-body'>", cards)
         self.assertIn("wf-expand-body", expanded)
         self.assertIn("the whole answer", expanded)
         self.assertIn("Showing 2 of 2 steps", count)
         # Keyword filtering applies in expanded mode too.
         narrowed, _, _ = build_filtered_workflow_outputs(
-            steps, "Assistant,User,All", "assistant", view_mode="expanded")
+            steps, "Assistant,User,All", "assistant", expanded=True)
         self.assertIn("wf-expand-body", narrowed)
         self.assertIn("the whole answer", narrowed)
         self.assertNotIn("full user message", narrowed)
