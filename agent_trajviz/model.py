@@ -73,6 +73,8 @@ class Step(TypedDict, total=False):
     has_reasoning: bool
     finish: str
     duration: float | None
+    #: Whether duration is an enclosing step interval or model generation only.
+    timing_source: str
     time_created_ms: int | None
     time_completed_ms: int | float | None
     model_id: str

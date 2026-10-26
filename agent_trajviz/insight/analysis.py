@@ -113,6 +113,8 @@ class Analysis:
     def step_analytics(self) -> list[dict]:
         rows = compute_step_analytics(self.steps)
         for step, row in zip(self.steps, rows, strict=True):
+            if step.get("timing_source") == "model_request":
+                row["tool_time_share"] = None
             if not is_otel_step(step):
                 continue
             for key, fields in {

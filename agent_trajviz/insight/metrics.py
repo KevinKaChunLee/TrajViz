@@ -272,6 +272,8 @@ def step_duration_excluding_spawn(step: dict) -> float | None:
         return None
     from .telemetry_quality import field_observed, is_otel_step
 
+    if step.get("timing_source") == "model_request":
+        return float(raw)
     if is_otel_step(step):
         return float(raw) if step["_otel"].get("kind") == "model_request" and field_observed(step, "duration") else None
     return max(0.0, float(raw) - spawn_wait_seconds(step))
@@ -362,6 +364,10 @@ def generation_seconds(step: dict) -> tuple[float, float] | None:
     """
     from .telemetry_quality import field_observed, is_otel_step
 
+    if step.get("timing_source") == "model_request":
+        duration = step.get("duration")
+        return ((float(duration), 0.0) if isinstance(duration, (int, float)) and not isinstance(duration, bool)
+                and math.isfinite(duration) and duration >= 0 else None)
     if is_otel_step(step):
         if step["_otel"].get("kind") != "model_request" or not field_observed(step, "duration"):
             return None
@@ -450,6 +456,8 @@ def build_message_metrics(steps: list[dict]) -> list[dict]:
     from .telemetry_quality import field_observed, is_otel_step
 
     for step, row in zip(steps, rows, strict=True):
+        if step.get("timing_source") == "model_request":
+            row["tool_time_share"] = None
         if not is_otel_step(step):
             continue
         for key, field in {
@@ -1311,7 +1319,7 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
 
     # Build spawning map from native Claude Code child transcripts.
     spawned_by_map: dict[str, str] = {}  # agent_id -> spawned_by_tool_call_id
-    cc_sub_agents = raw.get("_claude_code_sub_agents") or raw.get("_otlp_sub_agents", [])
+    cc_sub_agents = raw.get("_claude_code_sub_agents") or raw.get("_codex_sub_agents") or raw.get("_otlp_sub_agents", [])
     if isinstance(cc_sub_agents, list):
         for sa in cc_sub_agents:
             if isinstance(sa, dict) and sa.get("agent_id"):

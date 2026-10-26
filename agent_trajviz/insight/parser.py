@@ -614,10 +614,23 @@ def parse_steps(raw: dict) -> list[dict]:
             "compaction_reason": info.get("reason", "") if is_compaction_checkpoint else "",
             "_metrics_unavailable_fields": metrics_unavailable_fields,
         })
+        if isinstance(info.get("sourcePath"), str):
+            steps[-1]["source_path"] = info["sourcePath"]
+        source_index = info.get("rawIndex")
+        if isinstance(source_index, int) and not isinstance(source_index, bool) and source_index >= 0:
+            steps[-1]["raw_index"] = source_index
 
     for step in steps:
         _normalize_step(step)
-    _fill_missing_last_step_duration(steps, raw)
+    if raw.get("_pi_format"):
+        for step, message in zip(steps, (m for m in trajectory if isinstance(m, dict)), strict=True):
+            info = message.get("info") or {}
+            if info.get("timing_source") == "model_request":
+                step["timing_source"] = "model_request"
+            if isinstance(info.get("compaction_metadata"), dict):
+                step["compaction_metadata"] = info["compaction_metadata"]
+    else:
+        _fill_missing_last_step_duration(steps, raw)
     _annotate_spawned_subagents(steps, raw)
     return steps
 

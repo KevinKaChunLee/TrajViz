@@ -157,7 +157,8 @@ def step_durations(steps: list[dict]) -> dict:
             "position": i,
             "step": int(s.get("index", i)),
             "duration_s": d,
-            "spawn_adjusted": d is not None and not is_otel_step(s) and spawn_wait_seconds(s) > 0,
+            "spawn_adjusted": (d is not None and not is_otel_step(s)
+                               and s.get("timing_source") != "model_request" and spawn_wait_seconds(s) > 0),
             "error_kind": step_error_kind(s),
             "outlier": i in outliers,
         })
