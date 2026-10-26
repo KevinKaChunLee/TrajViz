@@ -42,6 +42,8 @@ change the public API (the names exported from `agent_trajviz`).
 
 ### Fixed
 
+- Skip unnecessary secret-name matching on delimiter-free text, keeping
+  pathological transcript redaction fast on slower macOS runners.
 - Preserve Unicode separators inside Cursor JSON strings, keep reviewer peers
   at the correct depth, and surface missing outcomes, outputs and clocks.
   Unknown tool outcomes no longer establish success, recovery or edit precision.
