@@ -32,10 +32,6 @@ def _opencode_ms_to_iso(ms: object) -> str:
 # `content`). The SQLite consolidator stores the same turns as `info` + `parts`.
 # `idle` rows are session heartbeats with no transcript.
 _FLAT_OPENCODE_TYPES = frozenset({"user", "assistant", "system", "idle", "compaction"})
-_PASSTHROUGH_PART_TYPES = frozenset({
-    "text", "reasoning", "tool", "tool_call", "compaction", "patch", "snapshot",
-    "step_start", "step-start", "step_finish", "step-finish",
-})
 
 
 def _is_flat_opencode_message(message: dict) -> bool:
@@ -46,19 +42,15 @@ def _is_flat_opencode_message(message: dict) -> bool:
     ):
         return False
     kind = message.get("type")
-    if not isinstance(kind, str) or not kind:
-        return False
-    return kind in _FLAT_OPENCODE_TYPES or "text" in message or "content" in message
+    return isinstance(kind, str) and kind in _FLAT_OPENCODE_TYPES
 
 
 def _flat_model_ids(message: dict, metadata: dict) -> tuple[str, str]:
+    """Desktop turns name the model as ``modelID`` (user metadata) or ``id`` (assistant)."""
     model = message.get("model")
     if not isinstance(model, dict):
         model = metadata.get("model") if isinstance(metadata.get("model"), dict) else {}
-    return (
-        as_text(model.get("modelID") or model.get("id")),
-        as_text(model.get("providerID") or model.get("provider")),
-    )
+    return as_text(model.get("modelID") or model.get("id")), as_text(model.get("providerID"))
 
 
 def _with_opencode_token_total(tokens: dict) -> dict:
@@ -82,73 +74,29 @@ def _with_opencode_token_total(tokens: dict) -> dict:
     return copied
 
 
-def _tool_part_from_content(item: dict) -> dict:
-    state = item.get("state") if isinstance(item.get("state"), dict) else {}
-    state = dict(state)
-    if "input" not in state:
-        incoming = item.get("input", item.get("arguments", item.get("args", {})))
-        state["input"] = incoming if isinstance(incoming, (dict, str, list)) else {}
-    if "output" not in state:
-        state["output"] = item.get("output") if item.get("output") is not None else item.get("result", "")
-    if "status" not in state:
-        state["status"] = item.get("status") or "completed"
-    call_id = as_text(item.get("callID") or item.get("tool_id") or item.get("id"))
-    return {
-        "type": "tool",
-        "tool": as_text(item.get("tool") or item.get("tool_name") or item.get("name")) or "?",
-        "callID": call_id,
-        "state": state,
-        "id": as_text(item.get("id")) or call_id,
-    }
-
-
-def _content_item_to_part(item: object) -> dict | None:
-    if not isinstance(item, dict):
-        return None
-    kind = item.get("type")
-    if kind in _PASSTHROUGH_PART_TYPES or not isinstance(kind, str):
-        return item
-    if kind in ("thinking", "reasoning_text"):
-        return {"type": "reasoning", "text": as_text(item.get("text") or item.get("thinking"))}
-    if kind in ("tool-call", "tool_use", "tool-use"):
-        return _tool_part_from_content(item)
-    return item
-
-
 def _parts_from_flat_message(message: dict) -> list:
+    """Body of a desktop turn. Content parts are already OpenCode part objects."""
     content = message.get("content")
-    parts: list = []
     if isinstance(content, list):
-        for item in content:
-            part = _content_item_to_part(item)
-            if part is not None:
-                parts.append(part)
+        parts = [item for item in content if isinstance(item, dict)]
+        if parts:
+            return parts
     elif isinstance(content, str) and content:
-        parts.append({"type": "text", "text": content})
-    if parts:
-        return parts
+        return [{"type": "text", "text": content}]
     text = message.get("text")
-    if not isinstance(text, str):
-        metadata = message.get("metadata")
-        text = metadata.get("displayText") if isinstance(metadata, dict) else ""
     if isinstance(text, str) and text:
-        parts.append({"type": "text", "text": text})
-    return parts
+        return [{"type": "text", "text": text}]
+    return []
 
 
 def _flat_message_to_internal(message: dict, session_id: str) -> dict:
     metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
-    kind = message.get("type") if isinstance(message.get("type"), str) else ""
+    kind = message["type"]
     model_id, provider_id = _flat_model_ids(message, metadata)
     raw_time = message.get("time") if isinstance(message.get("time"), dict) else {}
-    time_info: dict = {}
-    if "created" in raw_time:
-        time_info["created"] = raw_time["created"]
-    completed = raw_time.get("completed")
-    if completed is None and kind == "assistant":
-        completed = raw_time.get("updated")
-    if completed is not None:
-        time_info["completed"] = completed
+    time_info = {
+        key: raw_time[key] for key in ("created", "completed") if key in raw_time
+    }
 
     info: dict = {
         "id": as_text(message.get("id")),
@@ -212,13 +160,18 @@ def _session_directory(info: dict) -> str:
 
 
 def _session_model_name(info: dict, model_info: dict) -> str:
-    name = as_text(model_info.get("modelID") or model_info.get("id"))
+    """Message ``modelID`` when a turn recorded one, else the session model.
+
+    Desktop session info stores ``model.id``. Flat turns are normalized to
+    ``modelID`` before this runs, as are consolidator messages.
+    """
+    name = as_text(model_info.get("modelID"))
     if name:
         return name
     session_model = info.get("model")
-    if isinstance(session_model, dict):
-        return as_text(session_model.get("modelID") or session_model.get("id"))
-    return as_text(session_model)
+    if not isinstance(session_model, dict):
+        return ""
+    return as_text(session_model.get("modelID") or session_model.get("id"))
 
 
 def _opencode_token_value(value: object) -> int | float:
