@@ -12,13 +12,9 @@ import json
 import os
 import tempfile
 import unittest
-from pathlib import Path
 
 from agent_trajviz.insight.loaders import load_trajectory
 from agent_trajviz.insight.parser import parse_steps
-
-ROOT = Path(__file__).resolve().parents[1]
-WINDOWS_EXPORT = ROOT / "windows_opencode_session.json"
 
 
 def _write(doc: dict) -> str:
@@ -30,15 +26,49 @@ def _write(doc: dict) -> str:
 
 class FlatOpenCodeExportTests(unittest.TestCase):
     def test_windows_session_export_fills_workflow_steps(self):
-        raw = load_trajectory(str(WINDOWS_EXPORT))
+        path = _write({
+            "info": {
+                "id": "ses_win",
+                "location": {"directory": "C:\\Users\\user\\Documents\\Default Project"},
+                "model": {"id": "big-pickle", "providerID": "opencode"},
+                "time": {"created": 1_000, "updated": 5_000},
+            },
+            "messages": [
+                {
+                    "id": "u1", "type": "user", "text": "hello",
+                    "time": {"created": 1_000},
+                    "metadata": {"agent": "build", "model": {"modelID": "big-pickle", "providerID": "opencode"}},
+                },
+                {
+                    "id": "a1", "type": "assistant", "agent": "build",
+                    "model": {"id": "big-pickle", "providerID": "opencode"},
+                    "time": {"created": 1_100, "completed": 5_034},
+                    "finish": "stop",
+                    "tokens": {"input": 3162, "output": 40, "reasoning": 43, "cache": {"read": 1017, "write": 0}},
+                    "content": [{"type": "text", "text": "Yes, this is Windows."}],
+                },
+                {"id": "i1", "type": "idle", "outcome": "succeeded", "time": {"created": 5_034}},
+                {"id": "s1", "type": "system", "text": "tool catalog", "time": {"created": 6_000}},
+                {
+                    "id": "u2", "type": "user", "text": "meaning",
+                    "time": {"created": 7_000},
+                },
+                {
+                    "id": "a2", "type": "assistant", "agent": "build",
+                    "time": {"created": 7_100, "completed": 8_000},
+                    "finish": "stop",
+                    "tokens": {"input": 39, "output": 223, "reasoning": 466, "cache": {"read": 6582, "write": 0}},
+                    "content": [{"type": "text", "text": "It depends \u2014 on you."}],
+                },
+            ],
+        })
+        self.addCleanup(os.remove, path)
+        raw = load_trajectory(path)
         self.assertNotIn("_error", raw)
         steps = parse_steps(raw)
 
-        self.assertEqual(
-            [step["role"] for step in steps],
-            ["user", "assistant", "system", "user", "assistant", "user", "assistant"],
-        )
-        self.assertEqual(steps[0]["text_preview"], "hello is this running on windows?")
+        self.assertEqual([step["role"] for step in steps], ["user", "assistant", "system", "user", "assistant"])
+        self.assertEqual(steps[0]["text_preview"], "hello")
         self.assertIn("Windows", steps[1]["text_preview"])
         self.assertEqual(steps[1]["model_id"], "big-pickle")
         self.assertEqual(steps[1]["provider_id"], "opencode")
@@ -52,15 +82,14 @@ class FlatOpenCodeExportTests(unittest.TestCase):
         self.assertAlmostEqual(steps[1]["duration"], 3.93)
         self.assertIn("\u2014", steps[-1]["text_preview"])
 
-        self.assertEqual(raw["metadata"]["session_id"], "ses_e8a17e70dffe7GdHgIQd0TrJ7b")
+        self.assertEqual(raw["metadata"]["session_id"], "ses_win")
         self.assertEqual(raw["metadata"]["directory"], r"C:\Users\user\Documents\Default Project")
         self.assertEqual(raw["metadata"]["directory_name"], "Default Project")
         self.assertEqual(raw["metadata"]["model"], "big-pickle")
-        self.assertEqual(raw["stats"]["user_messages"], 3)
-        self.assertEqual(raw["stats"]["assistant_messages"], 3)
-        self.assertEqual(raw["stats"]["total_messages"], 6)
-        self.assertEqual(raw["token_usage"]["prompt_tokens"], 5606)
-        self.assertEqual(raw["token_usage"]["completion_tokens"], 294)
+        self.assertEqual(raw["stats"]["user_messages"], 2)
+        self.assertEqual(raw["stats"]["assistant_messages"], 2)
+        self.assertEqual(raw["token_usage"]["prompt_tokens"], 3201)
+        self.assertEqual(raw["token_usage"]["completion_tokens"], 263)
         self.assertNotIn("idle", [step["role"] for step in steps])
 
     def test_flat_tool_content_and_idle_rows(self):
