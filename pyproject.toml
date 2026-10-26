@@ -120,3 +120,9 @@ ignore = [
 minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.mypy]
+# CI checks the six public modules explicitly under --strict. Follow internal
+# implementation imports for their types without checking those modules as
+# additional strict targets.
+follow_imports = "silent"

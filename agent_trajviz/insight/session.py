@@ -93,7 +93,7 @@ def _path_exists(file_path: str) -> bool:
     return os.path.isfile(file_path) or os.path.isdir(file_path)
 
 
-def load_session(path: str, format_hint: str = "") -> LoadedSession | LoadError:
+def load_session(path: str, format_hint: str = "", *, session_id: str | None = None) -> LoadedSession | LoadError:
     """Load and analyze a trajectory file. Does not build HTML, Plotly, or Gradio updates."""
     if not path or not _path_exists(path):
         return LoadError(code="not_found", message="No file selected or file not found.")
@@ -103,7 +103,7 @@ def load_session(path: str, format_hint: str = "") -> LoadedSession | LoadError:
 
     hint = format_hint if format_hint in FORMATS else None
     try:
-        run = load(path, format=hint)
+        run = load(path, format=hint, session_id=session_id) if session_id else load(path, format=hint)
     except TrajectoryLoadError as exc:
         if exc.code == "mismatch":
             return LoadError(code="mismatch", message=str(exc), selected=hint, detected=exc.detected)

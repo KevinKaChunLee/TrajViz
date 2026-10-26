@@ -1,4 +1,4 @@
-"""Attribution tab: DECAF diagnosis callbacks."""
+"""Attribution tab diagnosis callbacks."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class AttributionRefs:
 def layout(*, allow_server_paths: bool = True) -> AttributionRefs:
     with gr.TabItem("Attribution"):
         gr.HTML(
-            "<div class='section-subtitle'>DECAF capability failure attribution "
+            "<div class='section-subtitle'>Capability failure attribution "
             "&mdash; which of the seven workflow capabilities broke, with tiered "
             "evidence (deductive / associational / model-inferred). Gold-grounded: "
             "needs the reference patch + test outcome for this task.</div>"

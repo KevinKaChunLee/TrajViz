@@ -63,8 +63,11 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
             "patterns_failure_html": "",
             "antipattern_summary_html": "",
         }
+    from ..telemetry_quality import supports
+
     return {
         "patterns_tool_html": render_tool_sequences_html(session.tool_sequences),
-        "patterns_failure_html": render_failure_patterns_html(session.failure_patterns),
+        "patterns_failure_html": render_failure_patterns_html(
+            session.failure_patterns, available=supports(session.steps, "tool_outcomes")),
         "antipattern_summary_html": build_antipattern_html(session),
     }

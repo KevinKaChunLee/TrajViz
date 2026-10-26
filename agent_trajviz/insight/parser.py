@@ -503,6 +503,8 @@ def complete_steps(steps: Iterable[Any]) -> list[dict]:
 
 def parse_steps(raw: dict) -> list[dict]:
     """Normalize each message in trajectory[] into a step dict."""
+    if raw.get("_otlp_format") and isinstance(raw.get("_otlp_parsed_steps"), list):
+        return complete_steps(raw["_otlp_parsed_steps"])
     # Native Claude timestamps bound observed blocks/tool results. A final
     # response's timestamp alone does not reveal its generation duration.
     if raw.get("_claude_code_format") and "_claude_code_parsed_steps" in raw:

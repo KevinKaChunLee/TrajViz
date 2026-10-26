@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class TrajVizError(Exception):
     """Base class for every error agent_trajviz raises on purpose."""
@@ -26,6 +28,8 @@ class LoadError(TrajVizError):
         self.path = path
         #: The format the file was detected as, when known (set for ``"mismatch"``).
         self.detected = detected
+        #: Selectable rows when an OTLP capture contains multiple sessions.
+        self.sessions: list[dict[str, Any]] = []
 
 
 class PluginError(TrajVizError):

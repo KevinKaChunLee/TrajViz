@@ -108,6 +108,11 @@ def _friendly_finish(raw: str | None) -> str:
 
 
 
+def _number(value: int | float | None, spec: str = ",") -> str:
+    """Format an observed number without turning unavailable evidence into zero."""
+    return "N/A" if value is None else format(value, spec)
+
+
 def _build_hotspots_md(rows: list[dict]) -> str:
     """Build markdown tables for top latency/token/cache-miss hotspots."""
     picked = hotspots(rows)
@@ -158,7 +163,7 @@ def _build_hotspots_md(rows: list[dict]) -> str:
         for r in low_cache:
             lines.append(
                 f"| {r['index']} | `{_md_cell_text(r['role'])}` | {r['cache_ratio'] * 100:.1f}% | "
-                f"{r['non_cache_tokens']:,} | {r['tokens_total']:,} |"
+                f"{_number(r['non_cache_tokens'])} | {_number(r['tokens_total'])} |"
             )
         sections.append(
             "\n\n**Lowest cache read steps** (optimization targets)\n\n"
@@ -199,14 +204,14 @@ def _build_per_message_md(rows: list[dict], limit: int = 80) -> str:
             agent = _md_cell_text(r.get("agent", "")) or "Main agent"
             lines.append(
                 f"| {r['index']} | `{role}` | `{agent}` | `{finish}` | {dur} | "
-                f"{r['tokens_total']:,} | {tokps} | {cache_pct} | "
-                f"{r['non_cache_tokens']:,} | {r['tool_calls']} |"
+                f"{_number(r['tokens_total'])} | {tokps} | {cache_pct} | "
+                f"{_number(r['non_cache_tokens'])} | {r['tool_calls']} |"
             )
         else:
             lines.append(
                 f"| {r['index']} | `{role}` | `{finish}` | {dur} | "
-                f"{r['tokens_total']:,} | {tokps} | {cache_pct} | "
-                f"{r['non_cache_tokens']:,} | {r['tool_calls']} |"
+                f"{_number(r['tokens_total'])} | {tokps} | {cache_pct} | "
+                f"{_number(r['non_cache_tokens'])} | {r['tool_calls']} |"
             )
     if len(rows) > limit:
         lines.append(f"\n*Showing first {limit} / {len(rows)} messages.*")
@@ -224,11 +229,11 @@ def format_performance_md(metrics: dict, wall_fmt: str) -> str:
         _metric_chip("Max duration", f"{metrics['max_duration']}s"),
     ]
     # Token breakdown: show N/A when format doesn't provide subcategories
-    has_breakdown = tok['input'] > 0 or tok['output'] > 0 or tok['cache_read'] > 0
-    def _tok_val(v: int) -> str:
-        return f"{v:,}" if has_breakdown else "N/A"
+    has_breakdown = any((tok.get(key) or 0) > 0 for key in ('input', 'output', 'cache_read'))
+    def _tok_val(v: int | None) -> str:
+        return _number(v) if has_breakdown or metrics.get("data_quality", {}).get("source") == "otlp" else "N/A"
     reasoning_val = (
-        f"{tok['reasoning']:,}"
+        _number(tok['reasoning'])
         if has_breakdown and metrics.get("reasoning_tokens_reported")
         else "N/A"
     )
@@ -237,7 +242,7 @@ def format_performance_md(metrics: dict, wall_fmt: str) -> str:
     # the chip must say the total is partial. When EVERY step was excluded,
     # "Input 0" would be an affirmative false count on a real session.
     input_dropped = metrics.get("input_tokens_unusable_steps") or 0
-    if input_dropped and tok["input"] <= 0:
+    if input_dropped and (tok["input"] or 0) <= 0:
         input_val = "N/A"
         input_hint = f"{input_dropped} step(s) reported a negative input count"
     elif input_dropped:
@@ -248,29 +253,29 @@ def format_performance_md(metrics: dict, wall_fmt: str) -> str:
         input_hint = ""
 
     token_chips = [
-        _metric_chip("Total tokens", f"{tok['total']:,}"),
+        _metric_chip("Total tokens", _number(tok['total'])),
         _metric_chip("Input", input_val, wide=bool(input_hint), hint=input_hint),
         _metric_chip("Output", _tok_val(tok['output'])),
         _metric_chip("Reasoning", reasoning_val),
         _metric_chip("Cache read", _tok_val(tok['cache_read'])),
         _metric_chip("Cache write", _tok_val(tok['cache_write'])),
         _metric_chip("Fresh input",
-                     f"{metrics['non_cache_tokens']:,} ({metrics['non_cache_ratio']}%)"
-                     if has_breakdown else "N/A"),
+                     f"{_number(metrics['non_cache_tokens'])} ({metrics['non_cache_ratio']}%)"
+                     if has_breakdown and metrics.get('non_cache_ratio') is not None else "N/A"),
     ]
     eff_chips = [
         # Assistant-step denominator on purpose: this chip is read against
         # "Med tok/step" / "P95 tok/step" in the Behavioral grid, and those use
         # assistant rows only. `avg_tokens_per_step` (all steps, user turns
         # included) is still emitted for continuity but is not comparable here.
-        _metric_chip("Avg tok/asst step", f"{metrics['avg_tokens_per_assistant_step']:,}"),
-        _metric_chip("Total processed tok/sec", f"{metrics['tokens_per_second']:,}"),
-        _metric_chip("Median processed tok/sec", f"{metrics['median_tokens_per_second']:,}"),
+        _metric_chip("Avg tok/asst step", _number(metrics['avg_tokens_per_assistant_step'])),
+        _metric_chip("Total processed tok/sec", _number(metrics['tokens_per_second'])),
+        _metric_chip("Median processed tok/sec", _number(metrics['median_tokens_per_second'])),
         _metric_chip("Out/In ratio",
                      str(metrics["output_input_ratio"])
                      if has_breakdown and metrics.get("output_input_ratio") is not None
                      else "N/A"),
-        _metric_chip("Tok/tool call", f"{metrics['tokens_per_tool']:,}"),
+        _metric_chip("Tok/tool call", _number(metrics['tokens_per_tool'])),
     ]
 
     tool_chips = [
@@ -343,7 +348,7 @@ def format_behavioral_md(metrics: dict, diag_metrics: dict | None = None) -> str
     tool_wait = metrics.get("tool_wait_share") or 0
     # `avg_cache` is None when the records are self-inconsistent, so it cannot
     # be compared with `> 0` here without a TypeError on exactly those files.
-    has_cache_data = metrics.get("cache_read_tokens", 0) > 0 or (usable_cache and avg_cache > 0)
+    has_cache_data = (metrics.get("cache_read_tokens") or 0) > 0 or (usable_cache and avg_cache > 0)
     has_tool_timing = bool(metrics.get("tool_time_total"))
     delegated = metrics.get("delegation_time_total")
 
@@ -351,8 +356,8 @@ def format_behavioral_md(metrics: dict, diag_metrics: dict | None = None) -> str
         _metric_chip("Asst steps", str(metrics["assistant_steps"])),
         _metric_chip("Multi-tool", str(metrics["multi_tool_steps"])),
         _metric_chip("No-tool", str(metrics["no_tool_assistant_steps"])),
-        _metric_chip("Med tok/step", f"{metrics['median_step_tokens']:,}"),
-        _metric_chip("P95 tok/step", f"{metrics['p95_step_tokens']:,}"),
+        _metric_chip("Med tok/step", _number(metrics['median_step_tokens'])),
+        _metric_chip("P95 tok/step", _number(metrics['p95_step_tokens'])),
     ]
     # Cache metrics — N/A when format doesn't provide cache breakdown
     if has_cache_data and usable_cache:
@@ -396,12 +401,12 @@ def format_behavioral_md(metrics: dict, diag_metrics: dict | None = None) -> str
     dm = diag_metrics or {}
 
     # Sub-agents
-    if dm.get("subagent_session_count", 0) > 0:
+    if (dm.get("subagent_session_count") or 0) > 0:
         chips.append(_metric_chip("Sub-agents",
                                   f"{dm['subagent_session_count']} ({dm.get('subagent_total_steps', 0)} steps)"))
 
     # Tool errors
-    if dm.get("classified_error_count", 0) > 0:
+    if (dm.get("classified_error_count") or 0) > 0:
         chips.append(_metric_chip("Tool errors", str(dm['classified_error_count']),
                                   verdict="bad"))
 
@@ -418,7 +423,7 @@ def format_banner_html(filename: str, metrics: dict, wall_fmt: str) -> str:
     ]
     # Only show token metrics if the format provides them
     total_tokens = metrics.get("tokens", {}).get("total", 0)
-    if total_tokens > 0:
+    if total_tokens is not None and total_tokens > 0:
         parts.append(f"{total_tokens:,} tokens &middot; ")
         output_rate = metrics.get("output_tokens_per_sec")
         if isinstance(output_rate, (int, float)) and not isinstance(output_rate, bool):
@@ -426,7 +431,7 @@ def format_banner_html(filename: str, metrics: dict, wall_fmt: str) -> str:
         else:
             parts.append(f"{metrics['tokens_per_second']} total processed tok/s &middot; ")
     parts.append(f"{wall_fmt} wall-clock")
-    if metrics.get("reasoning_parts", 0) > 0:
+    if (metrics.get("reasoning_parts") or 0) > 0:
         parts.append(f" &middot; {metrics['reasoning_parts']} reasoning")
     return "".join(parts)
 

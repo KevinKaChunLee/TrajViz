@@ -19,6 +19,9 @@ Gradio dashboards all draw from. The core needs only the standard library.
 
 Supports trajectories from **Claude Code**, **Cursor**, **OpenCode**, **CodeArts**, **ICode**, **Codex CLI**, **Pi**, and **DeepSeek Harness** out of the box, and formats of your own through a plugin hook.
 
+Claude Code can also be imported from saved **OpenTelemetry (OTLP)** traces,
+with optional companion event logs. Native session JSONL remains supported.
+
 ```python
 import agent_trajviz as tv
 
@@ -180,7 +183,7 @@ print(run.format_label, len(run.steps))      # e.g. "Codex CLI", 66
 print(run.metrics["tokens"]["total"], run.metrics["tool_success_rate"])
 
 # Every chart and table the dashboard shows is a view: id, title, kind, description, JSON data.
-for view_id, info in tv.VIEW_CATALOG.items():  # 35 views: summary, health, issues, agents,
+for view_id, info in tv.VIEW_CATALOG.items():  # 36 views: summary, health, issues, agents,
     print(view_id, info["kind"], info["title"])  # token_usage, tool_usage, workflow, ...
 tools = run.view("tool_usage").data           # calls per tool, split by agent
 agent = run.view("context_pressure").data["agents"][-1]["key"]
@@ -201,6 +204,12 @@ Every view's data has a JSON Schema (draft 2020-12) in the package:
 A view written by `export_json()` validates against its schema with any JSON
 Schema validator.
 
+View exports use **schema version 2**: unavailable measurements can be `null`,
+health checks can be `unavailable`, and an `availability` envelope describes
+their evidence. Native-format measurements retain their existing meanings.
+Normalized `trajectory.json` exports still use schema version 1 and remain
+readable. The `data_quality` view explains partial or missing telemetry fields.
+
 `tv.load` raises `tv.LoadError` (with `.code` and `.path`) for a file it cannot
 read; every error the package raises on purpose is a `tv.TrajVizError`. Steps
 are plain dicts described by the `tv.Step`, `tv.ToolCall` and `tv.TokenUsage`
@@ -215,7 +224,7 @@ Optional layers build on the views:
 | `agent_trajviz.figures` | `charts` | `figure(view)`: the dashboard's Plotly figure for any chart view |
 | `agent_trajviz.dashboard` | `app` | the Insight and Converge dashboards (`launch_insight()`, `insight_app()`), and `view_component(view)` for your own Gradio app |
 | `agent_trajviz.llm` | `llm` | `ask(run, question)` and `suggest_fixes(run)`: the AI analysis, on the endpoint you configure, redacted |
-| `agent_trajviz.attribution` | — | `diagnose(run)`: DECAF failure attribution when a DECAF checkout is available |
+| `agent_trajviz.attribution` | — | `diagnose(run)`: failure attribution when an optional backend checkout is available |
 
 [`examples/`](https://github.com/rshu/TrajViz/tree/main/examples) has the dashboard rebuilt on this API alone and a
 small app of your own; both are tested end to end.
@@ -311,7 +320,7 @@ detected as a *different* format is rejected with a "Format mismatch" message
 
 ---
 
-## Failure attribution (DECAF)
+## Failure attribution
 
 The **Attribution** tab explains *why* a failed run failed: it diagnoses which of
 seven workflow capabilities broke — Requirement Understanding, Task Planning,
@@ -322,9 +331,8 @@ primary-cause banner, a per-capability scorecard, and a collapsible evidence
 chain (observation → inference → conclusion, with verbatim trajectory quotes and
 a tamper-evidence audit verdict) for each fault.
 
-The attribution is computed by DECAF (`awe`), imported as a library through
-`agent_trajviz/insight/attribution.py`. The feature needs a DECAF checkout: point
-`AWE_DECAF_PATH` at it (default: a sibling `../DECAF` directory). Without DECAF,
+Attribution uses an optional backend imported through
+`agent_trajviz/insight/attribution.py`. When the backend is unavailable,
 TrajViz runs fully standalone and the Attribution tab degrades to an informative
 notice. It is **gold-grounded** — it needs the task's reference patch and test
 outcome — so it works on trajectories from reference data laid out as
@@ -343,12 +351,11 @@ rather than guessing.
 
 The deductive/associational slice (five capabilities) runs fully **offline with
 no API key**; the two judge capabilities and the arbiter are read back from
-cached verdicts when present. DECAF caches verdicts per judge model, and a
+cached verdicts when present. The attribution backend caches verdicts per judge model, and a
 cached verdict is used only if its recorded provenance (trajectory, task,
 prompt and evidence schema) matches the current inputs. By default the tab reads
-the model whose cached verdicts carry DECAF's current evidence schema; set
-`AWE_JUDGE_MODEL` to choose one explicitly. DECAF is stdlib-only and located at
-runtime via `AWE_DECAF_PATH` (default: a sibling `../DECAF` checkout).
+the model whose cached verdicts carry the current evidence schema; set
+`AWE_JUDGE_MODEL` to choose one explicitly. The optional backend is stdlib-only.
 `agent_trajviz/insight/attribution.py` documents the integration.
 
 ---
@@ -408,6 +415,98 @@ transcript; use the native session `.jsonl` for trajectory analysis.
 The old `ccsession-trajectory` wrapper is no longer an input format. Existing
 TrajViz `trajectory.json` exports remain loadable through the public round-trip
 format.
+
+### Saved OpenTelemetry captures (Claude Code)
+
+The `otlp` format reads standard OTLP JSON trace requests and Collector JSONL
+files (one request per line). Claude Code is the first supported producer;
+other OTLP producers require a mapping profile before their spans can become
+trajectory steps. This importer runs locally using only the standard library.
+
+```python
+run = tv.load("traces.jsonl")                 # detects OTLP from the content
+print(run.format)                            # "otlp"
+print(run.view("data_quality").data)          # observed / partial / unavailable fields
+sessions = tv.list_sessions("capture/")
+run = tv.load("capture/", format="otlp", session_id=sessions[0]["id"])
+```
+
+One trajectory represents one Claude session, which may contain several
+interaction traces and subagent operations. A capture containing multiple
+sessions requires an explicit selection; TrajViz never selects the first one
+silently. The dashboard shows a session selector. From the shell:
+
+```bash
+agent-trajviz --list-sessions capture/
+agent-trajviz --json capture/ --session-id SESSION_ID -o out/
+agent-trajviz --report capture/ --session-id SESSION_ID -o report.html
+```
+
+For companion logs or rotated trace files, use a directory with a
+`manifest.json` (or `otlp-manifest.json`) listing the files explicitly:
+
+```json
+{
+  "type": "agent-trajviz-otlp-bundle",
+  "schema_version": 1,
+  "profile": "claude_code",
+  "traces": ["traces.jsonl"],
+  "logs": ["logs.jsonl"]
+}
+```
+
+The same directory can be zipped for upload. Paths must stay within the
+bundle; symlinks and traversal paths are refused. A standalone trace file is
+sufficient; logs enrich its operations without adding duplicate usage. Logs
+or metrics alone, binary protobuf, compressed Collector framing and console
+exporter text are not trajectory inputs in this version.
+
+To record a new capture, install an OpenTelemetry Collector Contrib release
+with the file exporter. From a checkout, prepare its output directory and
+start the supplied local-only configuration:
+
+```bash
+mkdir -p capture
+cp examples/otlp/manifest.json capture/manifest.json
+otelcol-contrib --config examples/otlp/otelcol.yaml
+```
+
+Then run Claude Code in a separate terminal with its beta tracing enabled:
+
+```bash
+CLAUDE_CODE_ENABLE_TELEMETRY=1 \
+CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1 \
+OTEL_TRACES_EXPORTER=otlp \
+OTEL_LOGS_EXPORTER=otlp \
+OTEL_METRICS_EXPORTER=none \
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+claude
+```
+
+Exit Claude Code, then stop the Collector gracefully so buffered records are
+flushed before loading `capture/`. Use a new output directory for another
+recording: the example file exporters truncate existing files at startup.
+Tracing requires a Claude Code version that supports the beta span schema;
+see [Claude Code monitoring](https://code.claude.com/docs/en/monitoring-usage#traces-beta)
+and the [Collector file exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/fileexporter).
+
+The example retains Claude's default content redaction. If you want prompt,
+response, tool arguments or tool output in the capture, enable the appropriate
+`OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_ASSISTANT_RESPONSES`, `OTEL_LOG_TOOL_DETAILS`
+and `OTEL_LOG_TOOL_CONTENT` settings deliberately; these can record sensitive
+code and command output. Missing, redacted and truncated content stays marked
+as such in TrajViz. No content logging is required for timing and observed
+usage analyses.
+
+Totals cover captured operations; capture completeness cannot be established
+from a saved file. Model time, tool execution and permission wait stay separate.
+Tool calls join model requests only through explicit identifiers. Unavailable
+evidence produces `null` metrics and unavailable checks, with partial subtotals
+labeled in the JSON views and dashboard. Native JSONL remains the richer source
+for transcript analysis. This version does not merge native and OTLP inputs;
+transcript alignment/run comparisons and failure attribution are unavailable for
+OTLP captures. No live receiver or outbound telemetry is added to TrajViz.
 
 ### Cursor
 
@@ -670,7 +769,7 @@ CI builds the same API reference from the docstrings on every push and keeps
 it as the `api-reference` artifact; a test holds every public name to having a
 docstring.
 
-Tests that need the optional DECAF checkout skip when it is absent. Changes
+Tests that need the optional attribution backend checkout skip when it is absent. Changes
 are recorded in [CHANGELOG.md](https://github.com/rshu/TrajViz/blob/main/CHANGELOG.md); see [SECURITY.md](https://github.com/rshu/TrajViz/blob/main/SECURITY.md)
 for reporting vulnerabilities.
 

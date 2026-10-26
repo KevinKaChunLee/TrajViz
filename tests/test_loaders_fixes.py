@@ -311,6 +311,7 @@ class FormatLabelsTests(unittest.TestCase):
         self.assertEqual(
             FORMAT_LABELS,
             {
+                "otlp": "OpenTelemetry",
                 "claude_code": "Claude Code",
                 "cursor": "Cursor",
                 "codearts": "CodeArts",

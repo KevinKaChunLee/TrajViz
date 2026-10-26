@@ -37,6 +37,7 @@ class UploadRefs:
     summary_area: gr.Column
     summary_banner: gr.HTML
     label_badge_html: gr.HTML
+    session_selector: gr.Dropdown
 
 
 def layout() -> UploadRefs:
@@ -63,8 +64,11 @@ def layout() -> UploadRefs:
                 height=110,
             )
             gr.Markdown(
-                "Claude Code subagents: ZIP the parent log with its session folder.",
+                "Claude Code subagents: ZIP the parent log with its session folder. "
+                "OTLP captures: upload traces or a manifest bundle with companion logs.",
             )
+            session_selector = gr.Dropdown(label="Captured session", choices=[], value=None,
+                                           visible=False, interactive=True)
             with gr.Row():
                 load_btn = gr.Button(
                     "Load Trajectory",
@@ -103,6 +107,7 @@ def layout() -> UploadRefs:
         summary_area=summary_area,
         summary_banner=summary_banner,
         label_badge_html=label_badge_html,
+        session_selector=session_selector,
     )
 
 

@@ -29,6 +29,10 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="TRAJECTORY",
         help="Write a standalone HTML report for TRAJECTORY and exit (no dashboard)",
     )
+    mode.add_argument("--list-sessions", metavar="CAPTURE",
+                      help="List the selectable sessions of a saved OTLP capture as JSON and exit")
+    parser.add_argument("--format", metavar="FORMAT", help="Require a trajectory format, for example otlp")
+    parser.add_argument("--session-id", metavar="ID", help="Select one session from a saved OTLP capture")
     mode.add_argument("--list-views", action="store_true", help="List the view ids --json can write, and exit")
     mode.add_argument(
         "--schemas",
@@ -70,7 +74,7 @@ def _export_json(parser: argparse.ArgumentParser, args: argparse.Namespace) -> i
         parser.error(f"unknown view id(s): {', '.join(unknown)} (see --list-views)")
     out_dir = Path(args.output) if args.output else Path.cwd() / f"{Path(args.json).stem}.views"
     try:
-        run = load(args.json)
+        run = load(args.json, format=args.format, session_id=args.session_id)
         export_json(run, out_dir, only=args.view)
     except (LoadError, OSError) as exc:
         print(f"agent-trajviz: {exc}", file=sys.stderr)
@@ -110,6 +114,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"agent-trajviz: {exc}", file=sys.stderr)
         return 1
 
+    from ..api import FORMATS
+
+    if args.format and args.format not in FORMATS:
+        parser.error(f"unknown format {args.format!r}; expected one of: {', '.join(FORMATS)}")
+
     if args.list_views:
         from ..views import VIEW_CATALOG
 
@@ -119,6 +128,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.schemas:
         return _write_schemas(Path(args.schemas))
+    if args.list_sessions:
+        import json
+
+        from ..api import list_sessions
+        from ..errors import LoadError
+
+        try:
+            print(json.dumps(list_sessions(args.list_sessions, format=args.format), indent=2))
+        except (LoadError, ValueError, OSError) as exc:
+            print(f"agent-trajviz: {exc}", file=sys.stderr)
+            return 1
+        return 0
     if args.json:
         return _export_json(parser, args)
     if args.view:
@@ -129,12 +150,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .report import ReportError, report_from_path
 
         try:
-            path = report_from_path(args.report, args.output, dark=args.dark, inline_plotly=args.inline_plotly)
+            report_options = {"dark": args.dark, "inline_plotly": args.inline_plotly}
+            if args.format or args.session_id:
+                report_options.update(format_hint=args.format or "", session_id=args.session_id)
+            path = report_from_path(args.report, args.output, **report_options)
         except ReportError as exc:
             print(exc, file=sys.stderr)
             return 1
         print(path)
         return 0
+
+    if args.format or args.session_id:
+        parser.error("--format and --session-id apply to --json, --report or --list-sessions")
 
     require_or_exit("app", "The dashboard", "agent-trajviz")
     try:

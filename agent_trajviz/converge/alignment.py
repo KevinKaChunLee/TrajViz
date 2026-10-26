@@ -372,6 +372,9 @@ def build_comparison_report_from_steps(
     Single implementation shared by build_comparison_report (file paths) and
     agent_trajviz.insight.comparison.run_comparison (pre-loaded dicts).
     """
+    if ref_raw.get("_otel") or cmp_raw.get("_otel"):
+        raise ValueError("Transcript alignment is unavailable for operation-based OTLP captures. "
+                         "Inspect their observed token, timing and tool views instead.")
     from .milestones import (
         extract_milestones, compute_milestone_deltas,
         segment_by_milestones, compare_segments,

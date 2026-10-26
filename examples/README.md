@@ -8,6 +8,7 @@ app` in a checkout).
 |---|---|
 | [`trajviz_app/`](trajviz_app/) | The TrajViz dashboard rebuilt on the public API: KPI strip, Overview sections (summary, tools, agents, context utilization, diagnostics, deep dive, labels), Patterns, Attribution, Comparison (run group and pairwise), Workflow, Raw Data and the AI sidebar. `python examples/trajviz_app/app.py` → http://127.0.0.1:7870 |
 | [`views_app.py`](views_app.py) | A small app of your own: summary, health and issues, any chart or table from the views, a JSON download of every view, and a comparison. `python examples/views_app.py` → http://127.0.0.1:7871 |
+| [`otlp/`](otlp/) | Local Collector configuration and manifest for recording Claude Code OTLP traces and companion logs; see the README's saved-capture guide. |
 
 The API they use:
 

@@ -203,6 +203,10 @@ def tool_call_duration_ms(tc: dict) -> float | None:
     message metrics, tool stats, and hotspot decomposition so they can never
     disagree about the same tool call.
     """
+    from .telemetry_quality import tool_field_observed
+
+    if not tool_field_observed(tc, "duration"):
+        return None
     created, updated = tc.get("time_created"), tc.get("time_updated")
     if (
         isinstance(created, (int, float))
@@ -266,6 +270,10 @@ def step_duration_excluding_spawn(step: dict) -> float | None:
         or not math.isfinite(raw)
     ):
         return None
+    from .telemetry_quality import field_observed, is_otel_step
+
+    if is_otel_step(step):
+        return float(raw) if step["_otel"].get("kind") == "model_request" and field_observed(step, "duration") else None
     return max(0.0, float(raw) - spawn_wait_seconds(step))
 
 
@@ -278,6 +286,10 @@ def tool_call_window_ms(tc: dict) -> tuple[float, float] | None:
     admits a call using ``tool_call_duration_ms`` and then measures a narrower
     pair is unioning a different quantity than the one it gated on.
     """
+    from .telemetry_quality import tool_field_observed
+
+    if not tool_field_observed(tc, "duration"):
+        return None
     for lo_key, hi_key in (("time_created", "time_updated"), ("time_start", "time_end")):
         lo, hi = tc.get(lo_key), tc.get(hi_key)
         if (
@@ -335,6 +347,8 @@ def non_spawn_tool_seconds(step: dict) -> float:
 def wall_clock_fmt(metrics: dict) -> tuple[float, str]:
     """Return (wall_seconds, formatted_string) for wall-clock time."""
     wall = metrics["wall_clock"] if isinstance(metrics["wall_clock"], (int, float)) else metrics["total_duration"]
+    if wall is None:
+        return 0.0, "n/a"
     fmt = f"{wall:.0f}s" if wall < 3600 else f"{wall / 60:.1f}m"
     return wall, fmt
 
@@ -346,6 +360,15 @@ def generation_seconds(step: dict) -> tuple[float, float] | None:
     does not look like near-zero throughput. Tool wait is capped so overlapping
     stamps cannot drive generation negative. Returns ``None`` without duration.
     """
+    from .telemetry_quality import field_observed, is_otel_step
+
+    if is_otel_step(step):
+        if step["_otel"].get("kind") != "model_request" or not field_observed(step, "duration"):
+            return None
+        # A request span already measures the model operation. Tools are
+        # separate operations, not waits to subtract from this duration.
+        duration = step.get("duration")
+        return (float(duration), 0.0) if isinstance(duration, (int, float)) and duration >= 0 else None
     remaining = step_duration_excluding_spawn(step)
     if remaining is None:
         return None
@@ -424,6 +447,43 @@ def build_message_metrics(steps: list[dict]) -> list[dict]:
             "text_parts": part_counts.get("text", 0),
             "patch_parts": part_counts.get("patch", 0),
         })
+    from .telemetry_quality import field_observed, is_otel_step
+
+    for step, row in zip(steps, rows, strict=True):
+        if not is_otel_step(step):
+            continue
+        for key, field in {
+            "tokens_total": "tokens.total", "tokens_input": "tokens.input",
+            "tokens_output": "tokens.output", "cache_read": "tokens.cache_read",
+            "duration": "duration", "errors": "tool_outcomes",
+        }.items():
+            if not field_observed(step, field):
+                row[key] = None
+        if not all(field_observed(step, f"tokens.{key}") for key in ("total", "cache_read")):
+            row["cache_ratio"] = None
+        if field_observed(step, "tokens.input"):
+            # Claude telemetry reports fresh input separately from cache
+            # reads/writes, so no total-minus-cache inference is necessary.
+            row["non_cache_tokens"] = tokens_input = (step.get("tokens") or {}).get("input", 0)
+            row["non_cache_per_sec"] = tokens_input / row["duration"] if row["duration"] else None
+        else:
+            row["non_cache_tokens"] = row["non_cache_per_sec"] = None
+        if not field_observed(step, "tokens.total") or not field_observed(step, "duration"):
+            row["tokens_per_sec"] = None
+        if not all(field_observed(step, f"tokens.{key}") for key in ("input", "output")):
+            row["output_input_ratio"] = None
+        if not field_observed(step, "text"):
+            row["reasoning_parts"] = row["text_parts"] = row["patch_parts"] = None
+        # Claude response events deliberately omit thinking/tool blocks.
+        # Ordinary captured text cannot establish that those blocks were absent.
+        row["reasoning_parts"] = row["patch_parts"] = None
+        calls = step.get("tool_calls") or []
+        if calls and not any(tool_call_stats_duration_ms(call) is not None for call in calls):
+            row["tool_time_sum"] = None
+        # An explicit request/tool join establishes provenance, not nested
+        # timing. A tool's execution may start after this model span ends.
+        row["tool_time_share"] = None
+        row["availability"] = dict(step["_otel"].get("fields", {}))
     return rows
 
 
@@ -477,7 +537,12 @@ def output_throughput(steps: list[dict]) -> dict:
     for s in steps:
         if s.get("role") != "assistant":
             continue
+        from .telemetry_quality import field_observed, is_otel_step
+        if is_otel_step(s) and s["_otel"].get("kind") != "model_request":
+            continue
         total_steps += 1
+        if not field_observed(s, "tokens.output") or not field_observed(s, "duration"):
+            continue
         duration = s.get("duration")
         output_tokens = (s.get("tokens") or {}).get("output")
         has_duration = (
@@ -509,7 +574,8 @@ def output_throughput(steps: list[dict]) -> dict:
         tool_wait += tool_wait_s
         tokens += output_tokens
     return {
-        "rate": round(tokens / seconds, 1) if seconds > 0 and tokens > 0 else None,
+        "rate": (round(tokens / seconds, 1)
+                 if seconds > 0 and (tokens > 0 or any("_otel" in step for step in steps)) else None),
         "tokens": tokens,
         "seconds": seconds,
         "tool_wait_seconds": tool_wait,
@@ -616,16 +682,16 @@ def _compute_token_stats(total_tokens, total_duration, steps, message_rows, raw)
     output, summary = _raw_summary(raw)
 
     assistant_rows = [r for r in message_rows if r.get("role") == "assistant"]
-    assistant_tokens = [r["tokens_total"] for r in assistant_rows]
+    assistant_tokens = [r["tokens_total"] for r in assistant_rows if r["tokens_total"] is not None]
     token_rates = [r["tokens_per_sec"] for r in assistant_rows if r.get("tokens_per_sec") is not None]
-    cache_rows = [r for r in assistant_rows if r["tokens_total"] > 0]
+    cache_rows = [r for r in assistant_rows if r["tokens_total"] is not None and r["tokens_total"] > 0]
     cache_ratios = [r["cache_ratio"] for r in cache_rows if r["cache_ratio"] is not None]
     # Steps whose record is self-inconsistent (cache_read > total). Averaging
     # only the rest would bias the result downward precisely because the
     # excluded steps are the cache-heavy ones, so the count is published and
     # the mean is withheld when any step is unusable.
     cache_unusable = len(cache_rows) - len(cache_ratios)
-    non_cache_total = sum(r["non_cache_tokens"] for r in message_rows)
+    non_cache_total = sum(r["non_cache_tokens"] or 0 for r in message_rows)
     cache_dominant = sum(1 for r in cache_rows if (r["cache_ratio"] or 0) >= 0.90)
     total_io = total_tokens["input"] + total_tokens["output"]
     churn = _churn(summary) or 0
@@ -682,6 +748,8 @@ def _compute_tool_stats(steps, total_tokens_total, message_rows, wait_denom: flo
     tool_durations: list[float] = []
     delegated_total = 0.0
     delegated_calls = 0
+    unknown_outcomes = 0
+    from .telemetry_quality import tool_field_observed
 
     for s in steps:
         tool_count += s["tool_call_count"]
@@ -702,7 +770,9 @@ def _compute_tool_stats(steps, total_tokens_total, message_rows, wait_denom: flo
             tool_breakdown[name] = tool_breakdown.get(name, 0) + 1
             status = tc.get("status", "unknown")
             tool_status_breakdown[status] = tool_status_breakdown.get(status, 0) + 1
-            if tool_call_failed(tc):
+            if not tool_field_observed(tc, "tool_outcomes"):
+                unknown_outcomes += 1
+            elif tool_call_failed(tc):
                 tool_fail += 1
             else:
                 # A call carrying no failure signal — no failure status, no
@@ -717,7 +787,7 @@ def _compute_tool_stats(steps, total_tokens_total, message_rows, wait_denom: flo
                 tool_durations.append(v / 1000.0)
 
     assistant_rows = [r for r in message_rows if r.get("role") == "assistant"]
-    tool_time_total = sum(r["tool_time_sum"] for r in message_rows)
+    tool_time_total = sum(r["tool_time_sum"] or 0 for r in message_rows)
     avg_td = statistics.mean(tool_durations) if tool_durations else 0
     denom = float(wait_denom) if wait_denom > 0 else 0.0
     # No timed non-spawn call means "this export records no per-tool timing",
@@ -731,7 +801,12 @@ def _compute_tool_stats(steps, total_tokens_total, message_rows, wait_denom: flo
         "tool_success": tool_success,
         "tool_fail": tool_fail,
         # No tool calls means no rate: None ("n/a"), not a 0% success.
-        "tool_success_rate": round(tool_success / tool_count * 100, 1) if tool_count else None,
+        "tool_success_rate": (
+            round(tool_success / (tool_success + tool_fail) * 100, 1)
+            if tool_success + tool_fail else None
+        ),
+        **({"tool_unknown_outcomes": unknown_outcomes, "tool_observed_outcomes": tool_success + tool_fail}
+           if unknown_outcomes or any("_otel" in s for s in steps) else {}),
         "tokens_per_tool": round(total_tokens_total / tool_count) if tool_count else 0,
         "tool_time_total": round(tool_time_total, 2) if timed else None,
         "tool_wait_share": round(tool_time_total / denom * 100, 1) if timed and denom else None,
@@ -744,10 +819,12 @@ def _compute_tool_stats(steps, total_tokens_total, message_rows, wait_denom: flo
         "delegated_call_count": delegated_calls,
         "multi_tool_steps": sum(1 for r in assistant_rows if r["tool_calls"] >= 2),
         "no_tool_assistant_steps": sum(1 for r in assistant_rows if r["tool_calls"] == 0),
-        "patch_steps": sum(1 for r in assistant_rows if r["patch_parts"] > 0),
+        "patch_steps": sum(1 for r in assistant_rows if (r["patch_parts"] or 0) > 0),
         "tool_calls_per_min": round(tool_count / (denom / 60), 2) if denom > 0 else None,
         "tool_time_fraction": round(tool_time_total / denom, 4) if timed and denom > 0 else None,
-        "tool_system_failure_rate": round(tool_fail / tool_count, 4) if tool_count > 0 else None,
+        "tool_system_failure_rate": (
+            round(tool_fail / (tool_success + tool_fail), 4) if tool_success + tool_fail else None
+        ),
     }
 
 
@@ -869,8 +946,13 @@ def sum_usable_tokens(
     for s in steps:
         if predicate is not None and not predicate(s):
             continue
+        from .telemetry_quality import field_observed, is_otel_step
+        if is_otel_step(s) and s["_otel"].get("kind") != "model_request":
+            continue
         tokens = s.get("tokens") or {}
         for k in TOKEN_FIELDS:
+            if not field_observed(s, f"tokens.{k}"):
+                continue
             reported = tokens.get(k)
             if reported in (None, 0):
                 continue
@@ -906,7 +988,12 @@ def compute_metrics(steps: list[dict], raw: dict, message_rows: list[dict] | Non
         message_rows = build_message_metrics(steps)
 
     # Duration stats
-    durations = [s["duration"] for s in steps if s.get("duration") is not None]
+    from .telemetry_quality import data_quality, field_observed, is_otel_step
+
+    durations = [
+        s["duration"] for s in steps if s.get("duration") is not None
+        and (not is_otel_step(s) or (s["_otel"].get("kind") == "model_request" and field_observed(s, "duration")))
+    ]
     total_duration = sum(durations)
     # token_unusable is the per-field count of steps whose value was not a
     # usable token count; see sum_usable_tokens for why they are dropped.
@@ -922,7 +1009,7 @@ def compute_metrics(steps: list[dict], raw: dict, message_rows: list[dict] | Non
     if wall_clock is None:
         wall_clock = total_duration
 
-    return {
+    result = {
         "total_steps": len(steps),
         "total_duration": round(total_duration, 2),
         "avg_duration": round(total_duration / len(durations), 2) if durations else 0,
@@ -940,6 +1027,56 @@ def compute_metrics(steps: list[dict], raw: dict, message_rows: list[dict] | Non
         **_compute_timing_metrics(steps),
         **_compute_plan_metrics(steps),
     }
+    quality = data_quality(steps, raw)
+    if quality["source"] == "otlp":
+        from .telemetry_quality import public_token_totals
+
+        result["data_quality"] = quality
+        result["metric_coverage"] = {key: value["status"] for key, value in quality["fields"].items()}
+        result["measurement_basis"] = "captured_operations"
+        if session_wall_clock_seconds(steps, timing) is None:
+            result["wall_clock"] = None
+        result["tokens"] = public_token_totals(total_tokens, quality)
+        for key, field in {
+            "input_tokens": "tokens.input", "output_tokens": "tokens.output", "cache_read_tokens": "tokens.cache_read",
+            "non_cache_tokens": "tokens.input", "total_duration": "duration", "avg_duration": "duration",
+            "median_duration": "duration", "p95_duration": "duration", "max_duration": "duration",
+            "median_step_tokens": "tokens.total", "p95_step_tokens": "tokens.total",
+            "avg_tokens_per_step": "tokens.total", "avg_tokens_per_assistant_step": "tokens.total",
+            "tokens_per_second": "tokens.total", "median_tokens_per_second": "tokens.total",
+            "tokens_per_tool": "tokens.total", "tool_success": "tool_outcomes", "tool_fail": "tool_outcomes",
+            "reasoning_parts": "text", "text_parts": "text", "patch_steps": "text", "has_patch": "text",
+        }.items():
+            if not quality["fields"][field]["observed"]:
+                result[key] = None
+        # Ratios need complete compatible populations, rather than dividing
+        # subtotals that happened to be observed on different operations.
+        for key, fields in {
+            "avg_cache_ratio": ("tokens.total", "tokens.cache_read"),
+            "non_cache_ratio": ("tokens.total", "tokens.input", "tokens.cache_write"),
+            "output_input_ratio": ("tokens.output", "tokens.input"),
+        }.items():
+            if not all(quality["fields"][field]["status"] == "observed" for field in fields):
+                result[key] = None
+        if not durations:
+            result["tokens_per_second"] = result["median_tokens_per_second"] = None
+        if any(quality["fields"][field]["status"] != "observed" for field in ("tokens.total", "duration")):
+            result["tokens_per_second"] = None
+        observed_totals = [row["tokens_total"] for row in message_rows
+                           if row["role"] == "assistant" and row["tokens_total"] is not None]
+        if observed_totals:
+            result["avg_tokens_per_assistant_step"] = round(sum(observed_totals) / len(observed_totals))
+        if not quality["fields"]["tool_inputs"]["observed"]:
+            for key in ("command_call_count", "command_failures", "command_success_rate"):
+                result[key] = None
+        if quality["fields"]["tool_outcomes"]["status"] != "observed":
+            result["command_failures"] = result["command_success_rate"] = None
+        for key in ("plan_items", "plan_update_count", "plan_completion_ratio"):
+            result[key] = None
+        for key in ("reasoning_parts", "patch_steps", "has_patch", "patch_lines"):
+            result[key] = None
+        result["reasoning_tokens_reported"] = quality["fields"]["tokens.reasoning"]["observed"] > 0
+    return result
 
 
 def compute_diagnostic_metrics(
@@ -988,6 +1125,31 @@ def compute_diagnostic_metrics(
 
 def compute_health_verdict(metrics: dict, step_analytics: list[dict]) -> list[dict]:
     """Compute a health verdict with color-coded status for key metrics."""
+    quality = metrics.get("data_quality", {})
+    if quality.get("source") == "otlp":
+        # Reuse the established thresholds only where the required evidence
+        # is complete. The temporary numeric defaults never escape here.
+        safe = dict(metrics)
+        safe.pop("data_quality", None)
+        for key in ("tool_success_rate", "tool_fail"):
+            if safe.get(key) is None:
+                safe[key] = 0
+        verdicts = compute_health_verdict(safe, step_analytics)
+        dependencies = {
+            "Cache Efficiency": ("tokens.total", "tokens.cache_read"),
+            "Tool Success": ("tool_outcomes",), "Errors": ("tool_outcomes",),
+            "Throughput": ("tokens.output", "duration"),
+        }
+        for verdict in verdicts:
+            fields = dependencies[verdict["metric"]]
+            missing = [field for field in fields if quality["fields"][field]["status"] != "observed"]
+            if missing or (verdict["metric"] == "Throughput" and metrics.get("output_tokens_per_sec") is None):
+                verdict.update(status="unavailable", label="N/A", detail=(
+                    "Insufficient captured evidence: " + ", ".join(missing or ["measurable model duration"])
+                ))
+            else:
+                verdict["detail"] += "; captured operations only"
+        return verdicts
     verdicts = []
 
     # Cache efficiency
@@ -1109,6 +1271,10 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
     from collections import defaultdict
 
     from .parser import cache_read_share
+    from .telemetry_quality import data_quality, is_otel_step, public_token_totals
+
+    def included(step: dict) -> bool:
+        return step.get("role") == "assistant" or (is_otel_step(step) and step.get("role") == "tool")
 
     if not steps:
         return []
@@ -1117,7 +1283,7 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
     agent_order: list[str] = []
     seen: set[str] = set()
     for s in steps:
-        if s.get("role") != "assistant":
+        if not included(s):
             continue
         agent = effective_agent(s)
         if agent not in seen:
@@ -1131,21 +1297,21 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
     })
     agent_steps: dict[str, list[dict]] = defaultdict(list)
     for s in steps:
-        if s.get("role") != "assistant":
+        if not included(s):
             continue
         agent = effective_agent(s)
         agent_steps[agent].append(s)
         d = stats[agent]
         d["step_count"] += 1
         dur = s.get("duration")
-        if isinstance(dur, (int, float)):
+        if isinstance(dur, (int, float)) and (not is_otel_step(s) or s["_otel"].get("kind") == "model_request"):
             d["total_duration_s"] += dur
         d["tool_call_count"] += s.get("tool_call_count", 0)
         d["error_count"] += s.get("error_count", 0)
 
     # Build spawning map from native Claude Code child transcripts.
     spawned_by_map: dict[str, str] = {}  # agent_id -> spawned_by_tool_call_id
-    cc_sub_agents = raw.get("_claude_code_sub_agents", [])
+    cc_sub_agents = raw.get("_claude_code_sub_agents") or raw.get("_otlp_sub_agents", [])
     if isinstance(cc_sub_agents, list):
         for sa in cc_sub_agents:
             if isinstance(sa, dict) and sa.get("agent_id"):
@@ -1198,7 +1364,7 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
         spawned_by_tool = spawned_by_map.get(agent_id, "")
         spawned_by_step = tool_call_step_map.get(spawned_by_tool) if spawned_by_tool else None
 
-        result.append({
+        row = {
             "agent_id": agent_id,
             "label": label,
             "step_count": d["step_count"],
@@ -1217,13 +1383,34 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
             "output_tokens_per_sec": throughput["rate"],
             "output_throughput_timed_steps": throughput["timed_steps"],
             "spawned_by_step": spawned_by_step,
-        })
+        }
+        quality = data_quality(agent_steps[agent_id], raw)
+        if quality["source"] == "otlp":
+            visible = public_token_totals(tok_totals, quality)
+            for field, key in {
+                "total": "total_tokens", "input": "input_tokens", "output": "output_tokens",
+                "reasoning": "reasoning_tokens", "cache_read": "cache_read_tokens", "cache_write": "cache_write_tokens",
+            }.items():
+                row[key] = visible[field]
+            row["data_quality"] = quality
+            if not all(quality["fields"][f"tokens.{key}"]["status"] == "observed" for key in ("total", "cache_read")):
+                row["cache_efficiency_pct"] = None
+            if not quality["fields"]["duration"]["observed"]:
+                row["total_duration_s"] = None
+            if not quality["fields"]["tool_outcomes"]["observed"]:
+                row["error_count"] = None
+        result.append(row)
     return result
 
 
 def generate_agent_insights(agent_summaries: list[dict]) -> list[str]:
     """Generate insight strings for multi-agent patterns."""
     if len(agent_summaries) <= 1:
+        return []
+    if any(row.get("data_quality", {}).get("source") == "otlp" for row in agent_summaries):
+        # These heuristics assume complete transcript token totals and use
+        # message count as the error-rate denominator. Imported operations
+        # have a different basis; their measured rows remain available.
         return []
 
     insights: list[str] = []

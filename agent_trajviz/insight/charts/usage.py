@@ -50,7 +50,7 @@ def _add_token_bar_traces(
     if cache_write is not None:
         traces.append(("Cache Write", cache_write, TOKEN_COLORS["cache_write"]))
     for name, values, color in traces:
-        if include_empty or any(v > 0 for v in values):
+        if include_empty or any(v is not None and v > 0 for v in values):
             fig.add_trace(
                 go.Bar(
                     x=x_values,
@@ -204,7 +204,7 @@ def draw_step_durations(data: dict, dark: bool = False) -> go.Figure:
         _apply_dark(fig, dark)
         return fig
 
-    durations = [r["duration_s"] if r["duration_s"] is not None else 0 for r in rows]
+    durations = [r["duration_s"] for r in rows]
     spawn_adjusted = [r["spawn_adjusted"] for r in rows]
     avg_d = data["average_s"]
 
@@ -299,15 +299,16 @@ def draw_step_durations(data: dict, dark: bool = False) -> go.Figure:
                 )
             )
     # Avg line — dashed, lighter
-    fig.add_hline(
-        y=avg_d,
-        line_dash="dash",
-        line_color="#94a3b8",
-        line_width=1,
-        annotation_text=f"Avg: {avg_d:.1f}s",
-        annotation_position="top left",
-        annotation_font=dict(color="#64748b", size=11),
-    )
+    if avg_d is not None:
+        fig.add_hline(
+            y=avg_d,
+            line_dash="dash",
+            line_color="#94a3b8",
+            line_width=1,
+            annotation_text=f"Avg: {avg_d:.1f}s",
+            annotation_position="top left",
+            annotation_font=dict(color="#64748b", size=11),
+        )
     _apply_chart_layout(
         fig,
         "Step Duration",
@@ -669,7 +670,7 @@ def draw_agent_tokens(data: dict, dark: bool = False) -> go.Figure:
         return fig
 
     labels = [a["label"] for a in agents]
-    has_breakdown = any(a["input"] > 0 or a["output"] > 0 for a in agents)
+    has_breakdown = any((a["input"] or 0) > 0 or (a["output"] or 0) > 0 for a in agents)
 
     fig = go.Figure()
     if has_breakdown:
@@ -694,7 +695,7 @@ def draw_agent_tokens(data: dict, dark: bool = False) -> go.Figure:
                 y=totals,
                 name="Total Tokens",
                 marker_color=colors,
-                text=[f"{t:,}" for t in totals],
+                text=[f"{t:,}" if t is not None else "unavailable" for t in totals],
                 textposition="outside",
                 cliponaxis=False,
                 hovertemplate="%{x}<br>%{y:,.0f} tokens<extra></extra>",

@@ -1,0 +1,29 @@
+# Run otelcol-contrib from the repository root after creating ./capture/.
+# Standard, uncompressed OTLP JSONL; no remote exporter is configured.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+
+processors:
+  batch: {}
+
+exporters:
+  file/traces:
+    path: ./capture/traces.jsonl
+    format: json
+  file/logs:
+    path: ./capture/logs.jsonl
+    format: json
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/traces]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/logs]

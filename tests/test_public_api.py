@@ -32,14 +32,15 @@ class ApiSurfaceTests(unittest.TestCase):
             "VIEWS_SCHEMA_VERSION", "VIEW_CATALOG", "View", "comparison_views", "export_json",
             "compare_runs", "label_comparison_views", "label_views", "run_group_views",
             "Format", "PluginError", "load_plugins", "register_format", "register_view",
-            "view_schema", "view_schemas",
+            "view_schema", "view_schemas", "list_sessions",
         ]))
         for name in tv.__all__:
             self.assertTrue(hasattr(tv, name), name)
 
     def test_the_function_signatures_are_the_pinned_ones(self):
         pinned = {
-            "load": "(source: 'PathLike', *, format: 'str | None' = None) -> 'Trajectory'",
+            "load": "(source: 'PathLike', *, format: 'str | None' = None, session_id: 'str | None' = None) -> 'Trajectory'",
+            "list_sessions": "(source: 'PathLike', *, format: 'str | None' = None) -> 'list[dict[str, Any]]'",
             "compare": "(reference: 'Trajectory | PathLike', compared: 'Trajectory | PathLike', *, "
                        "fuzzy_commands: 'bool' = False, anchor_patch: 'PathLike | None' = None) "
                        "-> 'dict[str, Any]'",
@@ -84,7 +85,7 @@ class ApiSurfaceTests(unittest.TestCase):
         self.assertTrue(issubclass(tv.ReportError, ValueError))
 
     def test_formats_is_a_read_only_mapping_of_every_supported_format(self):
-        self.assertEqual(set(tv.FORMATS), {"claude_code", "cursor", "codearts", "icode", "opencode", "codex", "pi", "dsh"})
+        self.assertEqual(set(tv.FORMATS), {"claude_code", "cursor", "codearts", "icode", "opencode", "codex", "pi", "dsh", "otlp"})
         with self.assertRaises(TypeError):
             tv.FORMATS["new"] = "New"  # type: ignore[index]
 

@@ -235,6 +235,12 @@ def build_overview_kpi_html(
     issue_value, issue_sub, issue_status, issue_detail, issue_breakdown = _issues_kpi_parts(
         issues or [],
     )
+    if metrics.get("data_quality", {}).get("source") == "otlp":
+        if not issues:
+            issue_value, issue_sub, issue_status = "N/A", "Limited telemetry evidence", "unavailable"
+            issue_detail = "Unavailable checks cannot establish that the run is free of issues."
+        else:
+            issue_sub = "observed in this capture"
     # Border/tooltip only — kind breakdown is rendered like the Steps agent list.
     _verdict_map["Issues"] = (issue_status, issue_detail)
 
@@ -246,7 +252,7 @@ def build_overview_kpi_html(
 
     sparkline_data: dict[str, list[float]] = {}
     if message_rows:
-        sparkline_data["Tokens"] = [r.get("tokens_total", 0) for r in message_rows]
+        sparkline_data["Tokens"] = [r["tokens_total"] for r in message_rows if r.get("tokens_total") is not None]
         sparkline_data["Wall-Clock"] = [r.get("duration", 0) or 0 for r in message_rows]
 
     _label_to_help_key = {
@@ -285,7 +291,9 @@ def build_overview_kpi_html(
         ("Wall-Clock", wall_fmt, f"P95 {metrics.get('p95_duration', 0)}s"),
         (
             "Tokens",
-            ("\u2248" if tokens_estimated else "") + f"{metrics.get('tokens', {}).get('total', 0):,}",
+            ("\u2248" if tokens_estimated else "")
+            + ("N/A" if metrics.get('tokens', {}).get('total') is None
+               else f"{metrics.get('tokens', {}).get('total', 0):,}"),
             ("estimated · " if tokens_estimated else "") + throughput_sub,
         ),
         ("Issues", issue_value, issue_sub),
@@ -490,7 +498,10 @@ def build_diagnostics_outputs(session: LoadedSession, dark: bool = False) -> dic
     compaction_count = len(session.pressure_series.get("events") or [])
     if compaction_count:
         parts.append(f"{compaction_count} compaction event(s)")
-    summary = " &middot; ".join(parts) if parts else "No diagnostic issues detected."
+    summary = " &middot; ".join(parts) if parts else (
+        "Some diagnostic checks are unavailable for this telemetry capture."
+        if session.raw.get("_otel") else "No diagnostic issues detected."
+    )
     summary_html = f"<div style='font-size:12px;color:var(--ov-muted);margin-bottom:8px;'>{summary}</div>"
 
     return {
@@ -514,6 +525,16 @@ def load_warnings_html(session: LoadedSession) -> str:
             f"({extra:,} truncated).</p>"
         )
     raw = session.raw if isinstance(session.raw, dict) else {}
+    if raw.get("_otel"):
+        quality = session.metrics.get("data_quality", {})
+        missing = [key for key, value in quality.get("fields", {}).items()
+                   if value.get("status") != "observed"]
+        lines.append(
+            f"<p style='{style}'>OpenTelemetry capture: totals describe captured operations; "
+            "capture completeness is unknown. Native transcript detail may be unavailable.</p>"
+        )
+        if missing:
+            lines.append(f"<p style='{style}'>Partial or unavailable evidence: {html.escape(', '.join(missing))}.</p>")
     if tokens_are_estimates(raw) and (session.metrics.get("tokens") or {}).get("total"):
         lines.append(
             f"<p style='{style}'>&#9888; Token counts are estimates from the logged text "

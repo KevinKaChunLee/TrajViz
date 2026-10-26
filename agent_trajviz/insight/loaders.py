@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 # next to detect_format, as the single source of truth — UI/report modules
 # import this mapping instead of maintaining their own drifting copies.
 FORMAT_LABELS = {
+    "otlp": "OpenTelemetry",
     "claude_code": "Claude Code",
     "cursor": "Cursor",
     "codearts": "CodeArts",
@@ -204,6 +205,16 @@ def _apply_format(payload: Any, fmt: str, *, source_path: str | None = None) -> 
     if isinstance(payload, dict) and _already_converted(payload, fmt):
         return payload
 
+    if fmt == "otlp":
+        if source_path is None:
+            return {"_error": "Saved OTLP input requires a source file or bundle.", "_error_code": "invalid_otlp"}
+        from .formats.otlp_claude import convert_otlp_claude
+        from .formats.otlp_files import read_otlp_capture
+
+        result = convert_otlp_claude(read_otlp_capture(source_path))
+        _stamp_otlp_identity(result)
+        return result
+
     if fmt in _EVENT_FORMATS:
         if not isinstance(payload, list):
             return _kind_mismatch_error(fmt)
@@ -321,8 +332,12 @@ def load_trajectory(file_path: str, format_hint: str | None = None) -> dict:
     touched it first. The traceback goes to the log; the caller
     gets a message. See :func:`_load_trajectory_unguarded` for the dispatch.
     """
+    from ..errors import LoadError
+
     try:
         return _load_trajectory_unguarded(file_path, format_hint)
+    except LoadError as exc:
+        return {"_error": str(exc), "_error_code": exc.code or "load_failed", "_detected": exc.detected}
     except RecursionError:
         return {"_error": "This file nests JSON too deeply to be read safely."}
     except Exception as exc:  # noqa: BLE001 — the contract is "never raise"
@@ -342,6 +357,20 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
     Native Claude Code and DeepSeek Harness sessions may include sub-agent
     trees beside the parent file, in a session directory, or in a ZIP bundle.
     """
+    from .formats.otlp_files import looks_like_otlp_source
+
+    otlp_source = looks_like_otlp_source(file_path)
+    if format_hint == "otlp" and not otlp_source:
+        detected = _bounded_non_otlp_format(file_path)
+        if detected in FORMAT_LABELS and detected != "otlp":
+            return _format_mismatch_error("otlp", detected)
+    if format_hint == "otlp" or otlp_source:
+        if format_hint in FORMAT_LABELS and format_hint != "otlp":
+            return _format_mismatch_error(format_hint, "otlp")
+        result = _apply_format(None, "otlp", source_path=file_path)
+        result["_source_path"] = file_path
+        return result
+
     if _path_ext(file_path) == ".log":
         return {"_error": "Unsupported file type: .log files are no longer supported."}
 
@@ -382,6 +411,10 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
     if "_error" in result:
         return result
     result["_source_path"] = file_path
+    if fmt == "otlp":
+        # The OTLP reader hashes the exact bytes it consumed and stamps the
+        # selected session/profile identity; retain it on fallback detection.
+        return result
     if claude_children:
         result["_source_file_sha256"] = source_sha
         result["_source_merged_count"] = len(claude_children)
@@ -404,10 +437,46 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
     return result
 
 
+def _bounded_non_otlp_format(file_path: str) -> str:
+    """Recognize an explicitly mismatched JSON source without converting it.
+
+    Forcing OTLP must not fall back to the native loader's unbounded read or
+    sibling-session discovery before the bounded capture reader can refuse it.
+    """
+    from ..errors import LoadError
+    from .formats.otlp_files import MAX_MEMBER_BYTES, _open_file
+    from pathlib import Path
+
+    try:
+        with _open_file(Path(file_path)) as handle:
+            data = handle.read(MAX_MEMBER_BYTES + 1)
+        if len(data) > MAX_MEMBER_BYTES:
+            raise LoadError("OTLP capture size limit exceeded", code="size_limit", path=file_path)
+        payload, error = _parse_trajectory_text(data.decode("utf-8-sig"), file_path)
+        return detect_format(_normalize_payload(payload, file_path)) if error is None else "unknown"
+    except (OSError, UnicodeError, ValueError, RecursionError):
+        return "unknown"
+
+
 def _sha256_bytes(data: bytes) -> str:
     import hashlib
 
     return hashlib.sha256(data).hexdigest()
+
+
+def _stamp_otlp_identity(raw: dict) -> None:
+    """Identify the selected run separately from its source artifact bytes."""
+    import json
+
+    metadata = raw["_otel"]
+    capture_sha = raw.get("_source_capture_sha256") or raw["_source_sha256"]
+    selection = {"capture_sha256": capture_sha, "session_id": metadata.get("session_id"),
+                 "profile": metadata.get("profile"), "profile_version": metadata.get("profile_version")}
+    identity = _sha256_bytes(b"trajviz-otlp-run-v1\x00" + json.dumps(
+        selection, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    raw["_source_capture_sha256"] = capture_sha
+    raw["_source_sha256"] = identity
+    metadata.update(capture_sha256=capture_sha, run_sha256=identity)
 
 
 def _dsh_tree_sha256(parent_sha: str, merged_sources: list[tuple[str, str]]) -> str:

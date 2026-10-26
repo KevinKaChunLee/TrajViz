@@ -11,6 +11,12 @@ from ..session import LoadedSession
 
 def build_antipattern_html(session: LoadedSession) -> str:
     """Anti-pattern summary HTML for Overview and Patterns."""
+    from ..telemetry_quality import supports
+
+    if session.raw.get("_otel") and not all(
+        supports(session.steps, field) for field in ("tool_inputs", "tool_outputs", "tool_outcomes")
+    ):
+        return "<div style='padding:1em;color:var(--ov-muted);'>Anti-pattern checks unavailable: incomplete tool evidence.</div>"
     error_count, error_steps = count_tool_errors(session.steps)
     return build_antipattern_summary_html(
         session.fruitless_streaks,
@@ -47,8 +53,10 @@ def render_tool_sequences_html(sequences: list[dict]) -> str:
     )
 
 
-def render_failure_patterns_html(patterns: list[dict]) -> str:
+def render_failure_patterns_html(patterns: list[dict], *, available: bool = True) -> str:
     """Render failure pattern clusters as cards with Workflow jump chips."""
+    if not available:
+        return "<div style='padding:1em;color:var(--ov-muted);'>Failure-pattern checks unavailable: tool outcomes are not fully recorded.</div>"
     if not patterns:
         return "<div style='padding:1em;color:var(--ov-muted);text-align:center;'>No errors detected — no failure patterns to analyze.</div>"
     cards = []

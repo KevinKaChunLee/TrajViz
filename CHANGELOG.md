@@ -7,6 +7,31 @@ change the public API (the names exported from `agent_trajviz`).
 
 ## [Unreleased]
 
+### Added
+
+- Import saved OTLP JSON/JSONL traces from Claude Code, with correlated event
+  logs, explicit directory/ZIP manifests, subagent hierarchy and provenance.
+  Native Claude Code JSONL and its subagent bundle loading remain supported.
+- Discover and select captured sessions with `list_sessions()`,
+  `load(..., session_id=...)`, CLI `--list-sessions` / `--session-id`, and the
+  dashboard session selector. No telemetry SDK dependency or network receiver
+  is needed for importing files.
+- Explain observed, partial and unavailable evidence in the `data_quality`
+  view, JSON view availability, dashboard and reports. Missing observations
+  do not become measured zero values or healthy verdicts.
+- Provide a local Collector configuration and capture manifest under
+  `examples/otlp/`.
+
+### Changed
+
+- View JSON schemas advance to version 2 for nullable unavailable metrics,
+  unavailable health checks and evidence coverage. Existing normalized
+  trajectory schema-v1 exports remain readable.
+- Identify an imported OTLP run by its source capture, selected session and
+  mapping profile. Raw source hashes and original span/log context are retained.
+  Transcript comparison and failure attribution refuse OTLP captures until
+  their assumptions can be supported by the available evidence.
+
 ## [0.2.0] - 2026-10-15
 
 ### Added
@@ -39,9 +64,9 @@ change the public API (the names exported from `agent_trajviz`).
   leaves a newly allocated scratch directory behind.
 - Create dashboard reports inside Gradio's cache so the download serves the
   session-owned file directly instead of retaining a second cached copy.
-- Support current DECAF APIs while preserving offline attribution, verified
+- Support current attribution backend APIs while preserving offline attribution, verified
   cache provenance, and canonical source identity.
-- Report whether DECAF actually used an available judge verdict when its
+- Report whether attribution backend actually used an available judge verdict when its
   automatic cache mode is enabled.
 
 ## [0.1.0] - 2026-10-12
@@ -113,7 +138,7 @@ First release as the `agent-trajviz` package.
   components; `agent_trajviz.llm` (llm extra) is the AI analysis and
   suggested fixes, on the configured endpoint or any chat function you pass
   (`chat=`), in the reply language you choose (`language=`);
-  `agent_trajviz.attribution` is DECAF attribution.
+  `agent_trajviz.attribution` is failure attribution.
 - `examples/`: the dashboard rebuilt on the public API alone, and a small
   app of your own, both driven end to end in the test suite.
 

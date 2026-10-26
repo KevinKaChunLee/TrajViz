@@ -63,13 +63,14 @@ def draw_agent_swimlane(data: dict, dark: bool = False) -> go.Figure:
                     marker_color=hex_c,
                     name=label,
                     showlegend=False,
-                    text=f"{width} steps, {tok:,} tok",
+                    text=f"{width} steps, {tok:,} tok" if tok is not None else f"{width} steps",
                     textposition="inside",
                     # First step of this segment drives Workflow jump on click.
                     customdata=[start],
                     hovertext=(
                         f"{label}: steps {start}–{end}<br>"
-                        f"{tok:,} tokens, {tools} tool calls"
+                        + (f"{tok:,} tokens" if tok is not None else "Tokens unavailable")
+                        + f", {tools} tool calls"
                     ),
                     hoverinfo="text",
                 )
@@ -146,7 +147,8 @@ def draw_run_timelines(data: dict, dark: bool = False) -> go.Figure:
                     hovertext=(
                         f"<b>{label}</b><br>{dlabel}<br>"
                         f"steps {seg_start}–{seg_end} ({width})<br>"
-                        f"{seg['tokens']:,} tokens, {seg['tool_calls']} tool calls"
+                        + (f"{seg['tokens']:,} tokens" if seg["tokens"] is not None else "Tokens unavailable")
+                        + f", {seg['tool_calls']} tool calls"
                     ),
                     hoverinfo="text",
                 )
@@ -195,16 +197,18 @@ def draw_tool_outcomes(data: dict, dark: bool = False) -> go.Figure:
     labels = {a["id"]: a["label"] for a in data["agents"]}
     fail_border = TOOL_OUTCOME_COLORS["failure"]
 
-    by_agent: dict[str, list[tuple[int, str, bool, str]]] = defaultdict(list)
+    by_agent: dict[str, list[tuple[int, str, bool | None, str]]] = defaultdict(list)
     tool_names: set[str] = set()
-    saw_ok = saw_fail = False
+    saw_ok = saw_fail = saw_unknown = False
     for call in data["calls"]:
         by_agent[call["agent"]].append((call["step"], call["tool"], call["ok"], call["hint"]))
         tool_names.add(call["tool"])
-        if call["ok"]:
+        if call["ok"] is True:
             saw_ok = True
-        else:
+        elif call["ok"] is False:
             saw_fail = True
+        else:
+            saw_unknown = True
 
     if not by_agent:
         fig = _empty_figure(340, "No tool calls recorded in this trajectory.")
@@ -230,7 +234,8 @@ def draw_tool_outcomes(data: dict, dark: bool = False) -> go.Figure:
             label = labels.get(agent_id, agent_id or "main")
             oks = [p[2] for p in group]
             hovers = [
-                ("Success" if p[2] else "Failure") + (f"<br>{p[3]}" if p[3] else "")
+                ("Success" if p[2] is True else "Failure" if p[2] is False else "Outcome unavailable")
+                + (f"<br>{p[3]}" if p[3] else "")
                 for p in group
             ]
             fig.add_trace(
@@ -242,11 +247,11 @@ def draw_tool_outcomes(data: dict, dark: bool = False) -> go.Figure:
                     marker=dict(
                         color=color,
                         size=9,
-                        symbol=["circle" if ok else "x" for ok in oks],
+                        symbol=["circle" if ok is True else "x" if ok is False else "diamond-open" for ok in oks],
                         line=dict(
-                            width=[0 if ok else 2 for ok in oks],
+                            width=[2 if ok is False else 0 for ok in oks],
                             color=[
-                                "rgba(0,0,0,0)" if ok else fail_border
+                                fail_border if ok is False else "rgba(0,0,0,0)"
                                 for ok in oks
                             ],
                         ),
@@ -274,6 +279,8 @@ def draw_tool_outcomes(data: dict, dark: bool = False) -> go.Figure:
                     dict(width=2, color=fail_border),
                 )
             )
+        if saw_unknown:
+            shape_entries.append(("Outcome unavailable (diamond)", "#94a3b8", "diamond-open"))
         _add_dummy_marker_legend(fig, shape_entries, legendgroup="outcome-shape")
         title = "Tool Outcome Timeline by Agent"
     else:
@@ -281,12 +288,13 @@ def draw_tool_outcomes(data: dict, dark: bool = False) -> go.Figure:
         for ok, name, color, symbol in (
             (True, "Success", TOOL_OUTCOME_COLORS["success"], "circle"),
             (False, "Failure", TOOL_OUTCOME_COLORS["failure"], "x"),
+            (None, "Outcome unavailable", "#94a3b8", "diamond-open"),
         ):
             subset = [p for p in group if p[2] is ok]
             if not subset:
                 continue
             marker = dict(color=color, size=9, symbol=symbol)
-            if not ok:
+            if ok is False:
                 marker["line"] = dict(width=2, color=fail_border)
             hovers = [
                 name + (f"<br>{p[3]}" if p[3] else "") for p in subset

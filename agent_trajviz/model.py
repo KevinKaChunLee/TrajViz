@@ -96,3 +96,5 @@ class Step(TypedDict, total=False):
     summary: bool | dict[str, Any]
     is_compaction_checkpoint: bool
     compaction_reason: str
+    #: Original telemetry context and observed-field coverage, when imported.
+    _otel: dict[str, Any]

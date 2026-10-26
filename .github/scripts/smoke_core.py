@@ -17,7 +17,8 @@ from pathlib import Path
 import agent_trajviz as tv
 
 FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
-RUNS = [FIXTURES / "codearts_minimal.json", FIXTURES / "cursor_minimal.json", FIXTURES / "icode_minimal.json",
+RUNS = [FIXTURES / "otlp" / "manifest.json", FIXTURES / "codearts_minimal.json",
+        FIXTURES / "cursor_minimal.json", FIXTURES / "icode_minimal.json",
         *sorted((FIXTURES / "native_claude_code").glob("*.jsonl"))]
 
 
@@ -47,6 +48,11 @@ def main() -> None:
         ])
         assert made.view("tool_usage").data["tools"][0]["calls"] == 1
         assert set(tv.VIEW_CATALOG) <= set(tv.view_schemas())
+        capture = loaded[0]
+        assert capture.format == "otlp" and capture.metrics["tokens"]["total"] == 57
+        selected = tv.list_sessions(RUNS[0])[0]["id"]
+        assert tv.load(RUNS[0], format="otlp", session_id=selected).sha256 == capture.sha256
+        assert capture.view("data_quality").data["source"] == "otlp"
 
         scripts = Path(sysconfig.get_path("scripts"))
         command = str(scripts / ("agent-trajviz.exe" if os.name == "nt" else "agent-trajviz"))

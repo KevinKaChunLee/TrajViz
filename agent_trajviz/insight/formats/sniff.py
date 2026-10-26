@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-_OBJECT_FORMATS = frozenset({"codearts", "cursor", "icode", "opencode"})
+_OBJECT_FORMATS = frozenset({"codearts", "cursor", "icode", "opencode", "otlp"})
 _EVENT_FORMATS = frozenset({"claude_code", "codex", "pi", "dsh"})
 _FORMAT_STAMPS = {
+    "otlp": "_otlp_format",
     "claude_code": "_claude_code_format",
     "codearts": "_codearts_format",
     "cursor": "_cursor_format",
@@ -95,6 +96,10 @@ def _detect_event_stream_format(events: list) -> str:
     """Detect Claude Code / Codex / DSH / Pi from a parsed event array."""
     if not events:
         return "unknown"
+    from .otlp import looks_like_otlp_payload
+
+    if looks_like_otlp_payload(events):
+        return "otlp"
     if _looks_like_claude_code_events(events):
         return "claude_code"
     if _looks_like_codex_jsonl(events):
@@ -143,6 +148,10 @@ def _looks_like_icode_object(raw: dict) -> bool:
 
 def _detect_object_format(raw: dict) -> str:
     """Detect format of a parsed JSON object (raw export or already-converted)."""
+    from .otlp import looks_like_otlp_payload
+
+    if raw.get("_otlp_format") is True or looks_like_otlp_payload(raw):
+        return "otlp"
     # Post-conversion markers: converters build/stamp a dict so a second pass
     # (UI gate, attribution, run-group) still reports the originating product.
     if raw.get("_claude_code_format") is True:

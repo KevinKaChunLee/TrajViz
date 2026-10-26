@@ -199,7 +199,7 @@ def _render_one_agent_card(a: dict, agent_hex: str) -> str:
         )
 
     _cache_display = (
-        "N/A" if (a["cache_read_tokens"] == 0 and a["total_tokens"] > 0)
+        "N/A" if (a["cache_read_tokens"] == 0 and (a["total_tokens"] or 0) > 0)
         or a["cache_efficiency_pct"] is None
         else f"{a['cache_efficiency_pct']:.1f}%"
     )
@@ -214,6 +214,9 @@ def _render_one_agent_card(a: dict, agent_hex: str) -> str:
         "Output tokens ÷ generation time (step time minus tool and sub-agent "
         f"waits), over {a.get('output_throughput_timed_steps', 0)} of {steps_text} with timing"
     )
+    total_tokens = "N/A" if a["total_tokens"] is None else f"{a['total_tokens']:,}"
+    duration = "N/A" if a["total_duration_s"] is None else f"{a['total_duration_s']:.1f}s"
+    errors = "N/A" if a["error_count"] is None else str(a["error_count"])
     return (
         f"<div class='agent-card' title='{full_id}'"
         f" style='border-left:4px solid {agent_hex};'>"
@@ -223,10 +226,10 @@ def _render_one_agent_card(a: dict, agent_hex: str) -> str:
         f"</div>"
         f"{spawn_html}"
         f"<div class='agent-card-grid'>"
-        f"<div><span class='agent-kpi-val'>{a['total_tokens']:,}</span><span class='agent-kpi-label'>Tokens</span></div>"
-        f"<div><span class='agent-kpi-val'>{a['total_duration_s']:.1f}s</span><span class='agent-kpi-label'>Duration</span></div>"
+        f"<div><span class='agent-kpi-val'>{total_tokens}</span><span class='agent-kpi-label'>Tokens</span></div>"
+        f"<div><span class='agent-kpi-val'>{duration}</span><span class='agent-kpi-label'>Duration</span></div>"
         f"<div><span class='agent-kpi-val'>{a['tool_call_count']}</span><span class='agent-kpi-label'>Tool Calls</span></div>"
-        f"<div><span class='agent-kpi-val'>{a['error_count']}</span><span class='agent-kpi-label'>Errors</span></div>"
+        f"<div><span class='agent-kpi-val'>{errors}</span><span class='agent-kpi-label'>Errors</span></div>"
         f"<div><span class='agent-kpi-val'>{_cache_display}</span><span class='agent-kpi-label'>Cache %</span></div>"
         f"<div title='{gen_rate_title}'><span class='agent-kpi-val'>{gen_rate_text}</span><span class='agent-kpi-label'>Gen tok/s</span></div>"
         f"</div>"
@@ -1056,7 +1059,7 @@ _JS_GOTO_WORKFLOW = (
 
 
 # ---------------------------------------------------------------------------
-# DECAF failure attribution (Attribution tab)
+# attribution backend failure attribution (Attribution tab)
 # ---------------------------------------------------------------------------
 
 _STRENGTH_STYLE = {
@@ -1186,7 +1189,7 @@ def _attr_arbiter_html(arb: dict | None) -> str:
 
 
 def build_attribution_html(data: dict) -> str:
-    """Render the DECAF attribution result: primary banner + arbiter verdict +
+    """Render the failure attribution result: primary banner + arbiter verdict +
     capability scorecard + per-fault evidence chains (attributed and refuted
     candidates separated). ``data`` is a plain dict (an AttributionResult
     serialized) so rendering stays decoupled from ``awe``."""

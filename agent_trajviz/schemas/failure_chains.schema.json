@@ -13,7 +13,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "id": {
       "const": "failure_chains"
@@ -45,21 +45,33 @@
             ],
             "properties": {
               "end": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "spawning_agent": {
                 "type": "string"
               },
               "spawning_step": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "start": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "steps": {
                 "type": "array",
                 "items": {
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 }
               }
             }
@@ -75,16 +87,91 @@
           ],
           "properties": {
             "chain_step_pct": {
-              "type": "number"
+              "type": [
+                "number",
+                "null"
+              ]
             },
             "longest_chain": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "total_chain_steps": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "total_chains": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "availability": {
+      "type": "object",
+      "required": [
+        "status",
+        "basis",
+        "fields"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "observed",
+            "partial",
+            "unavailable",
+            "unknown"
+          ]
+        },
+        "basis": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "status",
+              "observed",
+              "partial",
+              "total",
+              "reasons"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "observed",
+                  "partial",
+                  "unavailable",
+                  "unknown"
+                ]
+              },
+              "observed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "partial": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reasons": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
             }
           }
         }

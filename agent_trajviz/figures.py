@@ -137,7 +137,25 @@ def figure(view: View, *, dark: bool = False) -> go.Figure:
         draw = _DRAW[view.id]
     except KeyError:
         raise ValueError(f"view {view.id!r} is a {view.kind}, not a chart; see FIGURE_VIEWS") from None
-    return draw(view.data, dark)
+    availability = view.availability or {}
+    telemetry = availability.get("basis") == "captured_operations"
+    status = availability.get("status")
+    if telemetry and status == "unavailable":
+        fig = _empty_figure(300, "Unavailable: required evidence was not recorded in this capture.")
+        fig.update_layout(title_text=view.title)
+        _apply_dark(fig, dark)
+        return fig
+    fig = draw(view.data, dark)
+    if telemetry and status == "partial":
+        # The observed points remain drawable; this annotation prevents a
+        # partial sum or empty detector result from claiming full coverage.
+        fig.add_annotation(
+            text="Partial data: some required evidence is unavailable.", xref="paper", yref="paper",
+            x=0, y=-0.24, xanchor="left", showarrow=False, font=dict(size=11, color="#64748b"),
+        )
+        margin = fig.layout.margin.b or 40
+        fig.update_layout(margin_b=max(margin, 90))
+    return fig
 
 
 def figures(views: Mapping[str, View], *, dark: bool = False) -> dict[str, go.Figure]:

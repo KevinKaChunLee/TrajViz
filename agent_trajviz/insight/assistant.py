@@ -300,6 +300,8 @@ def _metrics_lines(metrics: dict, steps: list[dict]) -> list[str]:
         (step.get("tokens") or {}).get("total", 0)
         for step in steps
         if isinstance(step.get("tokens"), dict)
+        and ((step.get("_otel") or {}).get("fields", {}).get("tokens.total") == "observed"
+             or "_otel" not in step)
     ]
     if totals:
         lines.append(
@@ -312,6 +314,9 @@ def _metrics_lines(metrics: dict, steps: list[dict]) -> list[str]:
             f"{metrics.get('output_throughput_timed_steps')}/"
             f"{metrics.get('output_throughput_total_steps')} timed assistant steps"
         )
+    if metrics.get("data_quality", {}).get("source") == "otlp":
+        lines.append("telemetry_evidence: " + json.dumps(metrics["data_quality"], ensure_ascii=False))
+        lines.append("Unavailable checks are not evidence of success; totals cover captured operations only.")
     return lines
 
 
@@ -540,6 +545,11 @@ def build_analysis_brief(steps: list[dict], raw: dict | None = None) -> str:
     raw = raw if isinstance(raw, dict) else {}
     if not steps:
         return ""
+    if raw.get("_otel"):
+        from ..api import Trajectory
+        from .session import session_from_run
+
+        return build_analysis_brief_from_session(session_from_run(Trajectory(format="otlp", steps=steps, raw=raw)))
     message_rows = build_message_metrics(steps)
     metrics = compute_metrics(steps, raw, message_rows=message_rows)
     _, wall_fmt = wall_clock_fmt(metrics)

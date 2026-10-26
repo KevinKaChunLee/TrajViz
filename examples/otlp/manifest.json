@@ -1,0 +1,7 @@
+{
+  "type": "agent-trajviz-otlp-bundle",
+  "schema_version": 1,
+  "profile": "claude_code",
+  "traces": ["traces.jsonl"],
+  "logs": ["logs.jsonl"]
+}

@@ -97,6 +97,7 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
             file_upload=upload_refs.file_upload,
             load_btn=upload_refs.load_btn,
             format_selector=upload_refs.format_selector,
+            session_selector=upload_refs.session_selector,
             state_dark=shared.state_dark,
             slots=slots,
         )
