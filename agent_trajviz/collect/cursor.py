@@ -46,6 +46,7 @@ from typing import Any
 from collections.abc import Iterable, Iterator, Sequence
 
 from .. import _fileio as _common
+from ..insight.formats.parse import _parse_jsonl_events
 
 
 SCHEMA_VERSION = 1
@@ -304,40 +305,15 @@ def load_ordered_bubbles(
 def parse_jsonl(path: Path) -> list[dict[str, Any]]:
     """Parse a Cursor agent-transcript JSONL file; drop a truncated final line."""
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
         raise ConsolidationError(f"Cannot read transcript {path}: {exc}") from exc
-    events: list[dict[str, Any]] = []
-    pending: tuple[int, str] | None = None
-    for line_number, raw_line in enumerate(text.splitlines(keepends=True), start=1):
-        if not raw_line.strip():
-            continue
-        if pending is None:
-            pending = (line_number, raw_line)
-            continue
-        pending_number, pending_line = pending
-        try:
-            parsed = json.loads(pending_line)
-        except json.JSONDecodeError as exc:
-            raise ConsolidationError(
-                f"Invalid JSONL at {path}:{pending_number}: {exc.msg}"
-            ) from exc
-        if isinstance(parsed, dict):
-            events.append(parsed)
-        pending = (line_number, raw_line)
-    if pending is not None:
-        pending_number, pending_line = pending
-        try:
-            parsed = json.loads(pending_line)
-        except json.JSONDecodeError:
-            if pending_line.endswith(("\n", "\r")):
-                raise ConsolidationError(
-                    f"Invalid JSONL at {path}:{pending_number}"
-                ) from None
-            return events
-        if isinstance(parsed, dict):
-            events.append(parsed)
-    return events
+    # JSON permits U+0085/U+2028/U+2029 inside strings. str.splitlines()
+    # treats these as boundaries, destroying otherwise valid native records.
+    events, error = _parse_jsonl_events(text)
+    if error:
+        raise ConsolidationError(f"Cannot parse transcript {path}: {error}")
+    return [event for event in events or [] if isinstance(event, dict)]
 
 
 def find_transcript_locations(

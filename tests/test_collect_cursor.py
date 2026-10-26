@@ -408,3 +408,30 @@ class CursorOccupancyMappingTests(unittest.TestCase):
         self.assertEqual(windows[-1], 1000)
         self.assertLess(windows[1], windows[2])
         self.assertGreater(windows[1], 0)
+
+class CursorJsonlParserTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def test_jsonl_unicode_content_does_not_split_native_records(self) -> None:
+        prompt = "Compare line separators: \u0085 \u2028 \u2029 and preserve them."
+        event = {"role": "user", "message": {"content": [{"type": "text", "text": prompt}]}}
+        path = self.root / "unicode.jsonl"
+        path.write_text("\ufeff" + json.dumps(event, ensure_ascii=False) + "\r\n", encoding="utf-8")
+        self.assertEqual(consolidator.parse_jsonl(path), [event])
+        messages, tools, _cap = consolidator.events_to_messages(
+            consolidator.parse_jsonl(path), session_id="unicode-session",
+        )
+        self.assertEqual(messages[0]["parts"][0]["text"], prompt)
+        self.assertEqual(tools, 0)
+
+    def test_jsonl_truncated_tail_tolerance_does_not_hide_corrupt_interior(self) -> None:
+        first = {"role": "assistant", "message": {"content": [{"type": "text", "text": "Complete"}]}}
+        path = self.root / "partial.jsonl"
+        path.write_text(json.dumps(first) + '\n{"role":"assistant"', encoding="utf-8")
+        self.assertEqual(consolidator.parse_jsonl(path), [first])
+        path.write_text(json.dumps(first) + '\n{"role":"assistant"\n{}\n', encoding="utf-8")
+        with self.assertRaises(consolidator.ConsolidationError):
+            consolidator.parse_jsonl(path)
