@@ -25,6 +25,7 @@ from .formats.icode import _convert_icode_to_internal
 from .formats.common import (  # noqa: F401  (re-exported public / test API)
     _classify_tool_error,
     _iso_to_epoch_ms,
+    decode_session_text,
     safe_get,
 )
 from .formats.dsh import (
@@ -304,7 +305,7 @@ def read_payload(file_path: str) -> tuple[Any, str | None, str | None]:
         return None, None, str(exc)
     sha = _sha256_bytes(data)
     try:
-        text = data.decode("utf-8-sig")
+        text = decode_session_text(data)
     except UnicodeDecodeError as exc:
         return None, sha, str(exc)
     payload, error = _parse_trajectory_text(text, file_path)
@@ -361,7 +362,7 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
         return _load_zip_trajectory(file_path, format_hint, source_sha, data)
 
     try:
-        text = data.decode("utf-8-sig")
+        text = decode_session_text(data)
     except UnicodeDecodeError as exc:
         return {"_error": str(exc)}
 

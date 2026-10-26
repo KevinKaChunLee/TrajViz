@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, UTC
 from typing import Any
 
+from .common import decode_session_text
 from .parse import _JSONL_LINE_RE, _normalize_payload, _parse_trajectory_text
 
 # DeepSeek Harness tools are lowercase with JSON-string arguments. Map them
@@ -562,12 +563,18 @@ def _dsh_export_dir_names(session_id: str) -> list[str]:
     return ordered
 
 
+def _dsh_read_text(path: str) -> str:
+    with open(path, "rb") as handle:
+        return decode_session_text(handle.read())
+
+
 def _dsh_jsonl_session_id(path: str) -> str:
     """Session id from the first JSONL line, or empty if it is not a DSH header."""
     try:
-        with open(path, encoding="utf-8-sig") as handle:
-            line = handle.readline()
-        payload = json.loads(line)
+        with open(path, "rb") as handle:
+            blob = handle.read(65536)
+        lines = decode_session_text(blob).splitlines()
+        payload = json.loads(lines[0] if lines else "")
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
         return ""
     if isinstance(payload, dict) and payload.get("type") == "session":
@@ -669,8 +676,7 @@ def _dsh_child_events_from_text(text: str, label: str) -> tuple[list[dict], str 
 def _dsh_read_event_list(path: str) -> tuple[list[dict], str | None]:
     label = _dsh_child_label(path)
     try:
-        with open(path, encoding="utf-8-sig") as handle:
-            text = handle.read()
+        text = _dsh_read_text(path)
     except (OSError, UnicodeDecodeError) as exc:
         return [], f"Sub-agent log {label} could not be read ({type(exc).__name__}); it is missing from this view."
     return _dsh_child_events_from_text(text, label)
@@ -1059,7 +1065,7 @@ def _parse_zip_member_events(archive: zipfile.ZipFile, member: str) -> list[dict
     except (KeyError, RuntimeError, zipfile.BadZipFile, OSError, EOFError):
         return []
     try:
-        text = raw.decode("utf-8-sig")
+        text = decode_session_text(raw)
     except UnicodeDecodeError:
         return []
     payload, err = _parse_trajectory_text(text, member)
@@ -1076,7 +1082,7 @@ def _parse_zip_child_events(archive: zipfile.ZipFile, member: str) -> tuple[list
     label = _dsh_child_label(member)
     try:
         raw = archive.read(member)
-        text = raw.decode("utf-8-sig")
+        text = decode_session_text(raw)
     except (KeyError, RuntimeError, zipfile.BadZipFile, OSError, EOFError, UnicodeDecodeError) as exc:
         return [], f"Sub-agent log {label} could not be read ({type(exc).__name__}); it is missing from this view."
     return _dsh_child_events_from_text(text, label)
