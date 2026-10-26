@@ -1,6 +1,7 @@
 """DeepSeek Harness JSONL / zip export → internal trajectory."""
 
 import io
+import hashlib
 import json
 import math
 import os
@@ -10,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, UTC
 from typing import Any
 
+from ...errors import LoadError
 from .parse import _JSONL_LINE_RE, _normalize_payload, _parse_trajectory_text
 
 # DeepSeek Harness tools are lowercase with JSON-string arguments. Map them
@@ -29,7 +31,7 @@ _DSH_TOOL_NAMES = {
 
 
 def _dsh_int(value: Any) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return 0
     return int(value)
 
@@ -211,6 +213,9 @@ def _dsh_apply_tool_result(
             time_info = state.setdefault("time", {})
             if isinstance(time_info, dict):
                 time_info["end"] = ts
+                start = time_info.get("start")
+                if isinstance(start, (int, float)) and not isinstance(start, bool) and start <= ts:
+                    state.setdefault("metadata", {})["totalDurationMs"] = ts - start
     child_id = _dsh_child_session_id_from_output(output)
     if not child_id:
         return
@@ -230,10 +235,12 @@ def _dsh_extract_usage(usage: Any) -> dict | None:
         return None
     inp = _dsh_int(usage.get("inputTokens", usage.get("input", 0)))
     out = _dsh_int(usage.get("outputTokens", usage.get("output", 0)))
-    reasoning = _dsh_int(usage.get("reasoningTokens", usage.get("reasoning", 0)))
+    reasoning_raw = usage.get("reasoningTokens", usage.get("reasoning"))
+    reasoning = _dsh_int(reasoning_raw)
     cache_read = _dsh_int(usage.get("cacheReadTokens", usage.get("cacheRead", 0)))
     cache_write = _dsh_int(usage.get("cacheWriteTokens", usage.get("cacheWrite", 0)))
-    component_total = inp + out + reasoning + cache_read + cache_write
+    # Reasoning is a breakdown of output tokens, not an additional population.
+    component_total = inp + out + cache_read + cache_write
     vendor_total = _dsh_int(usage.get("totalTokens", usage.get("total", 0)))
     total = max(component_total, vendor_total)
     if not any((total, inp, out, reasoning, cache_read, cache_write)):
@@ -242,7 +249,8 @@ def _dsh_extract_usage(usage: Any) -> dict | None:
         "total": total,
         "input": inp,
         "output": out,
-        "reasoning": reasoning,
+        **({"reasoning": reasoning} if isinstance(reasoning_raw, (int, float))
+           and not isinstance(reasoning_raw, bool) and math.isfinite(reasoning_raw) else {}),
         "cache": {"read": cache_read, "write": cache_write},
     }
 
@@ -313,7 +321,15 @@ def _dsh_session_to_messages(events: list[dict]) -> tuple[dict, list[dict], str,
             session = event
             continue
         body.append(event)
-    body = _dsh_drop_seed_prefix(body, session.get("seedLength"))
+    if session.get("isSeeded") is True:
+        boundary = next((i for i in range(len(body) - 1, -1, -1)
+                         if body[i].get("type") == "session/end-seed"
+                         and isinstance(body[i].get("data"), dict)
+                         and body[i]["data"].get("inherited") is True), None)
+        if boundary is not None:
+            body = body[boundary:]
+    else:
+        body = _dsh_drop_seed_prefix(body, session.get("seedLength"))
 
     session_id = session.get("id", "") if isinstance(session.get("id"), str) else ""
     parent_session_id = session.get("parentSession", "") if isinstance(session.get("parentSession"), str) else ""
@@ -327,6 +343,8 @@ def _dsh_session_to_messages(events: list[dict]) -> tuple[dict, list[dict], str,
     current_model = ""
     current_provider = ""
     title = ""
+    modern = isinstance(session.get("version"), int) and session["version"] >= 4
+    request_starts: dict[tuple[Any, Any], int | None] = {}
 
     def _append(role: str, ts: int | None, parts: list, tokens: dict | None = None, extra: dict | None = None) -> None:
         info: dict[str, Any] = {
@@ -336,6 +354,8 @@ def _dsh_session_to_messages(events: list[dict]) -> tuple[dict, list[dict], str,
             "isSubAgent": is_sub_agent,
             "agent": agent,
         }
+        if modern:
+            info["eventTime"] = ts
         if parent_session_id:
             info["parentSessionID"] = parent_session_id
         if cwd:
@@ -350,6 +370,10 @@ def _dsh_session_to_messages(events: list[dict]) -> tuple[dict, list[dict], str,
         etype = event.get("type")
         ts = _dsh_event_ts_ms(event)
         data = event.get("data") if isinstance(event.get("data"), dict) else {}
+
+        if modern and etype == "step/start":
+            request_starts[(data.get("turn"), data.get("step"))] = ts
+            continue
 
         if etype == "session/title":
             candidate = data.get("title")
@@ -470,6 +494,14 @@ def _dsh_session_to_messages(events: list[dict]) -> tuple[dict, list[dict], str,
             "modelID": current_model,
             "providerID": current_provider,
         }
+        if modern:
+            # A v4 message is persisted after its model stream settles and
+            # before its tools execute. The enclosing step starts the request
+            # segment; following messages can include tools and human idle.
+            start = request_starts.pop((data.get("turn"), data.get("step")), None)
+            if start is not None and ts is not None and start <= ts:
+                extra["time"] = {"created": start, "completed": ts}
+                extra["timing_source"] = "model_request"
         if parts or tokens:
             _append("assistant", ts, parts, tokens=tokens, extra=extra)
 
@@ -666,12 +698,17 @@ def _dsh_child_events_from_text(text: str, label: str) -> tuple[list[dict], str 
     return events, f"Sub-agent log {label}: {dropped} malformed {noun} skipped."
 
 
-def _dsh_read_event_list(path: str) -> tuple[list[dict], str | None]:
+def _dsh_read_event_list(path: str, *, source_hashes: dict[str, str] | None = None) -> tuple[list[dict], str | None]:
     label = _dsh_child_label(path)
     try:
-        with open(path, encoding="utf-8-sig") as handle:
-            text = handle.read()
-    except (OSError, UnicodeDecodeError) as exc:
+        from .dsh_native import decode_dsh_native_bytes
+
+        with open(path, "rb") as handle:
+            data = handle.read()
+        text = decode_dsh_native_bytes(data, path).decode("utf-8-sig")
+        if source_hashes is not None:
+            source_hashes[path] = hashlib.sha256(data).hexdigest()
+    except (OSError, UnicodeDecodeError, LoadError) as exc:
         return [], f"Sub-agent log {label} could not be read ({type(exc).__name__}); it is missing from this view."
     return _dsh_child_events_from_text(text, label)
 
@@ -776,7 +813,9 @@ def _dsh_merged_source_key(child_id: str, path: str) -> str:
 def _dsh_message_sort_key(msg: dict) -> tuple[float, int]:
     info = msg.get("info") if isinstance(msg.get("info"), dict) else {}
     time_info = info.get("time") if isinstance(info.get("time"), dict) else {}
-    created = time_info.get("created") or 0
+    # Preserve message order when a v4 request starts just before its prompt
+    # is persisted. Request timing still uses the original step boundary.
+    created = info.get("eventTime") or time_info.get("created") or 0
     try:
         created_n = float(created)
     except (TypeError, ValueError):
@@ -805,20 +844,31 @@ def _convert_dsh_to_internal(
     session_id = session.get("id", "") if isinstance(session.get("id"), str) else ""
     load_warnings: list[str] = list(child_warnings or [])
     child_logs: list[tuple[str | None, list[dict]]]
+    child_hashes: dict[str, str] = {}
+    hashes_by_path: dict[str, str] = {}
     if child_event_lists is None:
         origin = session.get("origin")
         parent_session = session.get("parentSession")
         is_child_log = origin == "subagent" or (isinstance(parent_session, str) and bool(parent_session))
-        child_logs = []
-        for path in _dsh_discover_child_log_paths(
-            session_id,
-            source_path,
-            allow_export_root=not is_child_log,
-        ):
-            child_events, warning = _dsh_read_event_list(path)
-            if warning:
-                load_warnings.append(warning)
-            child_logs.append((path, child_events))
+        version = session.get("version")
+        from .dsh_native import discover_native_dsh_children, looks_like_native_dsh_source
+
+        if (isinstance(version, int) and not isinstance(version, bool) and version >= 4
+                and source_path and looks_like_native_dsh_source(source_path, b"")):
+            discovered, child_hashes, warnings = discover_native_dsh_children(events, source_path)
+            child_logs = list(discovered)
+            load_warnings.extend(warnings)
+        else:
+            child_logs = []
+            for path in _dsh_discover_child_log_paths(
+                session_id,
+                source_path,
+                allow_export_root=not is_child_log,
+            ):
+                child_events, warning = _dsh_read_event_list(path, source_hashes=hashes_by_path)
+                if warning:
+                    load_warnings.append(warning)
+                child_logs.append((path, child_events))
     else:
         # Zip members: their bytes are already covered by the archive's own hash,
         # so there is no separate file to report.
@@ -840,6 +890,8 @@ def _convert_dsh_to_internal(
             # whose events actually reach `messages` — nothing else.
             key = _dsh_merged_source_key(child_id if isinstance(child_id, str) else "", child_path)
             merged_sources.append((key, child_path))
+            if child_path in hashes_by_path:
+                child_hashes[key] = hashes_by_path[child_path]
         if child_model and not model:
             model = child_model
         if child_provider and not provider:
@@ -852,7 +904,8 @@ def _convert_dsh_to_internal(
         messages.extend(child_messages)
 
     messages.sort(key=_dsh_message_sort_key)
-    _fill_message_completion_times(messages)
+    if not (isinstance(session.get("version"), int) and session["version"] >= 4):
+        _fill_message_completion_times(messages)
 
     directory = session.get("cwd", "") or ""
     start_ms = _dsh_int(session.get("createdAt"))
@@ -922,6 +975,13 @@ def _convert_dsh_to_internal(
         "token_usage": {"total_tokens": total_tokens},
         "stats": {},
         "_dsh_format": True,
+        "_dsh_native_v4": isinstance(session.get("version"), int) and session["version"] >= 4,
+        # Keep v4 surface replacement and provenance events intact alongside
+        # the execution history, including events with no normalized step.
+        **({"_dsh_events": {session_id: events, **{
+            str(_dsh_session_header(child).get("id", "")): child for _, child in child_logs
+        }}} if isinstance(session.get("version"), int) and session["version"] >= 4 else {}),
+        "_dsh_child_hashes": child_hashes,
         # Files merged into the trajectory above, besides the one the loader
         # read. The loader pops this and folds it into the content identity
         # (`_source_sha256`); nothing downstream of that sees the key.
@@ -1041,8 +1101,10 @@ def resolve_dsh_session_path(file_path: str) -> tuple[str, str | None]:
     :func:`_convert_dsh_to_internal` reports ``_dsh_merged_sources``.
     """
     if os.path.isdir(file_path):
-        nested = os.path.join(file_path, "session.jsonl")
-        if os.path.isfile(nested):
+        from .dsh_native import resolve_native_dsh_path
+
+        nested = resolve_native_dsh_path(file_path)
+        if nested is not None:
             return nested, None
         return file_path, f"Directory has no session.jsonl: {file_path}"
     return file_path, None

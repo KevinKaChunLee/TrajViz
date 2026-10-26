@@ -94,7 +94,9 @@ def _normalize_parts(parts: list, *, session_id: str, message_id: str) -> list[d
         call_id = part.get("callID") or part.get("tool_id") or part.get("id") or ""
         status = state.get("status") or part.get("status") or "unknown"
         output = state.get("output", part.get("output", ""))
-        metadata = state.get("metadata") if isinstance(state.get("metadata"), dict) else {}
+        metadata = dict(state["metadata"]) if isinstance(state.get("metadata"), dict) else {}
+        if str(status).lower() in {"unknown", "pending", "running", ""}:
+            metadata["_outcome_observed"] = False
         new_state = dict(state)
         new_state["status"] = status
         new_state["input"] = tool_input
@@ -288,4 +290,21 @@ def _convert_cursor_to_internal(raw: dict) -> dict:
         "has_session_hierarchy": bool(sub_agent_count),
         "has_context_snapshot": bool(snapshot_total),
     }
+    calls = [part for message in converted_messages for part in message["parts"] if part.get("type") == "tool"]
+    unknown_calls = sum(str(part["state"].get("status", "unknown")).lower() in {"unknown", "pending", "running", ""}
+                        for part in calls)
+    outputs = sum(bool(part["state"].get("output")) for part in calls)
+    raw["_capabilities"].update(has_tool_outputs=bool(outputs), has_complete_tool_outcomes=not unknown_calls)
+    warnings = [str(warning) for warning in export.get("warnings", [])] if isinstance(export.get("warnings"), list) else []
+    existing_warnings = raw.get("_load_warnings")
+    if isinstance(existing_warnings, list):
+        warnings.extend(str(warning) for warning in existing_warnings)
+    warnings.append("Cursor token counts are estimates of captured content, not billed API token usage.")
+    if unknown_calls:
+        warnings.append(f"{unknown_calls} Cursor tool calls have no recorded outcome; success rates are incomplete.")
+    if calls and not outputs:
+        warnings.append("Tool output content is unavailable in this Cursor capture.")
+    if not has_step_timing:
+        warnings.append("Per-message timing is unavailable in this Cursor capture.")
+    raw["_load_warnings"] = list(dict.fromkeys(warnings))
     return raw

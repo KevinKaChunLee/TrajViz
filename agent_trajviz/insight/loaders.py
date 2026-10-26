@@ -71,8 +71,20 @@ FORMAT_DROPDOWN_CHOICES: list[tuple[str, str]] = [
 
 
 def _convert_codex_events(payload: list, *, source_path: str | None = None) -> dict:
-    del source_path
-    return _convert_codex_to_internal(payload)
+    from .formats.codex_files import CodexSessionFiles, discover_codex_children
+
+    bundle = discover_codex_children(payload, source_path) if source_path else CodexSessionFiles(payload)
+    result = _convert_codex_to_internal(
+        payload, source_path=source_path or "", child_event_lists=bundle.children, child_warnings=bundle.warnings,
+    )
+    result["_codex_child_hashes"] = bundle.child_hashes
+    return result
+
+
+def _convert_cursor_events(payload: list, *, source_path: str | None = None) -> dict:
+    from .formats.cursor_stream import convert_cursor_stream
+
+    return convert_cursor_stream(payload, source_path=source_path)
 
 
 def _convert_dsh_events(payload: list, *, source_path: str | None = None) -> dict:
@@ -95,6 +107,7 @@ def _convert_claude_events(payload: list, *, source_path: str | None = None) -> 
 
 _EVENT_CONVERTERS = {
     "claude_code": _convert_claude_events,
+    "cursor": _convert_cursor_events,
     "codex": _convert_codex_events,
     "dsh": _convert_dsh_events,
     "pi": _convert_pi_events,
@@ -163,7 +176,7 @@ def check_format_selection(detected: str, selected: str | None) -> str | None:
 _UNSUPPORTED_EVENT_STREAM = (
     "Unsupported event-array input; expected native Claude Code JSONL "
     "(user/assistant messages with sessionId), Codex JSONL "
-    "(leading session_meta event), Pi JSONL "
+    "(leading session_meta event), Cursor CLI stream-json, Pi JSONL "
     "(leading session event), or DeepSeek Harness JSONL "
     "(leading session event with createdAt / slash-typed body events)."
 )
@@ -215,7 +228,7 @@ def _apply_format(payload: Any, fmt: str, *, source_path: str | None = None) -> 
         _stamp_otlp_identity(result)
         return result
 
-    if fmt in _EVENT_FORMATS:
+    if fmt in _EVENT_FORMATS and (fmt != "cursor" or isinstance(payload, list)):
         if not isinstance(payload, list):
             return _kind_mismatch_error(fmt)
         convert = _EVENT_CONVERTERS.get(fmt)
@@ -389,12 +402,16 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
     if ext == ".zip" or (data.startswith(b"PK") and ext not in {".json", ".jsonl"}):
         return _load_zip_trajectory(file_path, format_hint, source_sha, data)
 
-    try:
-        text = data.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        return {"_error": str(exc)}
+    from .formats.dsh_native import looks_like_native_dsh_source, native_events
 
-    payload, parse_error = _parse_trajectory_text(text, file_path)
+    if looks_like_native_dsh_source(file_path, data):
+        payload, parse_error = native_events(data, file_path), None
+    else:
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            return {"_error": str(exc)}
+        payload, parse_error = _parse_trajectory_text(text, file_path)
     if parse_error:
         return {"_error": parse_error}
 
@@ -407,7 +424,9 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
 
     result = _apply_format(payload, fmt, source_path=file_path)
     merged_sources = result.pop("_dsh_merged_sources", None)
+    dsh_child_hashes = result.pop("_dsh_child_hashes", None)
     claude_children = result.pop("_claude_code_child_hashes", None)
+    codex_children = result.pop("_codex_child_hashes", None)
     if "_error" in result:
         return result
     result["_source_path"] = file_path
@@ -419,6 +438,10 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
         result["_source_file_sha256"] = source_sha
         result["_source_merged_count"] = len(claude_children)
         source_sha = claude_tree_sha256(source_sha, claude_children)
+    if codex_children:
+        result["_source_file_sha256"] = source_sha
+        result["_source_merged_count"] = len(codex_children)
+        source_sha = _codex_tree_sha256(source_sha, codex_children)
     if merged_sources:
         # A DSH export is a TREE: the converter merged sibling
         # `subagents/<id>/session.jsonl` logs that are not in `source_sha`, so
@@ -428,7 +451,7 @@ def _load_trajectory_unguarded(file_path: str, format_hint: str | None = None) -
         # display/debug and make the identity cover the whole tree.
         result["_source_file_sha256"] = source_sha
         result["_source_merged_count"] = len(merged_sources)
-        source_sha = _dsh_tree_sha256(source_sha, merged_sources)
+        source_sha = _dsh_tree_sha256(source_sha, merged_sources, dsh_child_hashes)
     # The displayed content's immutable identity — the sha256 of the EXACT
     # bytes parsed above (one read, one buffer): attribution requires the
     # canonical real export to still have these bytes at diagnosis time
@@ -479,7 +502,9 @@ def _stamp_otlp_identity(raw: dict) -> None:
     metadata.update(capture_sha256=capture_sha, run_sha256=identity)
 
 
-def _dsh_tree_sha256(parent_sha: str, merged_sources: list[tuple[str, str]]) -> str:
+def _dsh_tree_sha256(
+    parent_sha: str, merged_sources: list[tuple[str, str]], child_hashes: dict[str, str] | None = None,
+) -> str:
     """Content identity of a DSH export tree: parent log + merged child logs.
 
     Domain-separated so it can never collide with a plain file sha256, and keyed
@@ -499,6 +524,10 @@ def _dsh_tree_sha256(parent_sha: str, merged_sources: list[tuple[str, str]]) -> 
     h = hashlib.sha256(b"trajviz-dsh-tree-v1\n")
     h.update(b"parent\x00" + parent_sha.encode() + b"\n")
     for key, path in sorted(merged_sources):
+        if child_hashes and key in child_hashes:
+            child_sha = child_hashes[key]
+            h.update(key.encode() + b"\x00" + child_sha.encode() + b"\n")
+            continue
         try:
             with open(path, "rb") as f:
                 child_sha = _sha256_bytes(f.read())
@@ -508,3 +537,14 @@ def _dsh_tree_sha256(parent_sha: str, merged_sources: list[tuple[str, str]]) -> 
             child_sha = "unreadable"
         h.update(key.encode() + b"\x00" + child_sha.encode() + b"\n")
     return h.hexdigest()
+
+
+def _codex_tree_sha256(parent_sha: str, child_hashes: dict[str, str]) -> str:
+    """Identify the exact verified parent and child bytes merged into a run."""
+    import hashlib
+
+    digest = hashlib.sha256(b"trajviz-codex-tree-v1\n")
+    digest.update(b"parent\x00" + parent_sha.encode() + b"\n")
+    for key, child_sha in sorted(child_hashes.items()):
+        digest.update(key.encode() + b"\x00" + child_sha.encode() + b"\n")
+    return digest.hexdigest()

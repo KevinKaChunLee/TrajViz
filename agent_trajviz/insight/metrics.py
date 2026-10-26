@@ -802,6 +802,9 @@ def _compute_tool_stats(steps, total_tokens_total, message_rows, wait_denom: flo
     # which is not the same claim as "the tools took zero seconds". Report
     # None so every surface renders n/a instead of a fabricated zero.
     timed = bool(tool_durations) or tool_time_total > 0
+    # Native mirrors can omit outcomes entirely. OTel rates explicitly use
+    # the observed population; native session-wide rates require coverage.
+    complete_outcomes = not unknown_outcomes or any("_otel" in s for s in steps)
     return {
         "tool_call_count": tool_count,
         "tool_breakdown": tool_breakdown,
@@ -811,7 +814,7 @@ def _compute_tool_stats(steps, total_tokens_total, message_rows, wait_denom: flo
         # No tool calls means no rate: None ("n/a"), not a 0% success.
         "tool_success_rate": (
             round(tool_success / (tool_success + tool_fail) * 100, 1)
-            if tool_success + tool_fail else None
+            if tool_success + tool_fail and complete_outcomes else None
         ),
         **({"tool_unknown_outcomes": unknown_outcomes, "tool_observed_outcomes": tool_success + tool_fail}
            if unknown_outcomes or any("_otel" in s for s in steps) else {}),
@@ -831,7 +834,8 @@ def _compute_tool_stats(steps, total_tokens_total, message_rows, wait_denom: flo
         "tool_calls_per_min": round(tool_count / (denom / 60), 2) if denom > 0 else None,
         "tool_time_fraction": round(tool_time_total / denom, 4) if timed and denom > 0 else None,
         "tool_system_failure_rate": (
-            round(tool_fail / (tool_success + tool_fail), 4) if tool_success + tool_fail else None
+            round(tool_fail / (tool_success + tool_fail), 4)
+            if tool_success + tool_fail and complete_outcomes else None
         ),
     }
 
@@ -1113,11 +1117,16 @@ def compute_diagnostic_metrics(
     from agent_trajviz.tool_vocab import WRITE_TOOL_NAMES as edit_tools
     edit_total = 0
     edit_success = 0
+    edit_unknown = 0
+    from .telemetry_quality import tool_field_observed
+
     for s in steps:
         for tc in s.get("tool_calls", []):
             if tc.get("tool_name") in edit_tools:
                 edit_total += 1
-                if not tool_call_failed(tc):
+                if not tool_field_observed(tc, "tool_outcomes"):
+                    edit_unknown += 1
+                elif not tool_call_failed(tc):
                     edit_success += 1
 
     return {
@@ -1127,7 +1136,7 @@ def compute_diagnostic_metrics(
         "classified_error_count": error_count,
         "edit_total": edit_total,
         "edit_success": edit_success,
-        "edit_precision": round(edit_success / edit_total * 100, 1) if edit_total else None,
+        "edit_precision": round(edit_success / edit_total * 100, 1) if edit_total and not edit_unknown else None,
     }
 
 
@@ -1190,6 +1199,9 @@ def compute_health_verdict(metrics: dict, step_analytics: list[dict]) -> list[di
     tool_count = metrics.get("tool_call_count", 0)
     if tool_count == 0:
         verdicts.append({"metric": "Tool Success", "status": "good", "label": "N/A", "detail": "No tool calls"})
+    elif tool_rate is None:
+        verdicts.append({"metric": "Tool Success", "status": "unavailable", "label": "N/A",
+                         "detail": "Tool outcomes were not recorded for every call"})
     elif tool_rate >= 95:
         verdicts.append({"metric": "Tool Success", "status": "good", "label": f"{tool_rate}%", "detail": f"{tool_rate}% success across {tool_count} calls"})
     elif tool_rate >= 80:
@@ -1235,13 +1247,19 @@ def compute_health_verdict(metrics: dict, step_analytics: list[dict]) -> list[di
     # Failed tool calls — tool_fail counts failing tool CALLS (already reflected
     # in Tool Success); label accordingly rather than as "error steps".
     failed_calls = metrics.get("tool_fail", 0)
-    if failed_calls == 0:
+    if metrics.get("tool_unknown_outcomes", 0):
+        status, detail = "unavailable", (
+            f"{failed_calls} observed failed call(s); "
+            f"{metrics['tool_unknown_outcomes']} tool outcomes were not recorded"
+        )
+    elif failed_calls == 0:
         status, detail = "good", "No failed tool calls"
     elif failed_calls <= 2:
         status, detail = "warn", f"{failed_calls} failed tool call(s)"
     else:
         status, detail = "bad", f"{failed_calls} failed tool calls — agent may be struggling"
-    verdicts.append({"metric": "Errors", "status": status, "label": str(failed_calls), "detail": detail})
+    verdicts.append({"metric": "Errors", "status": status,
+                     "label": "N/A" if status == "unavailable" else str(failed_calls), "detail": detail})
 
     return verdicts
 

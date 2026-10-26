@@ -27,8 +27,10 @@ from agent_trajviz.insight.context_usage import (
     DEFAULT_CONTEXT_WINDOW_LIMIT,
     context_pressure_series,
     context_pressure_stats,
+    context_usage_breakdown,
     detect_premature_compactions,
     resolve_context_window,
+    format_context_usage_html,
 )
 from agent_trajviz.insight.formatting import format_context_pressure_html
 
@@ -78,6 +80,30 @@ class ResolveWindowTests(unittest.TestCase):
 
 
 class PresentationTests(unittest.TestCase):
+    def test_composition_header_and_json_agree_when_assumed_window_is_exceeded(self):
+        import agent_trajviz as tv
+
+        steps = [_step(0, 162_343, model="unlisted-model")]
+        breakdown = context_usage_breakdown(steps)
+        self.assertIsNone(breakdown["window_limit"])
+        self.assertIsNone(breakdown["loaded_pct"])
+        rendered = format_context_usage_html(breakdown)
+        self.assertIn("window limit unknown", rendered)
+        self.assertNotIn("% full", rendered)
+        data = tv.Trajectory.from_steps(steps).view("context_usage").to_dict()["data"]
+        self.assertIsNone(data["window_limit"])
+        self.assertIsNone(data["loaded_pct"])
+
+    def test_composition_preserves_overflow_against_an_explicit_window(self):
+        steps = [_step(0, 162_343, model="unlisted-model")]
+        raw = {"metadata": {"context_window_limit": 128_000}}
+        breakdown = context_usage_breakdown(steps, raw=raw)
+        self.assertEqual(breakdown["window_limit"], 128_000)
+        self.assertEqual(breakdown["loaded_pct"], 126.8)
+        self.assertIn("126.8% full", format_context_usage_html(breakdown))
+        override = context_usage_breakdown(steps, window_limit=128_000)
+        self.assertEqual(override["loaded_pct"], 126.8)
+
     def test_unknown_window_shows_no_percentage_and_says_why(self):
         series = context_pressure_series([_step(0, 175_000)])
         stats = context_pressure_stats(series)

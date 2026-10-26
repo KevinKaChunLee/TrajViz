@@ -73,6 +73,43 @@ def test_load_discovers_children_and_preserves_calls_and_usage(tmp_path):
     assert isinstance(session, LoadedSession) and session.format == "claude_code"
 
 
+def test_current_bookkeeping_records_are_not_replayed_as_conversation_or_usage():
+    # Sanitized shapes from Claude Code 2.1.310: request blobs contain earlier
+    # messages and cost-state contains aggregate counters, neither is a turn.
+    path = Path(__file__).parent / "fixtures/claude_current/session-current.jsonl"
+    run = tv.load(path)
+    assert len(run.steps) == 6 and len(run.agents) == 2
+    assert run.metrics["tool_call_count"] == 2
+    assert run.metrics["tokens"]["total"] == 323
+    assert [sum(step["tokens"][key] for step in run.steps) for key in
+            ("input", "output", "cache_read", "cache_write")] == [10, 34, 260, 19]
+    child_call = next(call for step in run.steps for call in step["tool_calls"]
+                      if call["tool_id"] == "reviewer-read")
+    assert child_call["duration_ms"] == 17
+    assert child_call["metadata"]["timing_source"] == "tool_result"
+    child = next(agent for agent in run.agents if agent["agent_id"] == "reviewer-current")
+    assert child["spawned_by_step"] is not None
+    assert run.raw["timing"]["total_duration"] == 8.0
+    assert run.raw["_claude_code_control_events"][0]["kind"] == "request_interrupted"
+    assert any("request interruption" in warning for warning in run.warnings)
+    restored = tv.Trajectory.from_dict(run.to_dict(include_raw=True))
+    assert {key: view.to_dict() for key, view in run.views().items()} == {
+        key: view.to_dict() for key, view in restored.views().items()}
+
+
+def test_interruption_marker_inside_a_tool_result_keeps_its_outcome(tmp_path):
+    parent = write_log(tmp_path / "session-1.jsonl", [
+        record("assistant", [{"type": "tool_use", "id": "call", "name": "Bash",
+                              "input": {"command": "sleep 60"}}], 1),
+        record("user", [{"type": "tool_result", "tool_use_id": "call", "is_error": True,
+                         "content": "[Request interrupted by user]"}], 2),
+    ])
+    run = tv.load(parent)
+    call = run.steps[0]["tool_calls"][0]
+    assert call["status"] == "error" and call["output"] == "[Request interrupted by user]"
+    assert run.raw["timing"]["total_duration"] == 1.0
+
+
 def test_nested_subagents_remain_distinct(tmp_path):
     parent, _ = make_tree(tmp_path)
     write_log(tmp_path / "session-1/subagents/agent-a/subagents/agent-b.jsonl", [

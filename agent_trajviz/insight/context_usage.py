@@ -1278,7 +1278,7 @@ def context_usage_breakdown(
     occupancy point unless *snapshot_step* selects a live occupancy turn
     (typically the point right before a compaction). Percentages of *window*
     use the resolved window limit (user override, inferred model/metadata, or
-    128k).
+    128k). An assumed window contradicted by observed occupancy stays unknown.
     """
     empty_buckets = {key: 0 for key, _label, _color in USAGE_CATEGORIES}
     empty = {
@@ -1304,7 +1304,7 @@ def context_usage_breakdown(
         hit = _occupancy_at(steps, snapshot_step, target)
         if hit is not None:
             agent_id, anchor_step, occupancy = hit
-    window_limit = resolve_context_window_limit(steps, raw, override=window_limit)
+    window_limit, _window_source, _window_note = resolve_context_window(steps, raw, override=window_limit)
     buckets = dict(empty_buckets)
     raw_dict = raw if isinstance(raw, dict) else None
     buckets["tools"] = _raw_blob_tokens(raw_dict, _TOOL_DEF_KEYS)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 _OBJECT_FORMATS = frozenset({"codearts", "cursor", "icode", "opencode", "otlp"})
-_EVENT_FORMATS = frozenset({"claude_code", "codex", "pi", "dsh"})
+_EVENT_FORMATS = frozenset({"claude_code", "cursor", "codex", "pi", "dsh"})
 _FORMAT_STAMPS = {
     "otlp": "_otlp_format",
     "claude_code": "_claude_code_format",
@@ -104,6 +104,10 @@ def _detect_event_stream_format(events: list) -> str:
         return "claude_code"
     if _looks_like_codex_jsonl(events):
         return "codex"
+    from .cursor_stream import looks_like_cursor_stream
+
+    if looks_like_cursor_stream(events):
+        return "cursor"
     # DSH before Pi: both lead with ``type: session`` + string ``id``.
     if _looks_like_dsh_jsonl(events):
         return "dsh"

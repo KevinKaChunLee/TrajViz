@@ -413,7 +413,7 @@ def _extract_tool_former(bubble: dict[str, Any]) -> dict[str, Any] | None:
     raw_args = _maybe_json(former.get("rawArgs"))
     params = _maybe_json(former.get("params"))
     result = _maybe_json(former.get("result"))
-    status = _as_str(former.get("status")) or "completed"
+    status = _as_str(former.get("status")) or "unknown"
     error = former.get("error")
     additional = _as_dict(former.get("additionalData"))
     start_ms = _as_int(additional.get("startedAtMs")) or _as_int(bubble.get("startedAtMs"))
@@ -897,9 +897,16 @@ def events_to_messages(
                     if matched.get("error") or raw_status in {"error", "failed", "failure"}:
                         status = "error"
                         error = matched.get("error")
-                    else:
+                    elif raw_status in {"completed", "success"}:
                         status = "completed"
+                    elif raw_status in {"unknown", "pending", "running", "cancelled", "canceled", "timeout", "timed_out"}:
+                        status = raw_status
+                    elif raw_status == "rejected":
+                        status = "failed"
+                        metadata["cursor_raw_status"] = raw_status
                     output = _stringify_output(matched.get("result"))
+                if status in {"unknown", "pending", "running"}:
+                    metadata["_outcome_observed"] = False
                 if name == "Task" and child_queue:
                     child_id = child_queue.pop(0)
                     metadata["sessionId"] = child_id
@@ -1035,6 +1042,7 @@ def consolidate_chat(
     database_path: Path | None = None,
     transcript_dir: Path | None = None,
     jsonl_path: Path | None = None,
+    use_database: bool = True,
 ) -> dict[str, Any]:
     """Export one Cursor chat and reachable subagent transcripts."""
     projects_dir = (projects_dir or default_projects_dir()).expanduser()
@@ -1051,7 +1059,7 @@ def consolidate_chat(
 
     snapshot_dir: tempfile.TemporaryDirectory[str] | None = None
     connection: sqlite3.Connection | None = None
-    db_source = database_path if database_path is not None else resolve_state_vscdb()
+    db_source = (database_path if database_path is not None else resolve_state_vscdb()) if use_database else None
     db_used: Path | None = None
     try:
         if db_source is not None:
@@ -1059,6 +1067,8 @@ def consolidate_chat(
             snapped = snapshot_state_vscdb(db_source, Path(snapshot_dir.name))
             connection = open_state_vscdb_read_only(snapped)
             db_used = db_source
+        elif not use_database:
+            warnings.append("Composer database lookup disabled; export contains native JSONL transcripts only.")
         elif database_path is None:
             warnings.append(
                 "state.vscdb not found; export is JSONL-only (no context snapshot, "
@@ -1122,9 +1132,10 @@ def _consolidate_with_connection(
     if jsonl_path is None:
         jsonl_path = _child_jsonl_path(parent_folder, chat_id, projects_dir)
         if jsonl_path is not None:
-            folder = jsonl_path.parent if jsonl_path.parent.name == "subagents" else jsonl_path.parent
-            if jsonl_path.parent.name == "subagents":
-                folder = jsonl_path.parent.parent
+            # A child stored as parent/subagents/<id>.jsonl does not own
+            # its siblings. Only its own optional <id>/subagents/ tree or
+            # explicit Composer child IDs establish another generation.
+            folder = jsonl_path.with_suffix("") if jsonl_path.parent.name == "subagents" else jsonl_path.parent
 
     events: list[dict[str, Any]] = []
     if jsonl_path is not None and jsonl_path.is_file():
@@ -1347,7 +1358,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output JSON path. Defaults to export-<chat-id>.json. Use '-' for stdout.",
     )
     parser.add_argument("-o", "--output-file", dest="output_file", help="Output JSON path (overrides positional).")
-    parser.add_argument("--db", dest="database", help="Path to Cursor state.vscdb.")
+    database = parser.add_mutually_exclusive_group()
+    database.add_argument("--db", dest="database", help="Path to Cursor state.vscdb.")
+    database.add_argument("--no-db", action="store_true",
+                          help="Read native JSONL transcripts only; do not find or read an IDE Composer database.")
     parser.add_argument(
         "--projects-dir",
         dest="projects_dir",
@@ -1382,6 +1396,7 @@ def main(argv: list[str] | None = None) -> int:
             database_path=database,
             transcript_dir=folder,
             jsonl_path=jsonl_path,
+            use_database=not args.no_db,
         )
         write_output(data, output)
         if str(output) != "-":

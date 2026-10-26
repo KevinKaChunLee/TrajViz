@@ -278,9 +278,9 @@ def build_ui(*, data_root: str | os.PathLike | None = None) -> gr.Blocks:
 
         with gr.Row():
             with gr.Column(scale=1):
-                ref_file = gr.File(label="Reference Trajectory", file_types=[".json", ".jsonl", ".zip"])
+                ref_file = gr.File(label="Reference Trajectory", file_types=[".json", ".jsonl", ".zstd", ".zip"])
             with gr.Column(scale=1):
-                cmp_file = gr.File(label="Compared Trajectory", file_types=[".json", ".jsonl", ".zip"])
+                cmp_file = gr.File(label="Compared Trajectory", file_types=[".json", ".jsonl", ".zstd", ".zip"])
 
         with gr.Row():
             anchor_patch = gr.File(label="Anchor Patch (optional)", file_types=[".patch", ".diff", ".txt"])

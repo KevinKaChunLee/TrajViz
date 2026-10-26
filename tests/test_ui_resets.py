@@ -31,7 +31,7 @@ import gradio as gr
 from agent_trajviz.insight import insight as insight_mod
 from agent_trajviz.insight.ui import comparison_tab, overview_tab, shared, upload
 
-_TRAJECTORY_FILE_LABEL = "Trajectory (.json / .jsonl / .zip)"
+_TRAJECTORY_FILE_LABEL = "Trajectory (.json / .jsonl / .zstd / .zip)"
 _LOAD_BUTTON_LABEL = "Load Trajectory"
 
 _APP = None

@@ -7,6 +7,7 @@ import sys
 from collections.abc import Sequence
 
 TOOLS = {
+    "codex": ("agent_trajviz.collect.codex", "Codex native session and verified children (read-only index)"),
     "cursor": ("agent_trajviz.collect.cursor", "Cursor agent chat (transcripts + Composer DB)"),
     "opencode": ("agent_trajviz.collect.opencode", "OpenCode session and its children (opencode.db)"),
     "codearts": ("agent_trajviz.collect.codearts", "CodeArts session (opencode.db or a session folder)"),

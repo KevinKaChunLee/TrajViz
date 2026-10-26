@@ -59,12 +59,12 @@ def layout() -> UploadRefs:
         )
         with gr.Column(scale=2, min_width=200):
             file_upload = gr.File(
-                label="Trajectory (.json / .jsonl / .zip)",
-                file_types=[".json", ".jsonl", ".zip"],
+                label="Trajectory (.json / .jsonl / .zstd / .zip)",
+                file_types=[".json", ".jsonl", ".zstd", ".zip"],
                 height=110,
             )
             gr.Markdown(
-                "Claude Code subagents: ZIP the parent log with its session folder. "
+                "Subagents: upload a Claude Code ZIP or a consolidated session export. "
                 "OTLP captures: upload traces or a manifest bundle with companion logs.",
             )
             session_selector = gr.Dropdown(label="Captured session", choices=[], value=None,

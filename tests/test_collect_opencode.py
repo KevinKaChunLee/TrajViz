@@ -130,6 +130,17 @@ class OpenCodeConsolidatorTests(unittest.TestCase):
         ]
         self.assertEqual(actual_tokens, expected_tokens)
 
+    def test_converted_usage_keeps_reported_totals_including_cache(self) -> None:
+        import agent_trajviz as tv
+
+        database, tokens = self._make_database()
+        output = self.root / "trajectory.json"
+        self.assertEqual(self._run_main(database, output), 0)
+        run = tv.load(output)
+        expected = sum(item["total"] for item in tokens)
+        self.assertEqual(run.metrics["tokens"]["total"], expected)
+        self.assertEqual(run.raw["token_usage"]["total_tokens"], expected)
+
     def test_refuses_to_overwrite_source_database(self) -> None:
         database, _ = self._make_database()
         original_header = database.read_bytes()[:16]
@@ -141,6 +152,82 @@ class OpenCodeConsolidatorTests(unittest.TestCase):
             self.assertEqual(check.execute("SELECT count(*) FROM message").fetchone()[0], 2)
         finally:
             check.close()
+
+    def test_preserves_native_part_runtime_timing_and_fills_row_fields(self) -> None:
+        database, _ = self._make_database()
+        payload = {"type": "reasoning", "text": "Review the local implementation.",
+                   "time": {"start": 1111, "end": 1222, "created": 1100}}
+        with sqlite3.connect(database) as connection:
+            message_id = connection.execute("SELECT id FROM message ORDER BY id LIMIT 1").fetchone()[0]
+            connection.execute("INSERT INTO part VALUES (?,?,?,?,?,?)",
+                               ("part-timing", message_id, "ses_root", 1000, 1300, json.dumps(payload)))
+        output = self.root / "trajectory.json"
+        self.assertEqual(self._run_main(database, output), 0)
+        result = json.loads(output.read_text())
+        part = next(part for message in result["messages"] for part in message["parts"]
+                    if part["id"] == "part-timing")
+        self.assertEqual(part["time"], {"start": 1111, "end": 1222, "created": 1100, "updated": 1300})
+        with sqlite3.connect(database) as connection:
+            stored = json.loads(connection.execute("SELECT data FROM part WHERE id='part-timing'").fetchone()[0])
+        self.assertEqual(stored, payload)
+
+
+class OpenCodeCaptureCompletionTests(unittest.TestCase):
+    @staticmethod
+    def _assistant(session_id: str, *, finish=None, part_types=("step-start", "reasoning")) -> dict:
+        return {
+            "info": {"role": "assistant", "sessionID": session_id, "finish": finish,
+                     "time": {"created": 1000, "completed": 1000}},
+            "parts": [{"type": part_type} for part_type in part_types],
+        }
+
+    def _load(self, messages: list[dict]):
+        import agent_trajviz as tv
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "capture.json"
+            path.write_text(json.dumps({"info": {"id": "ses_root"}, "messages": messages}))
+            return tv.load(path)
+
+    def test_finished_child_does_not_hide_unfinished_parent(self) -> None:
+        run = self._load([
+            self._assistant("ses_root"),
+            self._assistant("ses_child", finish="stop", part_types=("step-start", "text", "step-finish")),
+        ])
+        self.assertEqual(len(run.warnings), 1)
+        self.assertIn("OpenCode session ses_root", run.warnings[0])
+        self.assertIn("it may be incomplete", run.warnings[0])
+
+    def test_only_last_assistant_in_each_session_is_checked(self) -> None:
+        run = self._load([
+            self._assistant("ses_root"),
+            self._assistant("ses_root", finish="stop"),
+        ])
+        self.assertEqual(run.warnings, ())
+
+    def test_native_finish_evidence_or_absent_start_does_not_warn(self) -> None:
+        for finish, part_types in [
+            ("stop", ("step-start", "reasoning")),
+            (None, ("step-start", "step-finish")),
+            (None, ("step_start", "step_finish")),
+            (None, ("text",)),
+        ]:
+            with self.subTest(finish=finish, part_types=part_types):
+                self.assertEqual(self._load([
+                    self._assistant("ses_root", finish=finish, part_types=part_types),
+                ]).warnings, ())
+
+    def test_missing_session_id_falls_back_to_root_and_warning_is_deduplicated(self) -> None:
+        from agent_trajviz.insight.formats.opencode import _convert_opencode_metadata
+
+        message = self._assistant("", part_types=("step_start", "reasoning"))
+        del message["info"]["sessionID"]
+        raw = {"info": {"id": "ses_root"}, "messages": [message], "_load_warnings": ["existing warning"]}
+        _convert_opencode_metadata(raw)
+        _convert_opencode_metadata(raw)
+        self.assertEqual(len(raw["_load_warnings"]), 2)
+        self.assertEqual(raw["_load_warnings"][0], "existing warning")
+        self.assertIn("OpenCode session ses_root", raw["_load_warnings"][1])
 
 
 class OpenCodeDatabasePathTests(unittest.TestCase):

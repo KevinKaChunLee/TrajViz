@@ -301,8 +301,11 @@ python -m agent_trajviz.insight --port 8080
 
 ## Supported trajectory formats
 
+See the [current-agent real-task audit](https://github.com/rshu/TrajViz/blob/main/examples/agent_audit/README.md) for tested
+versions, captured activity, checks and known coverage limits.
+
 TrajViz normalizes the following formats. **Auto-detect** is the default —
-upload a `.json` / `.jsonl` / `.zip` file and load it. Pick a specific format only to
+upload a `.json` / `.jsonl` / `.zstd` / `.zip` file and load it. Pick a specific format only to
 override detection. An explicit pick is a requirement, not a hint: a file that is
 detected as a *different* format is rejected with a "Format mismatch" message
 (so leave the dropdown on Auto-detect unless detection fails):
@@ -310,13 +313,13 @@ detected as a *different* format is rejected with a "Format mismatch" message
 | Format | Detection | Notes |
 |---|---|---|
 | Claude Code | Native `.jsonl` session records with `type`, `message`, and Claude session metadata | Tokens, cache, tool calls/results, thinking, and subagent logs. Local loading discovers associated children; upload a ZIP to preserve them on a hosted dashboard. Format key: `claude_code`. |
-| Cursor | `export_metadata.source_format: cursor_composer` | Consolidated from local `agent-transcripts` JSONL + Composer `state.vscdb`. Tool inputs always; tool outputs, step clocks (`startedAtMs`/`completedAtMs`), and context-window occupancy when the DB row is present. Per-step token bars are ≈4-chars/token estimates of logged text and tools — Cursor does not persist billed per-request tokens. |
+| Cursor | IDE `cursor_composer` exports or native CLI `stream-json` with Cursor tool records | Consolidated from local `agent-transcripts` JSONL + Composer `state.vscdb`. Tool inputs always; tool outputs, step clocks (`startedAtMs`/`completedAtMs`), and context-window occupancy when the DB row is present. Per-step token bars are ≈4-chars/token estimates of logged text and tools — Cursor does not persist billed per-request tokens. |
 | OpenCode | `info` + `messages` shape | Includes sub-agent sessions |
 | CodeArts | `export_metadata.source_format: codearts_opencode_sqlite` with schema version 2 | Preserved token breakdown and consolidated parent/sub-agent sessions |
 | ICode | `_chrys_export.format: chrys-expanded-session-v1` (or `meta` + `state.messages`) | Normalized from a Chrys expanded-session JSON; `glob` / `grep` / `sh` / `explore_agent` mapped into the shared step model. Nested `_chrys_sub_agent_sessions` are flattened. |
-| Codex CLI | `.jsonl` rollout starting with a `session_meta` event | Normalized into the shared step model (Auto-detect recognizes `.jsonl` uploads); tool intent (Read / Grep / Glob / Write / Bash) inferred from classic `exec_command` calls and modern `exec` / `apply_patch` records |
-| Pi | `.jsonl` session starting with a `session` event | Normalized from `~/.pi/agent/sessions/` exports; `bash` / `read` / `write` / `edit` / `grep` mapped into the shared step model |
-| DeepSeek Harness | `.jsonl` session starting with a `session` header that has `createdAt` (epoch ms) and slash-typed body events (`user/message`, `tool/call`, …) | Normalized from a DSH export folder or zip (`session.jsonl` + `subagents/<id>/session.jsonl`); `bash` / `read` / `write` / `glob` / `todo_write` / `subagent_fork` mapped into the shared step model. Child logs drop the inherited parent prefix (`seedLength`). |
+| Codex CLI | Native `.jsonl` rollout starting with `session_meta`, or the collector’s consolidated JSON | Parent and verified child rollouts, model metadata, reported usage and tool results. Inherited child history is excluded. The collector preserves children for dashboard upload. |
+| Pi | Native `.jsonl` starting with a `session` event | Messages, thinking, tools, request timing, usage and active branch history. Reasoning is a breakdown of output tokens, rather than an additional charge. |
+| DeepSeek Harness | Native `session.jsonl` or `session.vN.jsonl[.zstd]` with a DSH session header | Current generation logs and legacy exported session trees. Directories select the highest numbered generation; child history inherited from the parent is excluded. Compressed files need the `zstd` extra on Python 3.11–3.13. |
 
 ---
 
@@ -510,6 +513,18 @@ OTLP captures. No live receiver or outbound telemetry is added to TrajViz.
 
 ### Cursor
 
+For the CLI, save its native stream while running the task:
+
+```bash
+agent -p --output-format stream-json 'Implement the requested feature and run its tests' > cursor.jsonl
+agent-trajviz --report cursor.jsonl -o cursor.html
+```
+
+The stream importer joins tool start/completion events, preserves thinking and
+reported tool clocks, and avoids counting repeated response flushes twice.
+Token counts remain estimates because this stream does not report billed usage.
+The CLI stream and IDE transcript are different protocols; both are supported.
+
 Cursor stores each Agent chat as JSONL under
 `~/.cursor/projects/<workspace>/agent-transcripts/<chat-id>/` plus Composer
 metadata in `state.vscdb`. TrajViz does not read those stores live — export
@@ -624,18 +639,24 @@ Sub-agent runs are nested under `_chrys_sub_agent_sessions` in the same file.
 
 ### Codex CLI
 
-Codex CLI records every session automatically as a JSONL rollout under
-`~/.codex/sessions/` (date-bucketed `rollout-<timestamp>-<session-id>.jsonl`
-files) — no exporter needed.
+Codex saves native rollouts under `~/.codex/sessions/` without an exporter.
+Load the exact session's `rollout-<timestamp>-<session-id>.jsonl` directly.
+The `codex exec --json` stdout protocol is different; use the persisted rollout
+for model usage, context and tool analysis. Avoid `--ephemeral` when collecting.
 
-1. Run a Codex session as normal.
-2. Locate the rollout file for the session — the most recent
-   `rollout-*.jsonl` under `~/.codex/sessions/`.
-3. Upload the `.jsonl` file. Auto-detect (the default) recognizes the
-   leading `session_meta` event and threads the rollout into the shared
-   step model. Per-step tool intent (Read / Grep / Glob / Write / Bash)
-   is inferred from classic `exec_command` calls and modern `exec` /
-   `apply_patch` records.
+For delegated work, collect the selected session and its children as one portable
+JSON file:
+
+```bash
+agent-trajviz-collect codex SESSION_ID -o codex.json
+agent-trajviz --report codex.json -o codex.html
+```
+
+The collector reads the local session index and spawn edges in read-only mode.
+The loader accepts a portable tree at `<parent-stem>/subagents/agent-<child-id>.jsonl`
+beside the parent file, verifies the child's declared parent, and excludes its
+inherited history. Upload the consolidated JSON to preserve children in the
+dashboard. Uploading a parent file alone does not transfer local child files.
 
 ### Pi
 
@@ -652,7 +673,29 @@ Pi records every session automatically as JSONL under
 
 ### DeepSeek Harness
 
-DeepSeek Harness (DSH) records each session as JSONL. The GUI export is a
+Current releases save `session.vN.jsonl.zstd` in each native session directory.
+Load that directory to select the highest numbered generation, or name the
+compressed file directly. Python 3.14+ uses its standard library; on Python
+3.11–3.13 install compression support first:
+
+```bash
+pip install 'agent-trajviz[zstd]'
+```
+
+For a dashboard upload that preserves a current native parent and its sibling
+reviewer logs, load the directory locally and save a full normalized export:
+
+```python
+import json
+from pathlib import Path
+import agent_trajviz as tv
+
+run = tv.load("/path/to/native/session-directory")
+Path("dsh.json").write_text(json.dumps(run.to_dict(include_raw=True)), encoding="utf-8")
+```
+
+Upload `dsh.json`. A lone compressed parent file cannot transfer sibling logs.
+Legacy GUI exports also remain supported: the export is a
 folder (or zip) named `dsh-session-<session-id>/` containing the parent
 `session.jsonl` and, when the run spawned sub-agents, `subagents/<id>/session.jsonl`.
 
@@ -682,6 +725,7 @@ Installed with the package (each takes `--help`):
 |---|---|
 | `agent-trajviz` | The Insight dashboard; `--report TRAJECTORY` writes the standalone HTML report instead. See **Run** above. |
 | `agent-trajviz-converge` | Compare two runs of a task (`REF CMP`), a batch manifest (`--batch`), or two batches before and after an intervention (`--before`/`--after`); JSON or `--output summary`. The comparison dashboard is `python -m agent_trajviz.converge`. |
+| `agent-trajviz-collect codex` | Read-only collection of a selected native Codex session and its verified child sessions into portable JSON. |
 | `agent-trajviz-collect cursor` | Read-only export of a Cursor Agent chat: JSONL transcripts + Composer `state.vscdb`, including subagent sessions. See the **Cursor** collection section above. |
 | `agent-trajviz-collect codearts` | Read-only export from a CodeArts `opencode.db` with recursive child sessions, or lossless archival merge of legacy `messages_<n>.json` shards. See the **CodeArts** collection section above. |
 | `agent-trajviz-collect opencode` | Recursively merge an OpenCode parent session and child sub-agent sessions into a single JSON. See the **OpenCode** collection section above. |

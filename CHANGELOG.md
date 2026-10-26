@@ -9,6 +9,14 @@ change the public API (the names exported from `agent_trajviz`).
 
 ### Added
 
+- Import Cursor Agent CLI stream JSONL, retaining thinking, tool results and
+  execution clocks while deduplicating response flushes and replayed events.
+- Collect Codex native parent/reviewer sessions with an explicit read-only
+  collector, and load portable verified child rollout trees.
+- Read current DeepSeek Harness numbered native generations and compressed v4
+  session trees. Python 3.11–3.13 can install the optional `zstd` extra.
+- Add sanitized current-agent fixtures and a reproducible real-task audit under
+  `examples/agent_audit/`.
 - Import saved OTLP JSON/JSONL traces from Claude Code, with correlated event
   logs, explicit directory/ZIP manifests, subagent hierarchy and provenance.
   Native Claude Code JSONL and its subagent bundle loading remain supported.
@@ -31,6 +39,24 @@ change the public API (the names exported from `agent_trajviz`).
   mapping profile. Raw source hashes and original span/log context are retained.
   Transcript comparison and failure attribution refuse OTLP captures until
   their assumptions can be supported by the available evidence.
+
+### Fixed
+
+- Preserve Unicode separators inside Cursor JSON strings, keep reviewer peers
+  at the correct depth, and surface missing outcomes, outputs and clocks.
+  Unknown tool outcomes no longer establish success, recovery or edit precision.
+- Exclude delayed Claude Code interruption markers from conversation duration
+  while retaining an explicit incomplete-transcript warning.
+- Trim inherited Codex child history and retain current model metadata,
+  usage records, source identities and parent/reviewer relationships.
+- Correct Pi and DeepSeek Harness token totals when reasoning is nested in
+  output; use recorded request intervals separately from tool execution time.
+- Select Pi's active history branch and retain compaction evidence.
+- Keep context composition percentages unavailable when an assumed window
+  contradicts the capture, and preserve measured model intervals in diagnostics.
+- Warn when an OpenCode capture ends before its last response finishes.
+- Preserve OpenCode native part timing during collection and include recorded
+  cache/reasoning consumption in raw aggregate token totals.
 
 ## [0.2.0] - 2026-10-15
 

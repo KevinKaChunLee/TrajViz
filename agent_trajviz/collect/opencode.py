@@ -255,10 +255,15 @@ def export_session_and_collect_children(
                     part["id"] = part_id
                     part["messageID"] = part_message_id
                     part["sessionID"] = part_session_id
-                    part["time"] = {
-                        "created": part_time_created,
-                        "updated": part_time_updated,
-                    }
+                    # Part payload timing is runtime evidence (for example a
+                    # reasoning block's start/end). Row write times only fill
+                    # missing fields; they cannot replace that evidence.
+                    part_time = part.get("time")
+                    if not isinstance(part_time, dict):
+                        part_time = {}
+                        part["time"] = part_time
+                    part_time.setdefault("created", part_time_created)
+                    part_time.setdefault("updated", part_time_updated)
                     parts.append(part)
                 except json.JSONDecodeError as e:
                     print(f"Warning: Could not parse part data for {part_id}: {e}", file=sys.stderr)

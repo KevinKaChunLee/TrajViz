@@ -503,6 +503,16 @@ def decompose_hotspot_duration(
             "timing_incomplete": True, "dominant_tool": None,
         }
 
+    if step.get("timing_source") == "model_request":
+        # This interval already ends before tool execution. A preceding row
+        # can belong to another agent, so neither its gap nor attached tool
+        # clocks are components of this measured model request.
+        return {
+            "tool_s": 0, "inference_s": round(duration, 2), "idle_s": 0,
+            "tool_pct": 0, "inference_pct": 100.0, "idle_pct": 0,
+            "timing_incomplete": False, "dominant_tool": None,
+        }
+
     idle_s = max(0, idle_gap or 0)
 
     # Sum tool call durations

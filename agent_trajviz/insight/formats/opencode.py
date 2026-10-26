@@ -175,6 +175,8 @@ def _convert_opencode_metadata(raw: dict) -> dict:
     tool_breakdown: dict[str, int] = {}
     total_input = 0
     total_output = 0
+    total_tokens = 0
+    last_assistant_by_session: dict[str, dict] = {}
     for msg in (messages if isinstance(messages, list) else []):
         if not isinstance(msg, dict):
             continue
@@ -184,10 +186,20 @@ def _convert_opencode_metadata(raw: dict) -> dict:
             user_count += 1
         elif role == "assistant":
             asst_count += 1
+            session_id = as_text(msg_info.get("sessionID")) or as_text(info.get("id"))
+            last_assistant_by_session[session_id] = msg
         # Count tokens
         tok = msg_info.get("tokens", {}) if isinstance(msg_info.get("tokens"), dict) else {}
         total_input += _opencode_token_value(tok.get("input"))
         total_output += _opencode_token_value(tok.get("output"))
+        reported_total = tok.get("total")
+        if (isinstance(reported_total, (int, float)) and not isinstance(reported_total, bool)
+                and math.isfinite(reported_total)):
+            # Current exports already include cache and reasoning in total.
+            # Rebuilding it from input+output discarded most cached usage.
+            total_tokens += reported_total
+        else:
+            total_tokens += _opencode_token_value(tok.get("input")) + _opencode_token_value(tok.get("output"))
         # Count tool calls from parts
         for part in (msg.get("parts", []) if isinstance(msg.get("parts"), list) else []):
             if isinstance(part, dict) and part.get("type") == "tool":
@@ -195,8 +207,28 @@ def _convert_opencode_metadata(raw: dict) -> dict:
                 tname = as_text(part.get("tool")) or "?"
                 tool_breakdown[tname] = tool_breakdown.get(tname, 0) + 1
 
+    # Consolidated exports interleave multiple sessions.  A finished child must
+    # not conceal a parent whose capture stopped during its final response.
+    for session_id, message in last_assistant_by_session.items():
+        message_info = message["info"]
+        parts = message.get("parts", [])
+        part_types = {
+            part.get("type") for part in parts if isinstance(part, dict)
+            and isinstance(part.get("type"), str)
+        } if isinstance(parts, list) else set()
+        if (not message_info.get("finish")
+                and part_types.intersection({"step-start", "step_start"})
+                and not part_types.intersection({"step-finish", "step_finish"})):
+            warning = (
+                f"OpenCode session {session_id or '(unknown)'}: capture ends before "
+                "the last assistant response finishes; it may be incomplete."
+            )
+            warnings = raw.setdefault("_load_warnings", [])
+            if isinstance(warnings, list) and warning not in warnings:
+                warnings.append(warning)
+
     raw.setdefault("token_usage", {
-        "total_tokens": total_input + total_output,
+        "total_tokens": total_tokens,
         "prompt_tokens": total_input,
         "completion_tokens": total_output,
     })

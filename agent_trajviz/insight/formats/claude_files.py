@@ -37,9 +37,11 @@ def resolve_session_path(file_path: str) -> tuple[str, str | None]:
     directory = Path(file_path)
     if not directory.is_dir():
         return file_path, None
-    dsh = directory / "session.jsonl"
-    if dsh.is_file():
-        return str(dsh), None
+    from .dsh_native import resolve_native_dsh_path
+
+    dsh = resolve_native_dsh_path(file_path)
+    if dsh is not None:
+        return dsh, None
     # The directory beside <id>.jsonl contains that session's subagents.
     sibling = directory.parent / (directory.name + ".jsonl")
     if sibling.is_file() and not directory.is_symlink():

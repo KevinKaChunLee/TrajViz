@@ -2,7 +2,7 @@
 
 import unittest
 
-from agent_trajviz.insight.diagnostics import detect_performance_bottlenecks
+from agent_trajviz.insight.diagnostics import decompose_hotspot_duration, detect_performance_bottlenecks
 
 
 def _asst(idx: int, duration: float, *, tools=None, tokens=None) -> dict:
@@ -25,6 +25,31 @@ def _tool(name: str, duration_ms: float, **inp) -> dict:
 
 
 class PerformanceBottleneckTests(unittest.TestCase):
+    def test_model_request_interval_does_not_include_attached_tool_or_idle(self):
+        step = _asst(0, 5, tools=[_tool("Bash", 10_000, command="pytest")])
+        step["timing_source"] = "model_request"
+        decomposition = decompose_hotspot_duration(step, idle_gap=120)
+        self.assertEqual(decomposition["inference_s"], 5)
+        self.assertEqual(decomposition["inference_pct"], 100)
+        self.assertEqual(decomposition["tool_s"], 0)
+        self.assertEqual(decomposition["idle_s"], 0)
+        self.assertFalse(decomposition["timing_incomplete"])
+        self.assertIsNone(decomposition["dominant_tool"])
+        self.assertEqual(step["tool_calls"][0]["duration_ms"], 10_000)
+        self.assertEqual(detect_performance_bottlenecks([step], [{"index": 0, "idle_before_s": 120}]), [])
+
+    def test_model_request_outlier_is_inference_even_with_longer_tools(self):
+        steps = [_asst(i, 1) for i in range(4)]
+        outlier = _asst(4, 40, tools=[_tool("Bash", 80_000, command="pytest")])
+        outlier["timing_source"] = "model_request"
+        steps.append(outlier)
+        analytics = [{"index": i, "idle_before_s": 120 if i == 4 else 0, "cache_ratio": 0.8}
+                     for i in range(5)]
+        found = detect_performance_bottlenecks(steps, analytics)
+        issue = next(item for item in found if item["step_idx"] == 4)
+        self.assertEqual(issue["cause"], "inference")
+        self.assertEqual(issue["decomposition"]["inference_s"], 40)
+
     def test_uniform_slow_steps_are_not_bottlenecks(self):
         # All similar durations → no session-relative outlier Issues.
         steps = [_asst(i, 20.0) for i in range(5)]
