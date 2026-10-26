@@ -7,6 +7,13 @@ change the public API (the names exported from `agent_trajviz`).
 
 ## [Unreleased]
 
+### Fixed
+
+- OpenCode desktop and Windows session exports (flat `type` / `text` / `content`
+  messages, directory under `location`) load as turns. Workflow steps keep
+  their text, tokens, model, and timing. `idle` heartbeats are omitted.
+  SQLite consolidator exports (`info` + `parts`) are unchanged.
+
 ### Changed
 
 - The Overview "Suggest fixes with LLM" judge runs automatically after each
