@@ -58,6 +58,7 @@ pip install agent-trajviz            # library + collection tools: no third-part
 | `charts` | plotly, pygments | figures and the static HTML report (`agent-trajviz --report`) |
 | `llm` | requests | the AI analysis sidebar, the Issues judge, `agent-trajviz-label` |
 | `app` | gradio + `charts` + `llm` | the Insight and Converge dashboards |
+| `zstd` | zstandard on Python 3.11–3.13 | compressed native session logs (built in on Python 3.14+) |
 | `all` | everything above | |
 
 A command whose extra is missing says which one to install instead of failing
@@ -90,7 +91,7 @@ python -m agent_trajviz.insight
 agent-trajviz
 ```
 
-Default: `http://localhost:7860`. Upload a trajectory JSON via the file picker at the top of the UI. After load, **Export HTML** downloads a standalone Overview + charts + Patterns snapshot (charts stay interactive via Plotly's CDN).
+Default: `http://localhost:7860`. Upload a trajectory `.json`, `.jsonl`, `.zstd` or `.zip` via the file picker at the top of the UI. After load, **Export HTML** downloads a standalone Overview + charts + Patterns snapshot (charts stay interactive via Plotly's CDN).
 
 Headless report, no dashboard:
 
@@ -301,9 +302,6 @@ python -m agent_trajviz.insight --port 8080
 
 ## Supported trajectory formats
 
-See the [current-agent real-task audit](https://github.com/rshu/TrajViz/blob/main/examples/agent_audit/README.md) for tested
-versions, captured activity, checks and known coverage limits.
-
 TrajViz normalizes the following formats. **Auto-detect** is the default —
 upload a `.json` / `.jsonl` / `.zstd` / `.zip` file and load it. Pick a specific format only to
 override detection. An explicit pick is a requirement, not a hint: a file that is
@@ -464,14 +462,40 @@ sufficient; logs enrich its operations without adding duplicate usage. Logs
 or metrics alone, binary protobuf, compressed Collector framing and console
 exporter text are not trajectory inputs in this version.
 
-To record a new capture, install an OpenTelemetry Collector Contrib release
-with the file exporter. From a checkout, prepare its output directory and
-start the supplied local-only configuration:
+To record a new capture, install OpenTelemetry Collector Contrib with its file
+exporter. In a separate capture directory, save the manifest above as
+`capture/manifest.json` and this loopback-only configuration as `otelcol.yaml`:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+processors:
+  batch: {}
+exporters:
+  file/traces:
+    path: ./capture/traces.jsonl
+    format: json
+  file/logs:
+    path: ./capture/logs.jsonl
+    format: json
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/traces]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file/logs]
+```
 
 ```bash
 mkdir -p capture
-cp examples/otlp/manifest.json capture/manifest.json
-otelcol-contrib --config examples/otlp/otelcol.yaml
+otelcol-contrib --config otelcol.yaml
 ```
 
 Then run Claude Code in a separate terminal with its beta tracing enabled:
@@ -489,12 +513,12 @@ claude
 
 Exit Claude Code, then stop the Collector gracefully so buffered records are
 flushed before loading `capture/`. Use a new output directory for another
-recording: the example file exporters truncate existing files at startup.
+recording: these file exporters truncate existing files at startup.
 Tracing requires a Claude Code version that supports the beta span schema;
 see [Claude Code monitoring](https://code.claude.com/docs/en/monitoring-usage#traces-beta)
 and the [Collector file exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/fileexporter).
 
-The example retains Claude's default content redaction. If you want prompt,
+This configuration retains Claude's default content redaction. If you want prompt,
 response, tool arguments or tool output in the capture, enable the appropriate
 `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_ASSISTANT_RESPONSES`, `OTEL_LOG_TOOL_DETAILS`
 and `OTEL_LOG_TOOL_CONTENT` settings deliberately; these can record sensitive

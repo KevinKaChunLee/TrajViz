@@ -15,8 +15,7 @@ change the public API (the names exported from `agent_trajviz`).
   collector, and load portable verified child rollout trees.
 - Read current DeepSeek Harness numbered native generations and compressed v4
   session trees. Python 3.11–3.13 can install the optional `zstd` extra.
-- Add sanitized current-agent fixtures and a reproducible real-task audit under
-  `examples/agent_audit/`.
+- Add focused regression fixtures for current coding-agent session formats.
 - Import saved OTLP JSON/JSONL traces from Claude Code, with correlated event
   logs, explicit directory/ZIP manifests, subagent hierarchy and provenance.
   Native Claude Code JSONL and its subagent bundle loading remain supported.
@@ -27,8 +26,7 @@ change the public API (the names exported from `agent_trajviz`).
 - Explain observed, partial and unavailable evidence in the `data_quality`
   view, JSON view availability, dashboard and reports. Missing observations
   do not become measured zero values or healthy verdicts.
-- Provide a local Collector configuration and capture manifest under
-  `examples/otlp/`.
+- Document a local Collector configuration and capture manifest in the README.
 
 ### Changed
 
