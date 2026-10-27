@@ -78,6 +78,48 @@ class NativeOpenCodeV2Tests(unittest.TestCase):
         self.assertIn("Controlled provider failure", run.warnings[0])
         self.assertIn("Controlled provider failure", run.raw["output"]["error"])
 
+    def test_resumed_success_keeps_error_history_without_terminal_failure(self):
+        data = capture()
+        data["messages"][1]["content"][1]["state"]["status"] = "error"
+        data["messages"][1]["content"][1]["state"]["error"] = {"message": "Controlled old tool failure"}
+        data["messages"][-1].update({"outcome": "interrupted", "error": {"message": "Earlier interruption"}})
+        data["messages"].extend([
+            {"id": "resumed_user", "type": "user", "text": "Continue.", "time": {"created": 5100}},
+            {"id": "resumed_assistant", "type": "assistant", "agent": "build", "finish": "stop", "content": [{"type": "text", "text": "Finished."}],
+             "time": {"created": 5200, "streamed": 5900, "completed": 6000}},
+            {"id": "resumed_idle", "type": "idle", "outcome": "succeeded", "time": {"created": 6100}},
+        ])
+        run = self.load(data)
+        self.assertIsNone(run.raw["output"]["error"])
+        self.assertIsNone(run.metrics["patch_error"])
+        self.assertIn("Earlier interruption", " ".join(run.warnings))
+        self.assertEqual(run.metrics["tool_fail"], 1)
+        self.assertEqual(run.raw["_opencode_v2_messages"][2]["outcome"], "interrupted")
+        # A different session's terminal outcome cannot replace the root's.
+        data["messages"].append({"id": "child_idle", "type": "idle", "sessionID": "child", "outcome": "failed",
+                                 "error": {"message": "Child failure"}, "time": {"created": 6200}})
+        run = self.load(data)
+        self.assertIsNone(run.metrics["patch_error"])
+        self.assertIn("Child failure", " ".join(run.warnings))
+        # The current root still reports a genuinely failed terminal outcome.
+        data["messages"].append({"id": "root_failed", "type": "idle", "outcome": "failed",
+                                 "error": {"message": "Final root failure"}, "time": {"created": 6300}})
+        run = self.load(data)
+        self.assertEqual(run.metrics["patch_error"], "Final root failure")
+        self.assertIn("Earlier interruption", " ".join(run.warnings))
+
+    def test_resumed_in_progress_turn_does_not_inherit_previous_terminal_error(self):
+        data = capture()
+        data["messages"][-1]["outcome"] = "interrupted"
+        data["messages"].extend([
+            {"id": "resumed_user", "type": "user", "text": "Continue.", "time": {"created": 5100}},
+            {"id": "resumed_assistant", "type": "assistant", "agent": "build", "content": [], "time": {"created": 5200}},
+        ])
+        run = self.load(data)
+        self.assertIsNone(run.metrics["patch_error"])
+        self.assertTrue(any("incomplete" in warning for warning in run.warnings))
+        self.assertTrue(any("interrupted" in warning for warning in run.warnings))
+
     def test_tool_errors_keep_text_and_native_error_evidence(self):
         data = capture()
         tool = data["messages"][1]["content"][1]

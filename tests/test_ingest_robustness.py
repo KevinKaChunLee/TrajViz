@@ -545,12 +545,25 @@ class MetricInvariants(unittest.TestCase):
         rate = metrics.get("tool_success_rate")
         if isinstance(rate, (int, float)):
             self.assertTrue(0 <= rate <= 100, f"tool_success_rate = {rate} ({context})")
+        observed = metrics["tool_success"] + metrics["tool_fail"]
+        unknown = metrics.get("tool_unknown_outcomes", 0)
         self.assertEqual(
-            metrics["tool_call_count"],
-            metrics["tool_success"] + metrics["tool_fail"],
-            f"every tool call is either a success or a failure ({context})",
+            metrics["tool_call_count"], observed + unknown,
+            f"every tool call has either an observed or an unknown outcome ({context})",
         )
+        self.assertEqual(metrics.get("tool_observed_outcomes", observed), observed)
+        if unknown:
+            self.assertIn("tool_observed_outcomes", metrics)
+        # These generated payloads are native transcripts: a session-wide rate
+        # needs complete outcome coverage, even when some calls have finished.
+        if unknown or not observed:
+            self.assertIsNone(rate, f"incomplete or absent outcome evidence has no rate ({context})")
+            self.assertIsNone(metrics["tool_system_failure_rate"])
+        else:
+            self.assertEqual(rate, round(metrics["tool_success"] / observed * 100, 1))
+            self.assertEqual(metrics["tool_system_failure_rate"], round(metrics["tool_fail"] / observed, 4))
         self.assertEqual(metrics["tool_call_count"], sum(metrics["tool_breakdown"].values()))
+        self.assertEqual(metrics["tool_call_count"], sum(metrics["tool_status_breakdown"].values()))
 
     @settings(max_examples=40, deadline=None, suppress_health_check=list(HealthCheck))
     @given(
@@ -604,7 +617,36 @@ class MetricInvariants(unittest.TestCase):
         steps = parse_steps(raw)
         metrics = compute_metrics(steps, raw, build_message_metrics(steps))
         self.assertEqual(metrics["total_steps"], len(steps))
+        # Check the evidence partition against source records, independently
+        # of the metrics implementation's failure predicate.
+        statuses = [status for spec in messages for _, status, _ in spec["tools"]]
+        self.assertEqual(metrics["tool_success"], statuses.count("completed"))
+        self.assertEqual(metrics["tool_fail"], statuses.count("error"))
+        self.assertEqual(metrics.get("tool_unknown_outcomes", 0),
+                         statuses.count("running") + statuses.count("pending"))
         self._assert_invariants(metrics, doc)
+
+    def test_outcome_rates_require_coverage_and_use_only_finished_calls(self):
+        cases = [
+            ([("completed", True), ("completed", True), ("error", True),
+              ("running", None), ("pending", None)], (2, 1, 2), None),
+            ([("running", None), ("pending", None)], (0, 0, 2), None),
+            ([("completed", False), ("error", True)], (0, 1, 1), None),
+            ([("completed", True), ("completed", True), ("error", True)], (2, 1, 0), 66.7),
+        ]
+        for index, (outcomes, expected_counts, expected_rate) in enumerate(cases):
+            with self.subTest(outcomes=outcomes):
+                parts = [{"type": "tool", "tool": "bash", "id": f"call-{i}",
+                          "state": {"status": status, "input": {}, "output": "",
+                                    "metadata": ({"_outcome_observed": observed} if observed is not None else {})}}
+                         for i, (status, observed) in enumerate(outcomes)]
+                doc = _opencode_doc([_opencode_message(parts=parts)])
+                metrics = _metrics_for(_write_json(self.tmp, f"outcomes-{index}.json", doc))
+                self.assertEqual((metrics["tool_success"], metrics["tool_fail"],
+                                  metrics.get("tool_unknown_outcomes", 0)), expected_counts)
+                self.assertEqual(metrics["tool_call_count"], len(outcomes))
+                self.assertEqual(metrics["tool_success_rate"], expected_rate)
+                self._assert_invariants(metrics, doc)
 
     def test_empty_and_single_step_trajectories_are_well_defined(self):
         """The degenerate sizes are where divide-by-zero guards are usually missed."""

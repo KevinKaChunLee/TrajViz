@@ -142,6 +142,7 @@ def export_session_and_collect_children(
     current_depth: int = 0,
     main_session_info: dict[str, Any] | None = None,
     all_messages: list[dict[str, Any]] | None = None,
+    session_manifest: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Export a session and recursively export all child sessions.
 
@@ -161,6 +162,8 @@ def export_session_and_collect_children(
 
     if all_messages is None:
         all_messages = []
+    if session_manifest is None:
+        session_manifest = []
 
     if current_depth >= max_depth:
         print(f"Warning: Max depth {max_depth} reached at session {session_id}", file=sys.stderr)
@@ -308,6 +311,8 @@ def export_session_and_collect_children(
         except json.JSONDecodeError:
             pass
 
+    session_manifest.append({"depth": current_depth, "info": session_info})
+
     # If this is the first session (main session), save its info
     if main_session_info is None:
         main_session_info = session_info
@@ -340,12 +345,21 @@ def export_session_and_collect_children(
         # Convert time.updated to time.completed for assistant messages (duration calculation)
         if msg["info"].get("role") == "assistant" and "time" in msg["info"]:
             time_info = msg["info"]["time"]
-            if "updated" in time_info and "completed" not in time_info:
+            part_types = {part.get("type") for part in msg.get("parts", []) if isinstance(part, dict)}
+            unfinished = (not msg["info"].get("finish")
+                          and bool(part_types.intersection({"step-start", "step_start"}))
+                          and not part_types.intersection({"step-finish", "step_finish"}))
+            if "updated" in time_info and "completed" not in time_info and not unfinished:
                 time_info["completed"] = time_info.pop("updated")
         # Remove time.updated from user messages to match original format
         elif msg["info"].get("role") == "user" and "time" in msg["info"]:
             time_info = msg["info"]["time"]
             time_info.pop("updated", None)
+
+        # Parent rows remain authoritative even when a Task never completed.
+        if is_subagent:
+            msg["info"].update({"isSubAgent": True, "parentSessionID": session_info.get("parent_id") or "",
+                                "sessionDepth": current_depth, "sessionTitle": session_info.get("title") or ""})
 
         # Modify agent name for subagent messages
         if is_subagent and "agent" in msg["info"]:
@@ -374,8 +388,22 @@ def export_session_and_collect_children(
                 if child_id and child_id != session_id:
                     child_session_ids.add(child_id)
 
-    # Recursively export children
+    # Active/interrupted tasks may have no completed metadata, while the native
+    # session row already records their child. Never enumerate unrelated roots.
+    child_session_ids.update(
+        row[0] for row in conn.execute("SELECT id FROM session WHERE parent_id = ?", (session_id,))
+        if row[0] != session_id
+    )
+
+    # Recursively export children. Metadata from stale/corrupt tool records
+    # cannot override an authoritative, conflicting native parent relationship.
     for child_id in sorted(child_session_ids):
+        parent_row = conn.execute("SELECT parent_id FROM session WHERE id = ?", (child_id,)).fetchone()
+        if parent_row is None and "session_v2" in tables:
+            parent_row = conn.execute("SELECT parent_id FROM session_v2 WHERE id = ?", (child_id,)).fetchone()
+        if parent_row and parent_row[0] and parent_row[0] != session_id:
+            print(f"Warning: Child session {child_id} belongs to another parent; skipped", file=sys.stderr)
+            continue
         try:
             export_session_and_collect_children(
                 conn,
@@ -385,6 +413,7 @@ def export_session_and_collect_children(
                 current_depth + 1,
                 main_session_info,
                 all_messages,
+                session_manifest,
             )
         except Exception as e:
             print(f"Warning: Failed to export child session {child_id}: {e}", file=sys.stderr)
@@ -392,6 +421,8 @@ def export_session_and_collect_children(
     return {
         "info": main_session_info,
         "messages": all_messages,
+        "session_manifest": session_manifest,
+        "statistics": {"subagent_sessions": sum(bool(entry.get("depth")) for entry in session_manifest)},
     }
 
 

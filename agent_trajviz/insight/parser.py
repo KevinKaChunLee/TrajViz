@@ -748,6 +748,11 @@ def _fill_missing_last_step_duration(steps: list[dict], raw: dict) -> None:
     if not steps:
         return
     last = steps[-1]
+    # OpenCode's open step-start without a finish is positive evidence that
+    # the response is unfinished. A session/DB write clock is not its end.
+    incomplete = raw.get("_opencode_incomplete_indices")
+    if isinstance(incomplete, list) and last.get("raw_index") in incomplete:
+        return
     if last.get("duration") is not None:
         return
     start_ms = last.get("time_created_ms")

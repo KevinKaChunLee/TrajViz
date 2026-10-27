@@ -77,6 +77,7 @@ def normalize_opencode_v2(raw: dict) -> dict:
     root_info.setdefault("directory", _dict(root_info.get("location")).get("directory", ""))
     messages: list[dict[str, Any]] = []
     errors: list[str] = []
+    terminal_error: str | None = None
     control_count = 0
     for record in records:
         if not isinstance(record, dict):
@@ -85,10 +86,20 @@ def normalize_opencode_v2(raw: dict) -> dict:
             messages.append(record)
             continue
         kind = record.get("type")
+        session_id = _text(record.get("sessionID")) or root_id
+        if session_id == root_id and kind in {"user", "assistant", "shell", "compaction"}:
+            # A resumed turn supersedes the preceding terminal outcome. Keep
+            # that earlier failure in its native record and history warnings.
+            terminal_error = _error(record.get("error")) or None
         if kind not in {"user", "assistant", "synthetic", "system", "skill", "shell", "compaction"}:
             control_count += 1
-            if kind == "idle" and record.get("outcome") in {"failed", "interrupted"}:
-                errors.append(_error(record.get("error")) or f"Session turn {record['outcome']}.")
+            if kind == "idle":
+                outcome_error = None
+                if record.get("outcome") in {"failed", "interrupted"}:
+                    outcome_error = _error(record.get("error")) or f"Session turn {record['outcome']}."
+                    errors.append(outcome_error)
+                if session_id == root_id:
+                    terminal_error = outcome_error
             continue
         role = kind if kind in {"user", "assistant"} else "system"
         if kind == "compaction" and record.get("status") == "completed":
@@ -159,8 +170,9 @@ def normalize_opencode_v2(raw: dict) -> dict:
     raw["messages"] = messages
     raw["_opencode_v2"] = True
     raw["_opencode_v2_control_count"] = control_count
+    raw["_opencode_v2_errors"] = [terminal_error] if terminal_error else []
     if errors:
-        raw["_opencode_v2_errors"] = list(dict.fromkeys(errors))
+        raw["_opencode_v2_history_errors"] = list(dict.fromkeys(errors))
         warnings = raw.setdefault("_load_warnings", [])
         for error in dict.fromkeys(errors):
             warning = f"OpenCode model/session error: {error}"

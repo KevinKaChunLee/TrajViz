@@ -384,5 +384,111 @@ class OpenCodeDatabasePathTests(unittest.TestCase):
             opened.close()
 
 
+
+
+
+class OpenCodeInterruptedFamilyTests(unittest.TestCase):
+    setUp = OpenCodeConsolidatorTests.setUp
+    tearDown = OpenCodeConsolidatorTests.tearDown
+    _make_database = OpenCodeConsolidatorTests._make_database
+    _run_main = OpenCodeConsolidatorTests._run_main
+
+    def test_parent_rows_include_active_child_and_preserve_empty_descendant(self):
+        import agent_trajviz as tv
+
+        database, _ = self._make_database()
+        with sqlite3.connect(database) as conn:
+            for identity, parent in [("ses_child", "ses_root"), ("ses_empty", "ses_child"), ("ses_unrelated", None)]:
+                conn.execute("INSERT INTO session (id,parent_id,title,directory,time_created,time_updated) VALUES (?,?,?,?,?,?)",
+                             (identity, parent, identity, "/workspace", 1200, 1800))
+            # No agent label and no completed Task metadata: hierarchy is still observed.
+            conn.execute("INSERT INTO message VALUES (?,?,?,?,?)", ("child_message", "ses_child", 1300, 1600,
+                         json.dumps({"role": "assistant", "time": {"created": 1300, "completed": 1600}})))
+            conn.execute("INSERT INTO part VALUES (?,?,?,?,?,?)", ("active_task", "msg_0", "ses_root", 1200, 1800,
+                         json.dumps({"type": "tool", "tool": "task", "state": {"status": "running", "input": {}}})))
+        output = self.root / "family.json"
+        self.assertEqual(self._run_main(database, output), 0)
+        raw = json.loads(output.read_text())
+        self.assertEqual({m["info"]["sessionID"] for m in raw["messages"]}, {"ses_root", "ses_child"})
+        self.assertEqual({entry["info"]["id"] for entry in raw["session_manifest"]}, {"ses_root", "ses_child", "ses_empty"})
+        self.assertEqual(raw["statistics"]["subagent_sessions"], 2)
+        child = next(m["info"] for m in raw["messages"] if m["info"]["sessionID"] == "ses_child")
+        self.assertTrue(child["isSubAgent"])
+        self.assertEqual(child["parentSessionID"], "ses_root")
+        self.assertEqual(child["sessionDepth"], 1)
+        run = tv.load(output)
+        self.assertEqual(run.raw["metadata"]["sub_agent_count"], 2)
+        self.assertEqual(run.metrics["tool_success"], 0)
+        self.assertIsNone(run.metrics["tool_success_rate"])
+        child_step = next(s for s in run.steps if s["session_id"] == "ses_child")
+        self.assertTrue(child_step["is_sub_agent"])
+        self.assertEqual(child_step["parent_session_id"], "ses_root")
+
+    def test_direct_native_pending_or_running_tools_have_unknown_outcomes(self):
+        import agent_trajviz as tv
+
+        for status in ["pending", "running"]:
+            with self.subTest(status=status):
+                path = self.root / f"{status}.json"
+                path.write_text(json.dumps({"info": {"id": "root"}, "messages": [{"info": {"role": "assistant", "sessionID": "root"},
+                    "parts": [{"type": "tool", "tool": "bash", "state": {"status": status, "input": {"command": "pytest"}}}]}]}))
+                run = tv.load(path)
+                self.assertEqual(run.metrics["tool_call_count"], 1)
+                self.assertEqual(run.metrics["tool_success"], 0)
+                self.assertIsNone(run.metrics["tool_success_rate"])
+
+    def test_conflicting_native_parent_excludes_metadata_target_and_deduplicates_child(self):
+        database, _ = self._make_database()
+        with sqlite3.connect(database) as conn:
+            for identity, parent in [("ses_child", "ses_root"), ("ses_outside", "another_root"), ("ses_legacy", None)]:
+                conn.execute("INSERT INTO session (id,parent_id,title,directory,time_created,time_updated) VALUES (?,?,?,?,?,?)",
+                             (identity, parent, identity, "/workspace", 1200, 1800))
+                conn.execute("INSERT INTO message VALUES (?,?,?,?,?)", ("msg_" + identity, identity, 1300, 1600,
+                             json.dumps({"role": "assistant", "finish": "stop"})))
+                conn.execute("INSERT INTO part VALUES (?,?,?,?,?,?)", ("part_" + identity, "msg_0", "ses_root", 1100, 1500,
+                             json.dumps({"type": "tool", "tool": "task", "state": {"status": "completed", "metadata": {"sessionId": identity}}})))
+        output = self.root / "selected.json"
+        self.assertEqual(self._run_main(database, output), 0)
+        raw = json.loads(output.read_text())
+        identities = [entry["info"]["id"] for entry in raw["session_manifest"]]
+        self.assertEqual(set(identities), {"ses_root", "ses_child", "ses_legacy"})
+        self.assertEqual(identities.count("ses_child"), 1)
+        self.assertNotIn("ses_outside", {m["info"]["sessionID"] for m in raw["messages"]})
+
+    def test_unfinished_child_has_no_invented_completion_or_duration_after_public_load(self):
+        import agent_trajviz as tv
+
+        database, _ = self._make_database()
+        with sqlite3.connect(database) as conn:
+            conn.execute("INSERT INTO session (id,parent_id,title,directory,time_created,time_updated) VALUES (?,?,?,?,?,?)",
+                         ("ses_child", "ses_root", "reviewer", "/workspace", 1200, 2000))
+            conn.execute("INSERT INTO message VALUES (?,?,?,?,?)", ("unfinished", "ses_child", 1500, 1750,
+                         json.dumps({"role": "assistant", "time": {"created": 1500}})))
+            for index, kind in enumerate(["step-start", "reasoning"]):
+                conn.execute("INSERT INTO part VALUES (?,?,?,?,?,?)", (f"unfinished_{index}", "unfinished", "ses_child", 1500, 1750,
+                             json.dumps({"type": kind, "text": "Reviewing."})))
+        output = self.root / "unfinished.json"
+        self.assertEqual(self._run_main(database, output), 0)
+        raw = json.loads(output.read_text())
+        child = next(m for m in raw["messages"] if m["info"]["id"] == "unfinished")
+        self.assertNotIn("completed", child["info"]["time"])
+        self.assertEqual(child["info"]["time"]["updated"], 1750)
+        run = tv.load(output)
+        child_step = next(s for s in run.steps if s["id"] == "unfinished")
+        self.assertIsNone(child_step["time_completed_ms"])
+        self.assertIsNone(child_step["duration"])
+        self.assertTrue(any("ses_child" in warning and "incomplete" in warning for warning in run.warnings))
+
+    def test_completed_message_still_uses_legacy_row_time_fallback(self):
+        database, _ = self._make_database()
+        with sqlite3.connect(database) as conn:
+            conn.execute("UPDATE message SET data=? WHERE id='msg_0'", (json.dumps({"role": "assistant", "finish": "stop"}),))
+        output = self.root / "finished.json"
+        self.assertEqual(self._run_main(database, output), 0)
+        raw = json.loads(output.read_text())
+        message = next(m for m in raw["messages"] if m["info"]["id"] == "msg_0")
+        self.assertEqual(message["info"]["time"]["completed"], 1150)
+
+
 if __name__ == "__main__":
     unittest.main()

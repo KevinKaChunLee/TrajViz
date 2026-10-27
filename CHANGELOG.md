@@ -43,6 +43,9 @@ change the public API (the names exported from `agent_trajviz`).
 ### Fixed
 
 - Preserve current Codex structured tool failures and DeepSeek v4 result fields.
+  Show readable Codex error diagnostics while retaining original output payloads.
+- Include active and interrupted OpenCode reviewer sessions during collection,
+  respect native parent relationships and keep unfinished response timing unknown.
 - Keep missing native clocks and unresolved search outcomes unavailable instead
   of reporting measured zero durations or fruitless-search verdicts.
 - Use OpenCode 2 model response clocks separately from later tool settlement,

@@ -212,6 +212,13 @@ def _convert_opencode_metadata(raw: dict) -> dict:
         # Count tool calls from parts
         for part in (msg.get("parts", []) if isinstance(msg.get("parts"), list) else []):
             if isinstance(part, dict) and part.get("type") == "tool":
+                state = part.get("state")
+                if isinstance(state, dict) and state.get("status") in {"pending", "running", "streaming"}:
+                    metadata = state.get("metadata")
+                    if not isinstance(metadata, dict):
+                        metadata = {}
+                        state["metadata"] = metadata
+                    metadata["_outcome_observed"] = False
                 total_tool_calls += 1
                 tname = as_text(part.get("tool")) or "?"
                 tool_breakdown[tname] = tool_breakdown.get(tname, 0) + 1
@@ -228,6 +235,10 @@ def _convert_opencode_metadata(raw: dict) -> dict:
         if (not message_info.get("finish")
                 and part_types.intersection({"step-start", "step_start"})
                 and not part_types.intersection({"step-finish", "step_finish"})):
+            indices = raw.setdefault("_opencode_incomplete_indices", [])
+            position = next(index for index, candidate in enumerate(messages) if candidate is message)
+            if isinstance(indices, list) and position not in indices:
+                indices.append(position)
             warning = (
                 f"OpenCode session {session_id or '(unknown)'}: capture ends before "
                 "the last assistant response finishes; it may be incomplete."
