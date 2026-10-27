@@ -240,10 +240,8 @@ def _inspect_sessions(upload_obj):
     """Inspect a capture without running analysis or any load-event fan-out."""
     from ...api import list_sessions
     from ...errors import LoadError as PublicLoadError
-    from ..formats.otlp_files import looks_like_otlp_source
-
     path = resolve_upload_path(upload_obj)
-    if not path or not looks_like_otlp_source(path):
+    if not path:
         return gr.update(choices=[], value=None, visible=False)
     try:
         sessions = list_sessions(path, format="otlp")

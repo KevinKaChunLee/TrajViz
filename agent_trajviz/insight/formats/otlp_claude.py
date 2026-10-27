@@ -257,6 +257,78 @@ def list_otlp_sessions(capture: OtlpCapture) -> list[dict[str, Any]]:
     return sorted(sessions.values(), key=lambda item: (item["started_at"], item["id"]))
 
 
+def _request_id(record):
+    attrs = _attrs(record)
+    return _text(attrs.get("request_id")) or _text(attrs.get("gen_ai.response.id"))
+
+
+def _tool_id(record):
+    attrs = _attrs(record)
+    return _text(attrs.get("tool_use_id")) or _text(attrs.get("gen_ai.tool.call.id"))
+
+
+def _correlation_index(spans, agents, kind, identify):
+    counts = Counter()
+    for span in spans:
+        if _span_kind(span) != kind or not (identity := identify(span)):
+            continue
+        trace, agent = span.get("trace_id", ""), agents.get(_id(span), "")
+        counts[("trace", trace, identity)] += 1
+        counts[("lane", trace, agent, identity)] += 1
+        counts[("all", identity)] += 1
+        counts[("agent", agent, identity)] += 1
+    return counts
+
+
+def _correlated_logs(span, agent, identity, lookup, counts):
+    """Attach evidence only when its explicit IDs select one operation.
+
+    Producer request/call IDs may repeat across traces and agent lanes. An
+    unqualified log must not fill every operation that happens to share an ID.
+    A log's span ID is stronger evidence when it identifies this operation
+    directly (normally Claude events carry the enclosing interaction's ID).
+    """
+    if not identity:
+        return []
+    trace = span.get("trace_id", "")
+    candidates = list(lookup[(trace, identity)])
+    if trace:
+        candidates += lookup[("", identity)]
+    related = []
+    for log in candidates:
+        log_agent = _text(_attrs(log).get("agent_id"))
+        if log_agent and log_agent != agent:
+            continue
+        log_trace = log.get("trace_id", "")
+        key = (("lane", log_trace, log_agent, identity) if log_agent else ("trace", log_trace, identity)) if log_trace else (
+            ("agent", log_agent, identity) if log_agent else ("all", identity))
+        if _id(log) == _id(span) or counts[key] == 1:
+            related.append(log)
+    return related
+
+
+def _merge_model_attributes(span, related, meta):
+    """Prefer valid span counts across semantic aliases, then fill from logs."""
+    sources = [_attrs(span)] + [_attrs(log) for log in related
+                               if _event_name(log) in ("api_request", "assistant_response", "api_error")]
+    merged = dict(sources[0])
+    for source in sources[1:]:
+        for key, value in source.items():
+            merged.setdefault(key, value)
+    for keys in _TOKEN_KEYS.values():
+        present = [(key, source[key]) for source in sources for key in keys if key in source]
+        valid = [_token_count(value) for _, value in present]
+        valid = [value for value in valid if value is not None]
+        if not valid:
+            continue
+        for key in keys:
+            merged.pop(key, None)
+        merged[keys[0]] = valid[0]
+        if any(value != valid[0] for value in valid[1:]):
+            meta.setdefault("conflicts", []).append(keys[0])
+    return merged
+
+
 def _fill_usage(step, attrs):
     tokens, meta = step["tokens"], step["_otel"]
     for field, keys in _TOKEN_KEYS.items():
@@ -373,6 +445,10 @@ def _tool(span, children, related):
         if duration is None:
             duration = _duration_ms(execution)
         call.update(time_start=_milliseconds(start), time_end=_milliseconds(end), duration_ms=duration)
+        # Keep exact execution bounds separate from the parent tool's wall
+        # interval and its millisecond display timestamps.
+        meta["execution_start_time_unix_nano"] = start
+        meta["execution_end_time_unix_nano"] = end
         if duration is not None:
             call["metadata"]["timing_source"] = "otlp_execution"
             _observed(meta, "duration")
@@ -384,7 +460,10 @@ def _tool(span, children, related):
     # Parent UNSET is expected even for failure; permission rejection is a
     # decision, not a measured execution failure.
     attrs_with_logs = dict(attrs)
-    for log in related:
+    # A permission callback can rewrite inputs. The result describes the
+    # executed call; a preceding decision describes what was proposed.
+    related_by_precedence = sorted(related, key=lambda log: _event_name(log) != "tool_result")
+    for log in related_by_precedence:
         values = _attrs(log)
         for key, value in values.items():
             attrs_with_logs.setdefault(key, value)
@@ -432,9 +511,20 @@ def _tool(span, children, related):
     output = _content(attrs_with_logs, ("new_context", "tool_output"), meta, "tool_outputs")
     for event in span.get("events", []):
         if event.get("name") == "tool.output":
-            output = _content(event.get("attributes", {}), ("output", "content", "diff"), meta, "tool_outputs")
-            if output is not None:
+            candidate_meta = deepcopy(meta)
+            candidate = _content(event.get("attributes", {}), ("output", "content", "diff"),
+                                 candidate_meta, "tool_outputs")
+            if candidate is not None:
+                output = candidate
+                meta["fields"]["tool_outputs"] = candidate_meta["fields"]["tool_outputs"]
+                if "tool_outputs" in candidate_meta["reasons"]:
+                    meta["reasons"]["tool_outputs"] = candidate_meta["reasons"]["tool_outputs"]
+                else:
+                    meta["reasons"].pop("tool_outputs", None)
                 break
+            if output is None:
+                meta["fields"]["tool_outputs"] = candidate_meta["fields"]["tool_outputs"]
+                meta["reasons"]["tool_outputs"] = candidate_meta["reasons"]["tool_outputs"]
     if output is not None:
         call["output"] = _as_content(output)
     meta["correlated_logs"] = [deepcopy(log.get("source", {})) for log in related]
@@ -492,17 +582,19 @@ def convert_otlp_claude(capture: OtlpCapture, session_id: str | None = None) -> 
     for span in spans:
         children[(span.get("trace_id", ""), span.get("parent_span_id", ""))].append(span)
     logs_by_request, logs_by_tool, logs_by_span = defaultdict(list), defaultdict(list), defaultdict(list)
-    request_counts = Counter(
-        _text(_attrs(span).get("request_id")) or _text(_attrs(span).get("gen_ai.response.id"))
-        for span in spans if _span_kind(span) == "llm_request")
-    tool_counts_by_id = Counter(
-        _text(_attrs(span).get("tool_use_id")) or _text(_attrs(span).get("gen_ai.tool.call.id"))
-        for span in spans if _span_kind(span) == "tool")
+    logs_by_client = defaultdict(list)
+    request_counts = _correlation_index(spans, agents, "llm_request", _request_id)
+    client_counts = _correlation_index(spans, agents, "llm_request",
+                                       lambda span: _text(_attrs(span).get("client_request_id")))
+    tool_counts = _correlation_index(spans, agents, "tool", _tool_id)
     for log in logs:
-        request_id = _text(_attrs(log).get("request_id"))
+        request_id = _request_id(log)
         if request_id:
             logs_by_request[(log.get("trace_id", ""), request_id)].append(log)
-        tool_id = _text(_attrs(log).get("tool_use_id"))
+        client_id = _text(_attrs(log).get("client_request_id"))
+        if client_id:
+            logs_by_client[(log.get("trace_id", ""), client_id)].append(log)
+        tool_id = _tool_id(log)
         if tool_id:
             logs_by_tool[(log.get("trace_id", ""), tool_id)].append(log)
         logs_by_span[_id(log)].append(log)
@@ -519,23 +611,21 @@ def convert_otlp_claude(capture: OtlpCapture, session_id: str | None = None) -> 
         step = _base_step(span, session_id, mapped_kind, role=role, agent=agent, parents=parents)
         step["raw_index"] = raw_index
         meta = step["_otel"]
-        request_id = _text(attrs.get("request_id")) or _text(attrs.get("gen_ai.response.id"))
-        correlated = list(logs_by_request[(span.get("trace_id", ""), request_id)]) if request_id else []
-        if request_id and request_counts[request_id] == 1 and span.get("trace_id"):
-            correlated += logs_by_request[("", request_id)]
+        request_id = _request_id(span)
+        correlated = _correlated_logs(span, agent, request_id, logs_by_request, request_counts)
         if kind == "llm_request":
-            merged = dict(attrs)
-            for log in correlated:
-                if _event_name(log) in ("api_request", "assistant_response", "api_error"):
-                    for key, value in _attrs(log).items():
-                        if (key in merged and any(key in keys for keys in _TOKEN_KEYS.values())
-                                and _token_count(merged[key]) is not None and _token_count(value) is not None
-                                and _token_count(merged[key]) != _token_count(value)):
-                            meta.setdefault("conflicts", []).append(key)
-                        merged.setdefault(key, value)
+            client_id = _text(attrs.get("client_request_id"))
+            seen_logs = {id(log) for log in correlated}
+            for log in _correlated_logs(span, agent, client_id, logs_by_client, client_counts):
+                # A final-attempt client ID cannot join a different server request.
+                if (id(log) not in seen_logs and (not request_id or not _request_id(log)
+                                                  or request_id == _request_id(log))):
+                    correlated.append(log)
+                    seen_logs.add(id(log))
+            merged = _merge_model_attributes(span, correlated, meta)
             if meta.get("conflicts"):
                 meta["conflicts"] = sorted(set(meta["conflicts"]))
-                warnings.append(f"Conflicting span/log usage for request {request_id!r}; retained the span's counts.")
+                warnings.append(f"Conflicting span/log usage for request {request_id!r}; retained the first valid counts, preferring spans.")
             _fill_usage(step, merged)
             if step["duration"] is None and (duration := _number(merged.get("duration_ms"))) is not None:
                 step["duration"] = duration / 1000
@@ -545,11 +635,31 @@ def convert_otlp_claude(capture: OtlpCapture, session_id: str | None = None) -> 
             step["finish"] = _text(merged.get("stop_reason"))
             if not step["finish"] and isinstance(merged.get("gen_ai.response.finish_reasons"), list):
                 step["finish"] = ", ".join(str(value) for value in merged["gen_ai.response.finish_reasons"])
-            meta.update(request_id=request_id, attempts=merged.get("attempt"),
+            success = _boolean(merged.get("success"))
+            status = span.get("status", {}).get("code", 0)
+            if status == 2:
+                success = False
+            elif success is None and status == 1:
+                success = True
+            elif success is None and any(_event_name(log) == "api_error" for log in correlated):
+                success = False
+            if success is False:
+                # Model failures are scaffold failures, not fabricated tool calls.
+                step["finish"] = "error"
+            step["model_id"] = _text(merged.get("model")) or _text(merged.get("gen_ai.request.model"))
+            step["message_id"] = _text(merged.get("message.uuid"))
+            if not request_id:
+                server_ids = {_request_id(log) for log in correlated if _request_id(log)}
+                if len(server_ids) == 1:
+                    request_id = server_ids.pop()
+            meta.update(request_id=request_id, client_request_id=client_id, attempts=merged.get("attempt"),
                         ttft_ms=_number(merged.get("ttft_ms")),
                         first_content_ms=_number(merged.get("first_content_ms")),
                         reported_duration_ms=_number(merged.get("duration_ms")),
-                        success=_boolean(merged.get("success")),
+                        success=success,
+                        error=_text(merged.get("error")) or _text(span.get("status", {}).get("message")),
+                        error_class=_text(merged.get("error_class")),
+                        status_code=merged.get("status_code"),
                         retry_events=deepcopy([event for event in span.get("events", [])
                                               if event.get("name") == "gen_ai.request.attempt"]),
                         correlated_logs=[deepcopy(log.get("source", {})) for log in correlated])
@@ -566,13 +676,8 @@ def convert_otlp_claude(capture: OtlpCapture, session_id: str | None = None) -> 
                         if content is not None:
                             break
         elif kind == "tool":
-            tool_id = _text(attrs.get("tool_use_id")) or _text(attrs.get("gen_ai.tool.call.id"))
-            candidates = list(logs_by_tool[(span.get("trace_id", ""), tool_id)])
-            if tool_id and tool_counts_by_id[tool_id] == 1 and span.get("trace_id"):
-                candidates += logs_by_tool[("", tool_id)]
-            related_logs = [log for log in candidates
-                            if not _text(_attrs(log).get("agent_id"))
-                            or _text(_attrs(log).get("agent_id")) == agent]
+            tool_id = _tool_id(span)
+            related_logs = _correlated_logs(span, agent, tool_id, logs_by_tool, tool_counts)
             call = _tool(span, children[_id(span)], related_logs)
             if call["metadata"]["_otel"].get("conflicts"):
                 warnings.append(f"Conflicting span/log outcome for tool {tool_id!r}; retained execution evidence.")

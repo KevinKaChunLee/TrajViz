@@ -42,6 +42,10 @@ change the public API (the names exported from `agent_trajviz`).
 
 ### Fixed
 
+- Harden saved OTLP imports against corrupt compressed members and ambiguous
+  request joins; preserve model errors, token evidence and sub-millisecond tool
+  timing. Keep session selection, missing-data displays and report exports
+  consistent across the API, CLI and dashboard.
 - Skip unnecessary secret-name matching on delimiter-free text, keeping
   pathological transcript redaction fast on slower macOS runners.
 - Preserve Unicode separators inside Cursor JSON strings, keep reviewer peers

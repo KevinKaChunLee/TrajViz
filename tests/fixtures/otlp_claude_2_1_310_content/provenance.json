@@ -1,0 +1,32 @@
+{
+  "producer": "Claude Code 2.1.310",
+  "collector": "OpenTelemetry Collector Contrib 0.163.2",
+  "origin": "Recorded completed bounded read-only task with content capture and a delegated reviewer.",
+  "task_status": "Completed successfully; parent and reviewer exited normally.",
+  "sanitization": "Only allowlisted attributes retained. Account, organization, email, host, paths and plugin logs removed. IDs, timestamps and token counts replaced. All prompt, response, tool input and tool output text replaced with controlled synthetic example.py content. Original span graph, event shapes, missing fields, durations and agent scope retained.",
+  "original_independent_audit": {
+    "otlp_model_requests": 4,
+    "otlp_tools": 5,
+    "native_total_tokens": 67902,
+    "otlp_total_tokens": 67902,
+    "input_tokens": 8,
+    "output_tokens": 3823,
+    "cache_read_tokens": 10066,
+    "cache_creation_tokens": 54005,
+    "native_agents": 2,
+    "otlp_agents": 2,
+    "native_tool_calls": 5,
+    "parent_model_requests": 2,
+    "reviewer_model_requests": 2
+  },
+  "excerpt_expectations": {
+    "models": 4,
+    "tools": 5,
+    "agents": 2,
+    "tokens": 144,
+    "main_tokens": 72,
+    "reviewer_tokens": 72,
+    "spans": 20,
+    "logs": 17
+  }
+}

@@ -211,6 +211,18 @@ def _zip_capture(path: Path) -> OtlpCapture:
         raise _error(f"Could not read OTLP ZIP {path}: {exc}", str(path), "load_failed") from exc
 
 
+def _zip_member_bytes(archive: zipfile.ZipFile, info: zipfile.ZipInfo, limit: int, label: str) -> bytes:
+    """Normalize failures from ZIP's optional decompression backends."""
+    try:
+        with archive.open(info) as handle:
+            return handle.read(limit)
+    except Exception as exc:
+        # zlib.error and lzma.LZMAError do not share the OSError/BadZipFile
+        # hierarchy. Keep corrupt compressed members within the public error
+        # contract rather than exposing a backend exception to the CLI/UI.
+        raise _error(f"Could not read OTLP ZIP member {info.filename}: {exc}", label, "load_failed") from exc
+
+
 def _zip_from_file(path: Path, archive_file: Any) -> OtlpCapture:
     with zipfile.ZipFile(archive_file) as archive:
             if len(archive.infolist()) > MAX_MEMBERS * 2:
@@ -238,8 +250,7 @@ def _zip_from_file(path: Path, archive_file: Any) -> OtlpCapture:
                 info = members[name]
                 if info.file_size > MAX_MEMBER_BYTES or budget[0] + info.file_size > MAX_TOTAL_BYTES:
                     raise _error("OTLP capture size limit exceeded", str(path), "size_limit")
-                with archive.open(info) as handle:
-                    data = handle.read(MAX_MEMBER_BYTES + 1)
+                data = _zip_member_bytes(archive, info, MAX_MEMBER_BYTES + 1, str(path))
                 if len(data) > MAX_MEMBER_BYTES or budget[0] + len(data) > MAX_TOTAL_BYTES:
                     raise _error("OTLP capture size limit exceeded", str(path), "size_limit")
                 budget[0] += len(data)
@@ -330,7 +341,7 @@ def looks_like_otlp_source(path: str | Path) -> bool:
             return False
         if source.is_dir():
             candidates = [source / name for name in _MANIFEST_NAMES if (source / name).is_file()]
-            return len(candidates) == 1 and looks_like_otlp_source(candidates[0])
+            return any(looks_like_otlp_source(candidate) for candidate in candidates)
         if source.suffix.lower() == ".zip":
             if source.stat().st_size > MAX_TOTAL_BYTES:
                 return False
@@ -341,7 +352,8 @@ def looks_like_otlp_source(path: str | Path) -> bool:
                               if PurePosixPath(info.filename).name in _MANIFEST_NAMES and not info.is_dir()]
                 if len(candidates) != 1 or candidates[0].file_size > 1024 * 1024:
                     return False
-                return looks_like_otlp_payload(json.loads(archive.read(candidates[0]).decode("utf-8-sig")))
+                data = _zip_member_bytes(archive, candidates[0], 1024 * 1024 + 1, str(path))
+                return looks_like_otlp_payload(json.loads(data.decode("utf-8-sig")))
         # Sniff a small first request; full validation and bounded reads happen
         # only after the caller selects this format.
         with _open_file(source) as handle:

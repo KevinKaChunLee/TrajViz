@@ -529,7 +529,7 @@ def build_view(run: Trajectory, analysis: Analysis, view_id: str, options: Mappi
                         f"it takes: {', '.join(spec.options) or 'none'}")
     return View(
         view_id, spec.title, spec.kind, spec.description, _jsonable(spec.build(run, analysis, **options)),
-        view_availability(view_id, analysis.data_quality),
+        view_availability(view_id, analysis.data_quality, _steps(run)),
     )
 
 

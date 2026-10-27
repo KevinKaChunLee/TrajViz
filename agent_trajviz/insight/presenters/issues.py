@@ -97,8 +97,9 @@ def render_overview_issues_html(
     *,
     banner: str = "",
     progress: str = "",
+    limited_evidence: bool = False,
 ) -> str:
-    """Render a foldable Issues panel (healthy empty state when *issues* is empty).
+    """Render a foldable Issues panel with an evidence-aware empty state.
 
     *progress* is a live status line shown inside the panel while the LLM judge runs.
     """
@@ -130,23 +131,31 @@ def render_overview_issues_html(
         )
 
     if not issues:
+        status = "limited evidence" if limited_evidence else "none detected"
+        detail = (
+            "Some workflow checks are unavailable for this telemetry capture. "
+            "The available evidence does not establish that the run is free of issues."
+            if limited_evidence else "No major workflow issues detected."
+        )
         return (
             "<details class='overview-issues-panel' id='overview-issues'>"
             "<summary class='overview-issues-summary'>"
             "<span>Issues</span>"
-            "<span class='overview-issues-summary-meta'>none detected</span>"
+            f"<span class='overview-issues-summary-meta'>{status}</span>"
             "</summary>"
             "<div class='overview-issues-body'>"
             f"{progress_html}"
             f"{banner_html}"
             "<div style='padding:8px 0 4px;color:var(--ov-muted);text-align:center;font-size:13px;'>"
-            "No major workflow issues detected."
+            f"{detail}"
             "</div></div></details>"
         )
 
     count = len(issues)
     judged = sum(1 for i in issues if i.judgment is not None)
     count_label = f"{count} issue{'s' if count != 1 else ''}"
+    if limited_evidence:
+        count_label += " · limited evidence"
     if progress:
         count_label += " · suggesting fixes…"
     elif judged:
@@ -184,4 +193,5 @@ def build_overview_issues_html(
         ranked = rank_issues(collect_overview_issues(session))
     else:
         ranked = list(issues)
-    return render_overview_issues_html(ranked, banner=banner, progress=progress)
+    return render_overview_issues_html(ranked, banner=banner, progress=progress,
+                                       limited_evidence=session.format == "otlp")

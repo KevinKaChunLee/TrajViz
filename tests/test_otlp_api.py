@@ -235,6 +235,29 @@ def test_late_top_level_envelope_has_same_selected_identity_auto_and_forced(tmp_
     assert detected.metrics == forced.metrics
 
 
+def test_late_top_level_envelope_supports_automatic_session_selection(tmp_path):
+    source = tmp_path / "late-multi-session.json"
+    source.write_text(json.dumps({"unknown_future_field": "x" * (1024 * 1024 + 1),
+                                 **_payload(_session(1), _session(2))}))
+    selected = tv.load(source, session_id="session-2")
+    forced = tv.load(source, format="otlp", session_id="session-2")
+    assert selected.to_dict(include_raw=True) == forced.to_dict(include_raw=True)
+    assert selected.metrics["tokens"]["total"] == 15
+    assert selected.raw["_otel"]["session_id"] == "session-2"
+
+
+@pytest.mark.parametrize("format", ["claude_code", "cursor"])
+def test_late_otlp_session_selection_honors_native_format_gate(tmp_path, format):
+    source = tmp_path / "late-multi-session.json"
+    source.write_text(json.dumps({"unknown_future_field": "x" * (1024 * 1024 + 1),
+                                 **_payload(_session(1), _session(2))}))
+    with pytest.raises(tv.LoadError) as caught:
+        tv.load(source, format=format, session_id="session-2")
+    assert caught.value.code == "mismatch"
+    assert caught.value.detected == "otlp"
+    assert caught.value.path == str(source)
+
+
 @pytest.mark.parametrize("data,code", [
     (b"{malformed", "invalid_otlp"),
     (b"\xff", "invalid_otlp"),
@@ -303,6 +326,19 @@ def test_fixture_manifest_directory_and_zip_expose_equivalent_views(tmp_path):
     assert tv.list_sessions(archive_path) == tv.list_sessions(FIXTURE)
     assert len(zipped.raw["_otel"]["agents"]) == 1
     assert any("!/" in span["source"]["path"] for span in zipped.raw["_otel"]["spans"])
+
+
+def test_forced_empty_directory_uses_otlp_bundle_validation(tmp_path):
+    with pytest.raises(tv.LoadError) as caught:
+        tv.load(tmp_path, format="otlp")
+    assert caught.value.code == "invalid_otlp_bundle"
+    assert "requires exactly one" in str(caught.value)
+
+
+def test_unrecognized_directory_session_selection_is_not_a_file_probe(tmp_path):
+    with pytest.raises(tv.LoadError) as caught:
+        tv.load(tmp_path, session_id="absent")
+    assert caught.value.code == "unsupported_selection"
 
 
 def test_json_exports_include_coverage_and_reload_raw_provenance(tmp_path):

@@ -191,7 +191,11 @@ def _percentile(values: list[float], q: float) -> float:
 def tool_call_duration_ms(tc: dict) -> float | None:
     """Best-effort duration of one tool call in milliseconds.
 
-    Fallback chain:
+    OTLP calls prefer their observed ``duration_ms``: span durations retain
+    nanosecond precision while display endpoints are rounded to milliseconds.
+    An observed zero is a measurement, rather than absent timing.
+
+    Native fallback chain:
 
     1. ``time_created``/``time_updated`` — OpenCode part wall-clock from when
        the tool call was issued until the result was written (includes queue).
@@ -207,6 +211,16 @@ def tool_call_duration_ms(tc: dict) -> float | None:
 
     if not tool_field_observed(tc, "duration"):
         return None
+    metadata = tc.get("metadata")
+    if isinstance(metadata, dict) and isinstance(metadata.get("_otel"), dict):
+        reported = tc.get("duration_ms")
+        if isinstance(reported, (int, float)) and not isinstance(reported, bool):
+            try:
+                precise = float(reported)
+            except OverflowError:
+                precise = None
+            if precise is not None and math.isfinite(precise) and precise >= 0:
+                return precise
     created, updated = tc.get("time_created"), tc.get("time_updated")
     if (
         isinstance(created, (int, float))
@@ -282,11 +296,10 @@ def step_duration_excluding_spawn(step: dict) -> float | None:
 def tool_call_window_ms(tc: dict) -> tuple[float, float] | None:
     """Absolute ``(start, end)`` ms window of one tool call, or ``None``.
 
-    Uses the SAME fallback order as :func:`tool_call_duration_ms` — part
-    wall-clock (``time_created``/``time_updated``) before the execution window
-    (``time_start``/``time_end``). That identity is the point: a caller that
-    admits a call using ``tool_call_duration_ms`` and then measures a narrower
-    pair is unioning a different quantity than the one it gated on.
+    Native calls use the same fallback order as :func:`tool_call_duration_ms`:
+    part wall-clock (``time_created``/``time_updated``) before execution bounds
+    (``time_start``/``time_end``). OTLP unions use exact nanosecond execution
+    bounds in :func:`non_spawn_tool_seconds` instead of display timestamps.
     """
     from .telemetry_quality import tool_field_observed
 
@@ -317,14 +330,30 @@ def non_spawn_tool_seconds(step: dict) -> float:
     ``metadata.totalDurationMs``) have no window to union and still contribute
     their full length, which leaves the result an upper bound for those
     exports; that residual is a data limitation, not something measurable here.
+    OTLP execution windows are unioned as integer nanoseconds before conversion
+    to seconds, retaining intervals shorter than one display millisecond.
     """
     windows: list[tuple[float, float]] = []
+    precise_windows: list[tuple[int, int]] = []
     unstamped = 0.0
     for tc in step.get("tool_calls") or []:
         if not isinstance(tc, dict):
             continue
         ms = tool_call_stats_duration_ms(tc)
         if ms is None:
+            continue
+        metadata = tc.get("metadata")
+        otel = metadata.get("_otel") if isinstance(metadata, dict) else None
+        if isinstance(otel, dict):
+            lo, hi = otel.get("execution_start_time_unix_nano"), otel.get("execution_end_time_unix_nano")
+            if (isinstance(lo, int) and not isinstance(lo, bool) and lo > 0
+                    and isinstance(hi, int) and not isinstance(hi, bool) and hi >= lo):
+                precise_windows.append((lo, hi))
+            else:
+                # Log-only timings and older normalized captures have no
+                # precise bounds. Their observed durations remain an upper
+                # bound rather than a fabricated rounded execution interval.
+                unstamped += ms / 1000.0
             continue
         window = tool_call_window_ms(tc)
         if window is not None:
@@ -333,6 +362,18 @@ def non_spawn_tool_seconds(step: dict) -> float:
             unstamped += ms / 1000.0
 
     total = unstamped
+    if precise_windows:
+        precise_windows.sort()
+        cur_start_ns, cur_end_ns = precise_windows[0]
+        duration_ns = 0
+        for start_ns, end_ns in precise_windows[1:]:
+            if start_ns > cur_end_ns:
+                duration_ns += cur_end_ns - cur_start_ns
+                cur_start_ns, cur_end_ns = start_ns, end_ns
+            else:
+                cur_end_ns = max(cur_end_ns, end_ns)
+        duration_ns += cur_end_ns - cur_start_ns
+        total += duration_ns / 1_000_000_000
     if windows:
         windows.sort()
         cur_start, cur_end = windows[0]

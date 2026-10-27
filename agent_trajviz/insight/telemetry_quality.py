@@ -102,7 +102,7 @@ def public_token_totals(totals: dict, quality: dict) -> dict:
     }
 
 
-def view_availability(view_id: str, quality: dict) -> dict:
+def view_availability(view_id: str, quality: dict, steps: list[dict] | None = None) -> dict:
     """Typed view-envelope availability, including dependencies for empty results."""
     dependencies = {
         "context_pressure": ("context",), "context_usage": ("context", "text", "tool_inputs", "tool_outputs"),
@@ -123,9 +123,23 @@ def view_availability(view_id: str, quality: dict) -> dict:
         return {"status": "unknown", "basis": quality["basis"], "fields": {}}
     if view_id in {"token_usage", "agent_tokens"}:
         fields = {f"tokens.{key}": quality["fields"][f"tokens.{key}"] for key in TOKEN_FIELDS}
-        observed = [field["status"] == "observed" for field in fields.values()]
-        status = "observed" if all(observed) else "partial" if any(observed) else "unavailable"
+        complete = all(field["status"] == "observed" for field in fields.values())
+        available = any(field["observed"] or field["partial"] for field in fields.values())
+        status = "observed" if complete else "partial" if available else "unavailable"
         return {"status": status, "basis": quality["basis"], "fields": fields}
+    if view_id == "tool_durations":
+        items = [(call.get("metadata") or {}).get("_otel", {})
+                 for step in (steps or []) for call in step.get("tool_calls", [])]
+        observed = sum(item.get("fields", {}).get("duration") == "observed" for item in items)
+        partial = sum(item.get("fields", {}).get("duration") == "partial" for item in items)
+        status = ("observed" if items and observed == len(items) else "partial" if observed or partial
+                  else "unavailable")
+        reasons = Counter(str(item.get("reasons", {}).get("duration") or "not_recorded")
+                          for item in items if item.get("fields", {}).get("duration") != "observed")
+        return {"status": status, "basis": quality["basis"], "fields": {"tool_duration": {
+            "status": status, "observed": observed, "partial": partial, "total": len(items),
+            "reasons": dict(sorted(reasons.items())),
+        }}}
     fields = {field: quality["fields"][field] for field in dependencies}
     statuses = {field["status"] for field in fields.values()}
     status = ("unavailable" if statuses & {"unavailable", "unknown"}

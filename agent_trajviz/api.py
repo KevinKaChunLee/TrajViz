@@ -176,8 +176,9 @@ class Trajectory:
 
         Raises :class:`ValueError` for a document of another layout or
         version. Without ``raw`` (``to_dict()`` without ``include_raw``) the
-        steps are restored but analyses that read the export's metadata see
-        none.
+        steps are restored; OTLP exports also retain their selection, timing
+        and evidence metadata. Other formats may lose analyses that read raw
+        export metadata.
         """
         if not isinstance(data, Mapping) or not isinstance(data.get("steps"), list):
             raise ValueError("not an agent-trajviz trajectory: no steps")
@@ -284,7 +285,7 @@ def load_plugins() -> list[str]:
 
 
 def load(source: PathLike, *, format: str | None = None, session_id: str | None = None) -> Trajectory:
-    """Load a trajectory file of any supported format (see :data:`FORMATS`).
+    """Load a trajectory source of any supported format (see :data:`FORMATS`).
 
     The format is detected from the content. *format* (a key of
     :data:`FORMATS`) requires that format instead: a file detected as another
@@ -295,6 +296,12 @@ def load(source: PathLike, *, format: str | None = None, session_id: str | None 
     unknown *format*. Formats added with :func:`register_format` are detected
     after the built-in ones, and a :meth:`Trajectory.to_dict` document (such
     as the ``trajectory.json`` of :func:`export_json`) reloads as it was.
+
+    Saved OTLP sources can be a JSON/JSONL file, an explicit bundle manifest,
+    its directory, or a ZIP bundle. Use :func:`list_sessions` to discover
+    selectable ids, then pass *session_id* to load one; a capture containing
+    multiple sessions raises ``LoadError(code="ambiguous_session")`` without
+    a selection. Native JSONL and its subagents keep their existing behavior.
     """
     if format is not None and format not in FORMATS:
         raise ValueError(f"unknown format {format!r}; expected one of: {', '.join(FORMATS)}")
@@ -304,7 +311,8 @@ def load(source: PathLike, *, format: str | None = None, session_id: str | None 
     from .insight.formats.otlp_files import looks_like_otlp_source
 
     otlp_source = looks_like_otlp_source(path)
-    if otlp_source:
+    directory = Path(path).is_dir()
+    if otlp_source or format == "otlp" and directory:
         if format is not None and format != "otlp":
             raise LoadError(f"the file is otlp, not {format}", code="mismatch", path=path, detected="otlp")
         return _load_otlp(path, session_id=session_id)
@@ -315,9 +323,16 @@ def load(source: PathLike, *, format: str | None = None, session_id: str | None 
             raise LoadError(f"the exported trajectory does not contain session {session_id!r}",
                             code="session_not_found", path=path)
         return run
-    if format == "otlp" and not otlp_source:
+    if (format == "otlp" or session_id is not None) and not directory:
         native_format = loaders._bounded_non_otlp_format(path)
-        if native_format in FORMATS and native_format != "otlp":
+        if native_format == "otlp":
+            # A large envelope can put its discriminator beyond the cheap
+            # sniff prefix. Selection must still use the bounded OTLP reader,
+            # rather than reject a capture that loads without a selector.
+            if format is not None and format != "otlp":
+                raise LoadError(f"the file is otlp, not {format}", code="mismatch", path=path, detected="otlp")
+            return _load_otlp(path, session_id=session_id)
+        if format == "otlp" and native_format in FORMATS:
             raise LoadError(f"the file is {native_format}, not otlp", code="mismatch", path=path,
                             detected=native_format)
     if format == "otlp" or otlp_source:

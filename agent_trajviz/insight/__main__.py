@@ -116,8 +116,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     from ..api import FORMATS
 
-    if args.format and args.format not in FORMATS:
+    if args.format is not None and args.format not in FORMATS:
         parser.error(f"unknown format {args.format!r}; expected one of: {', '.join(FORMATS)}")
+    if args.session_id is not None and not args.session_id:
+        parser.error("--session-id must be a non-empty string")
 
     if args.list_views:
         from ..views import VIEW_CATALOG

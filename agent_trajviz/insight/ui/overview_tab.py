@@ -459,10 +459,8 @@ def bind(
 
     def on_suggest_fixes(run):
         """Run the LLM Issues judge on request; progress shows inside the panel."""
-        from ..presenters.issues import render_overview_issues_html
-
         if run is None or not run.steps:
-            yield render_overview_issues_html([])
+            yield ""
             return
 
         cfg = resolve_analysis_config()

@@ -1,0 +1,29 @@
+{
+  "producer": "Claude Code 2.1.310",
+  "collector": "OpenTelemetry Collector Contrib 0.163.2",
+  "origin": "Bounded excerpt of a recorded local capture with content recording disabled.",
+  "task_status": "Original producer invocation timed out after 600 seconds; task completion is not asserted.",
+  "sanitization": "Allowlisted attributes only; account, organization, email, machine, paths and plugin logs removed. IDs, timestamps and usage counts replaced; original redaction markers and optional missing fields retained.",
+  "original_independent_audit": {
+    "native_unique_assistant_messages": 7,
+    "otlp_model_requests": 7,
+    "native_tool_use": 9,
+    "native_tool_result": 9,
+    "otlp_tools": 9,
+    "input_tokens": 194,
+    "output_tokens": 50607,
+    "cache_read_tokens": 266260,
+    "cache_creation_tokens": 63305,
+    "total_tokens": 380366,
+    "model_duration_ns": 589252196833
+  },
+  "excerpt_expectations": {
+    "model_duration_ns": 23382564417,
+    "execution_duration_ns": 775868792,
+    "tokens": 36,
+    "models": 1,
+    "tools": 1,
+    "logs": 5,
+    "spans": 5
+  }
+}
