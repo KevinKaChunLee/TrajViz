@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import logging
 import os
 from dataclasses import dataclass
 
@@ -20,9 +21,11 @@ from ..context_usage import (
     usage_snapshot_choices,
 )
 from ..formatting import format_context_pressure_html
+from ..issue_export import write_issues_agent_export
 from ..presenters.label_ui import build_label_ui_payload
 from ..presenters.issues import (
     build_overview_issues_html,
+    overview_issue_from_payload,
     overview_issues_payload,
     prepare_overview_issues,
 )
@@ -39,7 +42,14 @@ from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
 from ..llm_config import resolve_analysis_config
 from ..session import LoadedSession, session_from_run
 from .shared import SharedState, is_latest_run, safe_callback
-from .upload import UploadRefs
+from .upload import (
+    UploadRefs,
+    _TEMP_ISSUES_EXPORT_PREFIX,
+    _export_off,
+    stage_gradio_download,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -56,6 +66,7 @@ class OverviewRefs:
     labels_section: gr.Column
     issues_html: gr.HTML
     suggest_fixes_btn: gr.Button
+    export_issues_btn: gr.DownloadButton
     metrics_md: gr.Markdown
     token_chart: gr.Plot
     token_summary_html: gr.HTML
@@ -133,11 +144,21 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
         # Judging sends trajectory excerpts (prompts, commands, file paths,
         # tool output) to the configured LLM endpoint. It runs automatically
         # after load when ANALYZE_*/LABEL_* are set; the button re-runs it.
-        suggest_fixes_btn = gr.Button(
-            "Suggest fixes with LLM (sends trajectory excerpts to the configured provider)",
-            size="sm",
-            variant="secondary",
-        )
+        with gr.Row():
+            suggest_fixes_btn = gr.Button(
+                "Suggest fixes with LLM (sends trajectory excerpts to the configured provider)",
+                size="sm",
+                variant="secondary",
+                scale=3,
+            )
+            export_issues_btn = gr.DownloadButton(
+                label="Export issues into JSON",
+                variant="secondary",
+                size="sm",
+                interactive=False,
+                scale=1,
+                min_width=160,
+            )
         session_detail_html = gr.HTML("")
 
         overview_section_names = OVERVIEW_SECTION_NAMES
@@ -304,6 +325,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
         labels_section=labels_section,
         issues_html=issues_html,
         suggest_fixes_btn=suggest_fixes_btn,
+        export_issues_btn=export_issues_btn,
         metrics_md=metrics_md,
         token_chart=token_chart,
         token_summary_html=token_summary_html,
@@ -348,6 +370,7 @@ def load_slots(refs: OverviewRefs) -> dict:
         "overview_kpi_html": refs.overview_kpi_html,
         "session_detail_html": refs.session_detail_html,
         "issues_html": refs.issues_html,
+        "export_issues_btn": refs.export_issues_btn,
         "metrics_md": refs.metrics_md,
         "token_chart": refs.token_chart,
         "token_summary_html": refs.token_summary_html,
@@ -381,11 +404,13 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
     """Named Overview values for a load (empty when *session* is None)."""
     del banner
     fig = empty_plotly_fig()
+    export_off = _export_off()
     if session is None:
         return {
             "overview_kpi_html": gr.update(value="", visible=False),
             "session_detail_html": "",
             "issues_html": "",
+            "export_issues_btn": export_off,
             "state_overview_issues": [],
             "metrics_md": "",
             "token_chart": fig,
@@ -433,6 +458,8 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
         "overview_kpi_html": gr.update(value=ov["kpi_html"], visible=True),
         "session_detail_html": ov["session_detail"],
         "issues_html": ov["issues_html"],
+        # Disarmed here; load.success / post-judge prepare re-enables the button.
+        "export_issues_btn": export_off,
         "state_overview_issues": ov["issues_payload"],
         "metrics_md": ov["metrics_text"],
         "token_chart": ch["tok_fig"],
@@ -489,6 +516,31 @@ def _snapshot_dropdown_update(
         value=selected,
         visible=len(choices) > 1,
     )
+
+
+def prepare_issues_agent_download(run, issues_rows, request: gr.Request | None = None):
+    """Stage agent-ready issues JSON for the Overview DownloadButton."""
+    if run is None or not getattr(run, "steps", None):
+        return _export_off()
+    try:
+        session = session_from_run(run)
+        issues = None
+        if isinstance(issues_rows, list) and issues_rows:
+            issues = [
+                overview_issue_from_payload(row, max_steps=None)
+                for row in issues_rows
+                if isinstance(row, dict)
+            ]
+        return stage_gradio_download(
+            lambda directory: write_issues_agent_export(
+                session, directory, issues=issues,
+            ),
+            prefix=_TEMP_ISSUES_EXPORT_PREFIX,
+            request=request,
+        )
+    except Exception:
+        logger.exception("writing issues agent export failed")
+        return _export_off()
 
 
 def on_suggest_fixes(run, request: gr.Request | None = None):
@@ -648,12 +700,22 @@ def bind(
         show_progress="minimal",
         concurrency_id="issues_judge",
     )
-    # After load (heuristic Issues HTML is already painted), and again on click.
-    # Without ANALYZE_*/LABEL_* configured, this only shows the setup banner —
-    # no network call.
-    refs.suggest_fixes_btn.click(**judge_event)
+    export_event = dict(
+        fn=prepare_issues_agent_download,
+        inputs=[shared.state_run, shared.state_overview_issues],
+        outputs=[refs.export_issues_btn],
+        show_progress="minimal",
+        show_progress_on=refs.export_issues_btn,
+    )
+    # Arm the download as soon as load succeeds (heuristic issues already in
+    # State) — same pattern as Export HTML — so a slow/failing judge cannot
+    # leave the button stuck disarmed. Refresh after judge (load path and
+    # button click) so judgments land in the file when available.
+    # Without ANALYZE_*/LABEL_* configured, judge only shows the setup banner.
     for _ev in load_events:
-        _ev.then(**judge_event)
+        _ev.success(**export_event)
+        _ev.then(**judge_event).then(**export_event)
+    refs.suggest_fixes_btn.click(**judge_event).then(**export_event)
 
     @safe_callback("Context utilization")
     def _rebuild_utilization(agent_key, window_limit, snapshot_key, steps, raw, dark):

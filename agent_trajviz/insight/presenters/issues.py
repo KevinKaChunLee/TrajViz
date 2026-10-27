@@ -409,8 +409,16 @@ def overview_issues_payload(issues: list[OverviewIssue]) -> list[dict]:
     return [asdict(issue) for issue in issues]
 
 
-def overview_issue_from_payload(row: dict) -> OverviewIssue:
-    """Rebuild an OverviewIssue from :func:`overview_issues_payload` / ``asdict``."""
+def overview_issue_from_payload(
+    row: dict,
+    *,
+    max_steps: int | None = 12,
+) -> OverviewIssue:
+    """Rebuild an OverviewIssue from :func:`overview_issues_payload` / ``asdict``.
+
+    *max_steps* caps related step ids for UI prompts (default 12). Pass
+    ``None`` for agent export so every related step is kept.
+    """
     judgment = None
     raw_j = row.get("judgment")
     if isinstance(raw_j, dict) and raw_j.get("where") and raw_j.get("fix"):
@@ -423,7 +431,11 @@ def overview_issue_from_payload(row: dict) -> OverviewIssue:
             also=str(raw_j.get("also") or ""),
             confidence=cast(Confidence, conf),
         )
-    steps = tuple(int(s) for s in (row.get("steps") or ())[:12])
+    raw_steps = row.get("steps") or ()
+    if max_steps is None:
+        steps = tuple(int(s) for s in raw_steps)
+    else:
+        steps = tuple(int(s) for s in raw_steps[:max_steps])
     kind = row.get("kind") if row.get("kind") in _ISSUE_KINDS else "error"
     return OverviewIssue(
         kind=cast(IssueKind, kind),
