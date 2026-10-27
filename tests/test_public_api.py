@@ -15,6 +15,8 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from datetime import UTC, datetime
+from unittest.mock import patch
 
 import agent_trajviz as tv
 
@@ -185,11 +187,15 @@ class CompareAndReportTests(unittest.TestCase):
 
     def test_write_report_of_a_loaded_run_matches_the_file_report(self):
         run = tv.load(ASTROPY)
-        with tempfile.TemporaryDirectory() as tmp:
+        # Generating the two reports may cross a minute boundary on a slow
+        # runner. Freeze the header clock so the comparison still checks the
+        # complete HTML rather than trying to strip presentation-dependent dates.
+        with tempfile.TemporaryDirectory() as tmp, patch("agent_trajviz.insight.report.datetime") as clock:
+            clock.now.return_value = datetime(2026, 1, 1, tzinfo=UTC)
             from_run = tv.write_report(run, Path(tmp, "a.html")).read_text(encoding="utf-8")
             from_file = tv.write_report(ASTROPY, Path(tmp, "b.html")).read_text(encoding="utf-8")
-        # Plotly gives every chart a random div id; the time of writing is in the header.
-        strip = re.compile(r"Generated [^<]*|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+        # Plotly gives every chart a random div id.
+        strip = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
         self.assertEqual(strip.sub("", from_run), strip.sub("", from_file))
 
     def test_write_report_refuses_an_empty_trajectory(self):
