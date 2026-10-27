@@ -30,6 +30,7 @@ from ..presenters.overview import (
     build_chart_outputs,
     build_diagnostics_outputs,
     build_overview_outputs,
+    build_token_summary_html,
     empty_plotly_fig,
     render_section_guide,
 )
@@ -37,7 +38,7 @@ from ..token_explain import build_token_step_panel_html
 from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
 from ..llm_config import resolve_analysis_config
 from ..session import LoadedSession, session_from_run
-from .shared import SharedState, safe_callback
+from .shared import SharedState, is_latest_run, safe_callback
 from .upload import UploadRefs
 
 
@@ -57,6 +58,7 @@ class OverviewRefs:
     suggest_fixes_btn: gr.Button
     metrics_md: gr.Markdown
     token_chart: gr.Plot
+    token_summary_html: gr.HTML
     token_step_html: gr.HTML
     duration_chart: gr.Plot
     gantt_chart: gr.Plot
@@ -153,6 +155,10 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
             with gr.Column(scale=1, min_width=0, elem_classes=["overview-section-content"]):
                 with gr.Column(visible=True) as performance_section:
                     gr.HTML(render_section_guide("performance_section"))
+                    token_summary_html = gr.HTML(
+                        "",
+                        elem_classes=["token-summary-wrap"],
+                    )
                     with gr.Row(equal_height=True):
                         token_chart = gr.Plot(
                             show_label=False,
@@ -300,6 +306,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
         suggest_fixes_btn=suggest_fixes_btn,
         metrics_md=metrics_md,
         token_chart=token_chart,
+        token_summary_html=token_summary_html,
         token_step_html=token_step_html,
         duration_chart=duration_chart,
         gantt_chart=gantt_chart,
@@ -343,6 +350,7 @@ def load_slots(refs: OverviewRefs) -> dict:
         "issues_html": refs.issues_html,
         "metrics_md": refs.metrics_md,
         "token_chart": refs.token_chart,
+        "token_summary_html": refs.token_summary_html,
         "token_step_html": refs.token_step_html,
         "duration_chart": refs.duration_chart,
         "gantt_chart": refs.gantt_chart,
@@ -381,6 +389,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
             "state_overview_issues": [],
             "metrics_md": "",
             "token_chart": fig,
+            "token_summary_html": "",
             "token_step_html": build_token_step_panel_html([]),
             "duration_chart": fig,
             "gantt_chart": fig,
@@ -414,7 +423,10 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
             "per_message_md": "",
         }
 
-    ov = build_overview_outputs(session)
+    # With AI configured the 任务/结局 rows start as a spinner placeholder
+    # (on_suggest_fixes fills them in right after load); without AI they are
+    # omitted entirely.
+    ov = build_overview_outputs(session, ai_pending=resolve_analysis_config().ready)
     ch = build_chart_outputs(session, dark=dark)
     dg = build_diagnostics_outputs(session, dark=dark)
     return {
@@ -424,6 +436,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
         "state_overview_issues": ov["issues_payload"],
         "metrics_md": ov["metrics_text"],
         "token_chart": ch["tok_fig"],
+        "token_summary_html": build_token_summary_html(session),
         "token_step_html": build_token_step_panel_html(session.steps),
         "duration_chart": ch["dur_fig"],
         "gantt_chart": ch["gantt_fig"],
@@ -478,6 +491,119 @@ def _snapshot_dropdown_update(
     )
 
 
+def on_suggest_fixes(run, request: gr.Request | None = None):
+    """Run the LLM run summary + Issues judge after load (or on button click); stream progress into the panel.
+
+    The stream paints the Issues panel across many yields while the run it
+    started with may already have been replaced (upload row cleared, another
+    trajectory loaded). Every resume checks ``shared.is_latest_run`` and stops
+    itself instead of overwriting the new trace's panel with the old one's
+    content.
+    """
+    from ..presenters.issues import render_overview_issues_html
+    from ..issue_judge import judge_run_summary, _judge_error_text
+
+    session_key = getattr(request, "session_hash", None)
+
+    def _superseded() -> bool:
+        return not is_latest_run(session_key, run)
+
+    if run is None or not run.steps:
+        yield render_overview_issues_html([]), []
+        return
+
+    if _superseded():
+        return
+
+    cfg = resolve_analysis_config()
+    session = session_from_run(run, "")
+    ranked = prepare_overview_issues(session)
+    payload = overview_issues_payload(ranked)
+
+    if not cfg.ready:
+        missing = ", ".join(cfg.missing)
+        banner = f"Configure {missing} in .env to auto-suggest fixes"
+        if _superseded():
+            return
+        yield build_overview_issues_html(session, issues=ranked, banner=banner), payload
+        return
+
+    # AI run summary first — one call, before issue judging. While it runs
+    # the 任务/结局 rows show a spinner placeholder. Progress line stays empty:
+    # the 任务/结局 spinner is the sole status.
+    ai_summary = None
+    summary_error = ""
+    if _superseded():
+        return
+    yield build_overview_issues_html(
+        session, issues=ranked, ai_pending=True,
+    ), gr.skip()
+    if _superseded():
+        return
+    try:
+        ai_summary = judge_run_summary(session, config=cfg)
+    except Exception as exc:  # noqa: BLE001 — rows stay hidden; banner explains
+        summary_error = _judge_error_text(exc)
+
+    if not ranked:
+        if _superseded():
+            return
+        banner = f"Run summary failed: {summary_error[:160]}" if summary_error else ""
+        yield build_overview_issues_html(
+            session, issues=ranked, ai_summary=ai_summary, banner=banner,
+        ), payload
+        return
+
+    judged = ranked
+    errors: list[str] = []
+    for progress in iter_judge_overview_issues(
+        session, ranked, config=cfg, limit=JUDGE_ISSUE_CAP,
+    ):
+        judged = progress.issues
+        errors = progress.errors
+        if not progress.finished:
+            short = progress.current_title
+            if len(short) > 48:
+                short = short[:45] + "…"
+            progress_line = (
+                f"Suggesting fixes {progress.current}/{progress.total} — {short}"
+            )
+            # Stream HTML only; refresh State once when judgments are final.
+            if _superseded():
+                return
+            yield build_overview_issues_html(
+                session, issues=judged, progress=progress_line,
+                ai_summary=ai_summary,
+            ), gr.skip()
+            continue
+
+        ok = sum(1 for i in judged if i.judgment is not None)
+        if errors and ok == 0:
+            banner = f"Judge failed ({len(errors)}). First: {errors[0][:160]}"
+            if _superseded():
+                return
+            yield build_overview_issues_html(
+                session, issues=ranked, banner=banner, ai_summary=ai_summary,
+            ), payload
+            return
+
+        banner = ""
+        if summary_error:
+            banner = f"Run summary failed: {summary_error[:160]}"
+        elif errors:
+            banner = (
+                f"{len(errors)} issue(s) could not be judged"
+                f" ({ok}/{min(len(ranked), JUDGE_ISSUE_CAP)} ok)."
+            )
+        elif len(ranked) > JUDGE_ISSUE_CAP:
+            banner = f"Judged {ok}/{JUDGE_ISSUE_CAP} (capped)."
+        if _superseded():
+            return
+        yield build_overview_issues_html(
+            session, issues=judged, banner=banner, ai_summary=ai_summary,
+        ), overview_issues_payload(judged)
+
+
 def bind(
     refs: OverviewRefs,
     shared: SharedState,
@@ -514,69 +640,6 @@ def bind(
         inputs=[refs.gantt_axis_mode, shared.state_steps, shared.state_dark],
         outputs=[refs.gantt_chart],
     )
-
-    def on_suggest_fixes(run):
-        """Run the LLM Issues judge after load (or on button click); stream progress into the panel."""
-        from ..presenters.issues import render_overview_issues_html
-
-        if run is None or not run.steps:
-            yield render_overview_issues_html([]), []
-            return
-
-        cfg = resolve_analysis_config()
-        session = session_from_run(run, "")
-        ranked = prepare_overview_issues(session)
-        payload = overview_issues_payload(ranked)
-
-        if not cfg.ready:
-            missing = ", ".join(cfg.missing)
-            banner = f"Configure {missing} in .env to auto-suggest fixes"
-            yield build_overview_issues_html(session, issues=ranked, banner=banner), payload
-            return
-
-        if not ranked:
-            yield build_overview_issues_html(session, issues=ranked), payload
-            return
-
-        judged = ranked
-        errors: list[str] = []
-        for progress in iter_judge_overview_issues(
-            session, ranked, config=cfg, limit=JUDGE_ISSUE_CAP,
-        ):
-            judged = progress.issues
-            errors = progress.errors
-            if not progress.finished:
-                short = progress.current_title
-                if len(short) > 48:
-                    short = short[:45] + "…"
-                progress_line = (
-                    f"Suggesting fixes {progress.current}/{progress.total} — {short}"
-                )
-                # Stream HTML only; refresh State once when judgments are final.
-                yield build_overview_issues_html(
-                    session, issues=judged, progress=progress_line,
-                ), gr.skip()
-                continue
-
-            ok = sum(1 for i in judged if i.judgment is not None)
-            if errors and ok == 0:
-                banner = f"Judge failed ({len(errors)}). First: {errors[0][:160]}"
-                yield build_overview_issues_html(
-                    session, issues=ranked, banner=banner,
-                ), payload
-                return
-
-            banner = ""
-            if errors:
-                banner = (
-                    f"{len(errors)} issue(s) could not be judged"
-                    f" ({ok}/{min(len(ranked), JUDGE_ISSUE_CAP)} ok)."
-                )
-            elif len(ranked) > JUDGE_ISSUE_CAP:
-                banner = f"Judged {ok}/{JUDGE_ISSUE_CAP} (capped)."
-            yield build_overview_issues_html(
-                session, issues=judged, banner=banner,
-            ), overview_issues_payload(judged)
 
     judge_event = dict(
         fn=on_suggest_fixes,

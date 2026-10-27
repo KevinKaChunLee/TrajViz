@@ -14,7 +14,7 @@ from ..assistant import build_analysis_brief_from_session
 from ...plugins import format_label
 from ..session import LoadError, LoadedSession, load_session
 from . import overview_tab, patterns_tab, raw_tab, upload, workflow_tab
-from .shared import SharedState
+from .shared import SharedState, record_latest_run
 
 logger = logging.getLogger(__name__)
 
@@ -220,11 +220,20 @@ def pack_load_outputs(result: LoadedSession | LoadError, dark: bool = False) -> 
     return packed
 
 
-def do_load(upload_obj, dark=False, selected_format="", *, slots: dict[str, Any] | None = None):
+def do_load(
+    upload_obj,
+    dark=False,
+    selected_format="",
+    *,
+    slots: dict[str, Any] | None = None,
+    request: gr.Request | None = None,
+):
     """Load wrapper: surface unexpected failures as a visible banner.
 
     When *slots* is provided (the live dashboard), return a Gradio component
     dict. Tests call ``pack_load_outputs`` / ``empty_load_outputs`` directly.
+    Every load — success, error, or the cleared upload — records what the
+    browser session now displays so superseded post-load streams stop themselves.
     """
     try:
         file_path = resolve_upload_path(upload_obj)
@@ -236,6 +245,7 @@ def do_load(upload_obj, dark=False, selected_format="", *, slots: dict[str, Any]
             banner=(f"<p style='color:#dc2626;'>Error loading trajectory: {html.escape(str(exc))}</p>"),
             detail="*Failed to load — see console for details.*",
         )
+    record_latest_run(getattr(request, "session_hash", None), packed.get("state_run"))
     if slots is None:
         return packed
     return {slots[key]: packed[key] for key in slots}
@@ -260,8 +270,8 @@ def bind_load(*, file_upload, load_btn, format_selector, state_dark, slots: dict
             f"Load slot keys mismatch vs packer: missing={sorted(expected - got)} extra={sorted(got - expected)}"
         )
 
-    def _do_load(upload_obj, dark=False, selected_format=""):
-        return do_load(upload_obj, dark, selected_format, slots=slots)
+    def _do_load(upload_obj, dark=False, selected_format="", request: gr.Request | None = None):
+        return do_load(upload_obj, dark, selected_format, slots=slots, request=request)
 
     outputs = list(slots.values())
     _load_ev = load_btn.click(

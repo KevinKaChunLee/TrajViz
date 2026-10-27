@@ -1227,11 +1227,144 @@ html.tv-theme-dark {
     font-size: 12px;
     color: var(--ov-muted);
 }
-.overview-issue-info {
-    align-self: center;
+.overview-issue-why,
+.overview-issue-action {
+    margin-top: 5px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--ov-text);
+}
+.overview-issue-action {
+    color: var(--ov-muted);
+}
+.overview-issue-label {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 5px;
+    border-radius: 4px;
+    background: var(--ov-table-header-bg);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--ov-muted);
+    vertical-align: 1px;
+    white-space: nowrap;
+}
+.overview-issue-label-ai {
+    background: var(--ov-card);
+    color: var(--ov-accent);
+}
+.overview-issue-fix {
+    margin-top: 4px;
+    color: var(--ov-text);
+    line-height: 1.45;
+}
+.overview-issue-where {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: var(--ov-muted);
+}
+.overview-issue-where-label {
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: 1px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--ov-muted);
+    white-space: nowrap;
+}
+.overview-issue-where-value {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--ov-text);
+}
+.overview-issue-also {
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--ov-muted);
+}
+.overview-issue-tech {
+    margin-top: 6px;
+}
+.overview-issue-tech summary {
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--ov-muted);
+    user-select: none;
+}
+.overview-issue-tech .overview-issue-detail {
+    display: block;
+    margin-top: 4px;
+    line-height: 1.45;
+}
+.ov-verdict {
+    padding: 10px 14px;
+    background: var(--ov-card);
+    border-left: 4px solid var(--ov-border);
+    border-radius: 4px;
+    margin: 0 0 10px;
+}
+.ov-verdict-head {
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+.ov-verdict-text {
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ov-text);
+}
+.ov-run-summary {
+    padding: 10px 14px;
+    background: var(--ov-card);
+    border-left: 4px solid var(--ov-border);
+    border-radius: 4px;
+    margin: 0 0 10px;
+}
+.ov-run-row {
+    display: flex;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.ov-run-row + .ov-run-row {
+    margin-top: 6px;
+}
+.ov-run-label {
+    flex: 0 0 40px;
+    font-weight: 700;
     font-size: 12px;
     color: var(--ov-muted);
-    cursor: help;
+    padding-top: 1px;
+}
+.ov-run-value {
+    flex: 1;
+    min-width: 0;
+    color: var(--ov-text);
+    word-break: break-word;
+}
+.ov-run-muted {
+    color: var(--ov-muted);
+}
+.ov-run-note {
+    color: var(--ov-bad);
+    font-weight: 650;
+    white-space: nowrap;
+}
+.token-summary-wrap {
+    min-height: 0;
+}
+.token-summary-line {
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--ov-text);
+    padding: 0 2px 8px;
+}
+.token-summary-line span {
+    white-space: nowrap;
+}
+.token-summary-sep {
+    color: var(--ov-muted);
 }
 .overview-issue-analyze {
     display: inline-flex;

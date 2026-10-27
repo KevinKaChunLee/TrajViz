@@ -43,13 +43,18 @@ from .metrics import (
 from .patterns import (
     build_structural_phase_segments,
     compute_plan_metrics,
+    detect_blind_retries,
     detect_edit_thrash,
     detect_failure_patterns,
     detect_fruitless_streaks,
+    detect_oversized_outputs,
     detect_phase_anomalies,
     detect_repeated_searches,
     detect_tool_selection_antipatterns,
     detect_tool_sequences,
+    detect_user_repeats,
+    detect_redundant_re_reads,
+    detect_unvalidated_writes,
     extract_plan_history,
 )
 
@@ -266,6 +271,26 @@ class Analysis:
     @cached_property
     def repeated_searches(self) -> list:
         return detect_repeated_searches(self.steps)
+
+    @cached_property
+    def oversized_outputs(self) -> list:
+        return detect_oversized_outputs(self.steps)
+
+    @cached_property
+    def blind_retries(self) -> list:
+        return detect_blind_retries(self.steps)
+
+    @cached_property
+    def user_repeats(self) -> list:
+        return detect_user_repeats(self.steps)
+
+    @cached_property
+    def unvalidated_writes(self) -> list:
+        return detect_unvalidated_writes(self.steps)
+
+    @cached_property
+    def redundant_re_reads(self) -> list:
+        return detect_redundant_re_reads(self.steps)
 
     # -- triage -------------------------------------------------------------
     @cached_property

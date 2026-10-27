@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import plotly.graph_objects as go
 
 from ..formats.common import as_text
-from ..context_usage import PRESSURE_ALL_AGENTS
+from ..context_usage import PRESSURE_ALL_AGENTS, _explicit_compaction_events
 from ..formatting import (
     format_banner_html,
     format_behavioral_md,
@@ -32,6 +32,7 @@ from ..charts import build_execution_gantt_chart
 from .issues import (
     ISSUE_KIND_COLORS,
     OverviewIssue,
+    _fmt_k,
     build_overview_issues_html,
     overview_issues_payload,
     prepare_overview_issues,
@@ -392,7 +393,60 @@ def build_summary_outputs(session: LoadedSession) -> dict:
     }
 
 
-def build_overview_outputs(session: LoadedSession) -> dict:
+def build_token_summary_html(session: LoadedSession) -> str:
+    """One-line takeaway above the Token Usage chart: cache hit rate, tokens
+    dropped by compaction, the biggest step, and the peak context — the
+    numbers that used to need a bar click to see.
+
+    Every value is generated (counts, percentages); no export text enters, so
+    the line needs no escaping.
+    """
+    steps = session.steps
+    if not steps:
+        return ""
+    cache_read = fresh = peak = 0
+    max_total = 0
+    max_idx = None
+    for i, s in enumerate(steps):
+        tokens = s.get("tokens") or {}
+        cr = tokens.get("cache_read") or 0
+        inp = tokens.get("input") or 0
+        if cr or inp:
+            cache_read += cr
+            fresh += inp
+            peak = max(peak, cr + inp)
+        total = tokens.get("total") or 0
+        if total > max_total:
+            max_total = total
+            max_idx = i
+
+    parts = []
+    if cache_read + fresh > 0:
+        pct = round(cache_read / (cache_read + fresh) * 100)
+        parts.append(f"缓存命中 {pct}%（命中 {_fmt_k(cache_read)} / 新算 {_fmt_k(fresh)}）")
+    compactions = _explicit_compaction_events(steps)
+    if compactions:
+        dropped = sum(int(e.get("dropped") or 0) for e in compactions)
+        if dropped > 0:
+            parts.append(f"压缩丢弃 {_fmt_k(dropped)} token（{len(compactions)} 次）")
+        else:
+            parts.append(f"压缩 {len(compactions)} 次")
+    if max_idx is not None and max_total > 0:
+        parts.append(f"最大单步 {_fmt_k(max_total)}（第 {max_idx} 步）")
+    if peak > 0:
+        parts.append(f"上下文峰值 {_fmt_k(peak)}")
+    if not parts:
+        return ""
+    return (
+        "<div class='token-summary-line'>"
+        + "<span class='token-summary-sep'> · </span>".join(
+            f"<span>{p}</span>" for p in parts
+        )
+        + "</div>"
+    )
+
+
+def build_overview_outputs(session: LoadedSession, *, ai_pending: bool = False) -> dict:
     """Compute overview-related outputs: banner, KPI, metadata, and metrics markdown."""
     steps = session.steps
     raw = session.raw
@@ -412,7 +466,7 @@ def build_overview_outputs(session: LoadedSession) -> dict:
         agent_summaries=session.agent_summaries,
         tokens_estimated=tokens_are_estimates(session.raw),
     )
-    issues_html = build_overview_issues_html(session, issues=ranked_issues)
+    issues_html = build_overview_issues_html(session, issues=ranked_issues, ai_pending=ai_pending)
     issues_payload = overview_issues_payload(ranked_issues)
     metrics_text = format_performance_md(metrics, wfmt)
 

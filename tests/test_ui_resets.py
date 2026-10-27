@@ -201,6 +201,7 @@ class OverviewSectionMappingTests(unittest.TestCase):
                 state_raw=gr.State({}),
                 state_analysis_brief=gr.State(""),
                 state_run=gr.State(None),
+                state_overview_issues=gr.State([]),
             )
         return refs, shared_state, upload_refs
 

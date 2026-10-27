@@ -16,7 +16,7 @@ import gradio as gr
 from ..presenters.overview import load_warnings_html
 from ..report import ReportError, write_report_file
 from ..session import LoadedSession
-from .shared import SharedState, format_choices
+from .shared import SharedState, drop_latest_run, format_choices
 
 logger = logging.getLogger(__name__)
 
@@ -135,10 +135,11 @@ def _remove_temp_export_dir(directory: str | None) -> None:
 
 
 def cleanup_session_export(request: gr.Request) -> None:
-    """Release only the departing browser session's temporary report."""
+    """Release only the departing browser session's temporary report and load record."""
     session = getattr(request, "session_hash", None)
     if session is None:
         return
+    drop_latest_run(session)
     with _temp_export_lock:
         _remove_temp_export_dir(_last_temp_export_dirs.pop(session, None))
 

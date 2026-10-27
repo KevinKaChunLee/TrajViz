@@ -196,6 +196,7 @@ EXEMPT_SLOTS = {
     "state_raw": "gr.State",
     "state_analysis_brief": "gr.State (LLM prompt text)",
     "state_run": "gr.State (the loaded Trajectory)",
+    "state_overview_issues": "gr.State (OverviewIssue objects; escaped when build_overview_issues_html renders them)",
     # gr.Code renders into a CodeMirror text node.
     "raw_json": "gr.Code",
     # gr.Markdown defaults to sanitize_html=True (DOMPurify runs client-side).

@@ -243,7 +243,7 @@ class TokenChartTests(unittest.TestCase):
         legend = [t.name for t in fig.data if t.showlegend is not False]
         self.assertEqual(
             legend,
-            ["Cache Read", "Fresh Input", "Reasoning", "Output", "Cache Write"],
+            ["Cache Read", "Fresh Input", "Reasoning", "Output"],
         )
 
     def test_multi_agent_panel_stack_equals_that_agents_step_totals(self):
