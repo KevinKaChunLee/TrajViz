@@ -19,6 +19,7 @@ from .palette import AGENT_COLORS, AGENT_CSS_COLORS
 from .parser import _optional_token_count, cache_read_share
 from .styles import WORKFLOW_CSS
 from .telemetry_quality import field_observed
+from .tool_output import tool_output_text
 from .workflow_role import workflow_role
 
 
@@ -606,17 +607,8 @@ def _format_step_header(step: dict) -> str:
 def _format_tool_call_detail(p: dict) -> str:
     """Render a single tool_call part as a styled HTML block."""
     inp = p.get("input", {})
-    out = p.get("output", "")
+    out = tool_output_text(p.get("output", ""))
     inp_str = json.dumps(inp, indent=2, ensure_ascii=False) if isinstance(inp, dict) else str(inp)
-    if not isinstance(out, str):
-        if isinstance(out, list) and all(isinstance(b, dict) and b.get("type") == "text" for b in out):
-            # unwrap content-block lists to readable text
-            out = "\n".join(str(b.get("text", "")) for b in out)
-        else:
-            try:
-                out = json.dumps(out, indent=2, ensure_ascii=False)
-            except (TypeError, ValueError):
-                out = str(out)
     if len(out) > 2000:
         out = out[:2000] + "\n... (truncated)"
 

@@ -1,5 +1,6 @@
 """Codex CLI JSONL → internal trajectory."""
 
+import ast
 import json
 import re
 import shlex
@@ -542,15 +543,16 @@ def _merge_codex_children(result: dict, children: dict[str, dict], root_id: str)
     result["_load_warnings"] = list(dict.fromkeys(result["_load_warnings"]))
 
 def _extract_codex_exec_commands(source: str) -> list[str]:
-    """Extract JSON-quoted ``cmd`` values from a modern custom ``exec`` input."""
+    """Extract literal quoted ``cmd`` values without evaluating code-mode input."""
     if not isinstance(source, str):
         return []
-    pattern = re.compile(r'(?:["\']?cmd["\']?)\s*:\s*("(?:\\.|[^"\\])*")')
+    pattern = re.compile(r"""(?:["']?cmd["']?)\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')""")
     commands = []
     for match in pattern.finditer(source):
+        literal = match.group(1)
         try:
-            command = json.loads(match.group(1))
-        except json.JSONDecodeError:
+            command = json.loads(literal) if literal.startswith('"') else ast.literal_eval(literal)
+        except (ValueError, SyntaxError, RecursionError):
             continue
         if isinstance(command, str):
             commands.append(command)

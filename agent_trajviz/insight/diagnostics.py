@@ -15,6 +15,7 @@ import statistics
 
 from .shell_cmd import tool_chart_name
 from .tool_failure import FAILURE_STATUSES, tool_call_error_kind, tool_call_failed
+from .tool_output import tool_output_text
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +389,7 @@ def _error_pattern(tc: dict) -> str:
     if status in FAILURE_STATUSES:
         output = tc.get("output", "")
         if output:
-            return str(output).strip().split("\n")[0][:120]
+            return tool_output_text(output, errors_only=True).strip().split("\n")[0][:120]
         return f"status: {status}"
 
     # Last canonical signal: a failure carried only by error_type. Checked last

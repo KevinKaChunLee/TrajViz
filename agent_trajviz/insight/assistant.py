@@ -42,6 +42,7 @@ from .patterns import (
     detect_tool_sequences,
 )
 from .tool_failure import tool_call_failed
+from .tool_output import tool_output_text
 
 if TYPE_CHECKING:
     from .session import LoadedSession
@@ -457,7 +458,7 @@ def _error_step_lines(steps: list[dict], limit: int = 16) -> list[str]:
             preview = _tool_arg_preview(tool_call)
             err_type = tool_call.get("error_type")
             error = tool_call.get("error")
-            output = _clip(str(tool_call.get("output") or error or ""), _OUTPUT_CLIP)
+            output = _clip(tool_output_text(tool_call.get("output") or error or "", errors_only=True), _OUTPUT_CLIP)
             lines.append(
                 f"- step {step.get('index')} {tool_call.get('tool_name', '?')} "
                 f"status={status or '?'} type={err_type or ''} {preview}"
