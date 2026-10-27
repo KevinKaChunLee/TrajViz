@@ -704,28 +704,18 @@ def _fmt_k(n: float) -> str:
     return f"{n / 1_000_000:.2f}M"
 
 
-def _fmt_wall(seconds: float) -> str:
-    """Wall-clock duration: 45s / 5m 40s / 2h 05m."""
-    total = int(round(seconds))
-    if total < 60:
-        return f"{total}s"
-    minutes, secs = divmod(total, 60)
-    if minutes < 60:
-        return f"{minutes}m {secs}s" if secs else f"{minutes}m"
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours}h {minutes:02d}m" if minutes else f"{hours}h"
-
-
 def _run_numbers_zh(steps: list[dict], metrics: dict) -> list[str]:
     """The headline numbers of a run, as display-ready strings.
 
     Tool names come from the export, so they are escaped here and the list is
     joined WITHOUT a second escape.
     """
+    from ..metrics import format_duration_seconds
+
     nums = [f"{len(steps)} 步"]
     wall = metrics.get("wall_clock")
     if isinstance(wall, (int, float)) and wall > 0:
-        nums.append(_fmt_wall(wall))
+        nums.append(format_duration_seconds(wall))
     toks = metrics.get("tokens") or {}
     total_tokens = toks.get("total") or 0
     if total_tokens:

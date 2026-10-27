@@ -425,13 +425,36 @@ def non_spawn_tool_seconds(step: dict) -> float:
     return total
 
 
+def format_duration_seconds(seconds: float, *, fractional_under: float | None = None) -> str:
+    """Human duration: ``45s`` / ``5m 40s`` / ``2h 05m`` / ``2d 4h``.
+
+    Pass ``fractional_under=10`` for chart tooltips that keep one decimal below
+    that threshold (``0.5s``); wall-clock cards leave it unset and round.
+    """
+    if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or seconds < 0:
+        seconds = 0.0
+    if fractional_under is not None and seconds < fractional_under:
+        text = f"{seconds:.1f}".rstrip("0").rstrip(".")
+        return f"{text}s"
+    total = int(round(seconds))
+    if total < 60:
+        return f"{total}s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s" if secs else f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h {minutes:02d}m" if minutes else f"{hours}h"
+    days, hours = divmod(hours, 24)
+    return f"{days}d {hours}h" if hours else f"{days}d"
+
+
 def wall_clock_fmt(metrics: dict) -> tuple[float, str]:
     """Return (wall_seconds, formatted_string) for wall-clock time."""
     wall = metrics["wall_clock"] if isinstance(metrics["wall_clock"], (int, float)) else metrics["total_duration"]
     if wall is None:
         return 0.0, "n/a"
-    fmt = f"{wall:.0f}s" if wall < 3600 else f"{wall / 60:.1f}m"
-    return wall, fmt
+    return wall, format_duration_seconds(wall)
 
 
 def generation_seconds(step: dict) -> tuple[float, float] | None:

@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from ..palette import CHART_ACCENT, TOKEN_COLORS
 from ..timeline_agents import _legend_label, bind_timeline_agents
 from ..workflow_role import workflow_role
-from ._layout import _apply_chart_layout, _apply_dark
+from ._layout import _apply_chart_layout, _apply_dark, _fmt_duration
 
 # Two-color scheme: the step body is the agent's own thinking time; tool
 # execution windows are overlaid in a contrasting color on the same lane.
@@ -56,21 +56,6 @@ def _step_end_ms(step: dict, start_ms: float) -> float | None:
         if isinstance(duration, (int, float)) and not isinstance(duration, bool) and duration > 0:
             end_ms = start_ms + duration * 1000.0
     return end_ms
-
-
-def _fmt_duration(seconds: float) -> str:
-    """Human-scale idle duration: 45s / 5m 40s / 2h 05m / 2d 4h."""
-    total = int(round(seconds))
-    if total < 60:
-        return f"{total}s"
-    minutes, secs = divmod(total, 60)
-    if minutes < 60:
-        return f"{minutes}m {secs}s" if secs else f"{minutes}m"
-    hours, minutes = divmod(minutes, 60)
-    if hours < 24:
-        return f"{hours}h {minutes:02d}m" if minutes else f"{hours}h"
-    days, hours = divmod(hours, 24)
-    return f"{days}d {hours}h" if hours else f"{days}d"
 
 
 class _IdleGapAxis:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 
@@ -10,6 +11,8 @@ from ._layout import (
     _apply_chart_layout,
     _apply_dark,
     _empty_figure,
+    _fmt_duration,
+    _labels_with_call_counts,
     _truncate_chart_label,
     _truncate_chart_labels,
 )
@@ -574,6 +577,7 @@ def draw_tool_usage(data: dict, dark: bool = False) -> go.Figure:
         return fig
 
     sorted_tools = sorted(all_tools.keys(), key=lambda t: all_tools[t])
+    # Totals live at the bar end (text / annotations), not on the y-axis.
     display_names = _truncate_chart_labels(sorted_tools)
     by_tool = {t["tool"]: t["by_agent"] for t in data["tools"]}
 
@@ -596,6 +600,13 @@ def draw_tool_usage(data: dict, dark: bool = False) -> go.Figure:
                     hovertemplate=f"{label}: " + "%{x} call(s)<extra></extra>",
                 )
             )
+        _annotate_hbar_ends(
+            fig,
+            [
+                (y_label, all_tools[tool], f" {all_tools[tool]}")
+                for tool, y_label in zip(sorted_tools, display_names, strict=True)
+            ],
+        )
     else:
         counts = [all_tools[t] for t in sorted_tools]
         fig.add_trace(
@@ -620,9 +631,11 @@ def draw_tool_usage(data: dict, dark: bool = False) -> go.Figure:
         n_tools=len(sorted_tools),
         max_label=max_label,
         barmode="stack" if has_agents else "relative",
+        margin_t=150 if has_agents else 50,
+        margin_r=70 if has_agents else 60,
     )
     if has_agents:
-        fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),margin=dict(t=150),)
+        fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0))
     _apply_dark(fig, dark)
     return fig
 
@@ -635,16 +648,58 @@ def build_tool_duration_chart(steps: list[dict], dark: bool = False) -> go.Figur
     return draw_tool_durations(chart_data.tool_durations(steps), dark=dark)
 
 
+def _tool_duration_axis_max(totals: list[float]) -> float:
+    """X-axis upper bound; soft-caps when one tool would crush the others."""
+    positive = sorted(value for value in totals if value > 0)
+    if not positive:
+        return 0.0
+    if len(positive) < 2:
+        return positive[-1]
+    peak, runner = positive[-1], positive[-2]
+    if peak <= runner * 3 or peak - runner < 30:
+        return peak
+    return max(runner * 2.0, 1.0)
+
+
+def _duration_axis_ticks(real_max: float) -> tuple[list[float], list[str]]:
+    """Evenly spaced ticks labeled with human durations."""
+    if real_max <= 0:
+        return [0.0], ["0s"]
+    raw_step = real_max / 5.0
+    mag = 10.0 ** math.floor(math.log10(raw_step))
+    step = next((s * mag for s in (1, 2, 5, 10) if s * mag >= raw_step), mag)
+    ticks = [0.0]
+    value = step
+    while value < real_max * 0.98:
+        ticks.append(value)
+        value += step
+    if ticks[-1] < real_max:
+        ticks.append(real_max)
+    return ticks, [_fmt_duration(tick) for tick in ticks]
+
+
+def _annotate_hbar_ends(fig: go.Figure, rows: list[tuple[str, float, str]]) -> None:
+    """Left-anchored end labels for horizontal bars: ``(y_label, x, text)``."""
+    for y_label, x, text in rows:
+        fig.add_annotation(
+            x=x,
+            y=y_label,
+            text=text,
+            showarrow=False,
+            xanchor="left",
+            yanchor="middle",
+            font=dict(size=11, color="#64748b"),
+            xref="x",
+            yref="y",
+        )
+
+
 def draw_tool_durations(data: dict, dark: bool = False) -> go.Figure:
     """Draw :func:`chart_data.tool_durations` output.
 
-    Each segment is one tool invocation. Hover shows that segment's duration
-    and the step index where it ran (plus the agent label when multiple agents
-    are present).
-
-    Spawn/delegation tools (``task``, ``Agent``, …) are omitted: their duration
-    is wall-clock for the whole child agent, which swamps real tool timings and
-    double-counts work already shown via the child's own calls.
+    Each segment is one timed call (clickable via step ``customdata``). Spawn
+    tools are omitted so child wall-clock is not double-counted. A dominant
+    tool soft-caps the x-axis; end labels keep the true human duration.
     """
     agents = data["agents"]
     has_agents = len(agents) > 1
@@ -659,7 +714,10 @@ def draw_tool_durations(data: dict, dark: bool = False) -> go.Figure:
         return fig
 
     sorted_tools = sorted(total_secs.keys(), key=lambda t: total_secs[t])
-    display_names = _truncate_chart_labels(sorted_tools)
+    display_names = _labels_with_call_counts(
+        sorted_tools, [len(calls_by_tool[tool]) for tool in sorted_tools]
+    )
+    axis_max = _tool_duration_axis_max([total_secs[t] for t in sorted_tools])
 
     fig = go.Figure()
     legend_seen: set[str] = set()
@@ -703,12 +761,13 @@ def draw_tool_durations(data: dict, dark: bool = False) -> go.Figure:
                     customdata=[step_idx],
                     hovertemplate=(
                         f"{tool_name}<br>Step %{{customdata}}"
-                        f"<br>{secs:.1f}s{hover_extra}<extra></extra>"
+                        f"<br>{_fmt_duration(secs)}{hover_extra}<extra></extra>"
                     ),
                 )
             )
             base += secs
 
+    tickvals, ticktext = _duration_axis_ticks(axis_max)
     max_label = max(len(n) for n in display_names)
     _apply_tool_hbar_layout(
         fig,
@@ -716,15 +775,35 @@ def draw_tool_durations(data: dict, dark: bool = False) -> go.Figure:
         # Each bar stacks per-call durations, so calls that ran in parallel are
         # counted once per call here, while the "Tool time" chip is wall-clock
         # (the union of the call windows). Say which one this axis is.
-        xaxis="Summed call time (s) — parallel calls each count",
+        xaxis="Summed call time — parallel calls each count",
         n_tools=len(sorted_tools),
         max_label=max_label,
         barmode="overlay",
+        margin_t=200 if has_agents else 50,
+        margin_r=90,
     )
     fig.update_layout(clickmode="event")
     fig.update_yaxes(categoryorder="array", categoryarray=display_names)
+    fig.update_xaxes(
+        tickmode="array",
+        tickvals=tickvals,
+        ticktext=ticktext,
+        range=[0, axis_max * 1.02] if axis_max > 0 else None,
+    )
+    _annotate_hbar_ends(
+        fig,
+        [
+            (
+                y_label,
+                axis_max if total_secs[tool_name] > axis_max else total_secs[tool_name],
+                f" {_fmt_duration(total_secs[tool_name])}"
+                + (" →" if total_secs[tool_name] > axis_max else ""),
+            )
+            for tool_name, y_label in zip(sorted_tools, display_names, strict=True)
+        ],
+    )
     if has_agents:
-        fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.00, xanchor="right", x=1.0),margin=dict(t=200))
+        fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.00, xanchor="right", x=1.0))
     _apply_dark(fig, dark)
     return fig
 
@@ -737,6 +816,8 @@ def _apply_tool_hbar_layout(
     n_tools: int,
     max_label: int,
     barmode: str,
+    margin_t: int = 50,
+    margin_r: int = 60,
 ) -> None:
     """Shared layout for horizontal tool frequency / duration bars."""
     _apply_chart_layout(
@@ -745,7 +826,7 @@ def _apply_tool_hbar_layout(
         xaxis=xaxis,
         height=max(250, 50 * n_tools),
         barmode=barmode,
-        margin=dict(l=max(140, max_label * 7 + 20), r=60, t=50, b=40),
+        margin=dict(l=max(140, max_label * 7 + 20), r=margin_r, t=margin_t, b=40),
     )
 
 

@@ -22,7 +22,7 @@ from ..formatting import (
 from ..help import HELP_TEXT, SECTION_GUIDES
 from ..loaders import tokens_are_estimates
 from ...plugins import format_label
-from ..metrics import extract_agent_info
+from ..metrics import extract_agent_info, format_duration_seconds
 from ..palette import AGENT_COLORS
 from ..rendering import (
     build_root_cause_html,
@@ -309,7 +309,11 @@ def build_overview_kpi_html(
         throughput_sub += f" · {timed_steps}/{throughput_steps} timed"
 
     p95 = metrics.get("p95_duration")
-    p95_sub = f"P95 {p95}s" if isinstance(p95, (int, float)) else "P95 N/A"
+    p95_sub = (
+        f"P95 {format_duration_seconds(p95)}"
+        if isinstance(p95, (int, float)) and not isinstance(p95, bool)
+        else "P95 N/A"
+    )
     user_steps = metrics.get("user_steps", 0)
     agent_breakdown = _agent_steps_breakdown(agent_summaries)
     cards = [

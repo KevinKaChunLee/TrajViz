@@ -459,16 +459,16 @@ class ToolDurationChartTests(unittest.TestCase):
             step(1, tool_calls=[tc("Read", ms=750)]),
         ]
         rows = self._row_totals(build_tool_duration_chart(steps))
-        self.assertAlmostEqual(rows["Read"], 1.0, places=6)
-        self.assertAlmostEqual(rows["pytest"], 4.0, places=6)
+        self.assertAlmostEqual(rows["Read (2×)"], 1.0, places=6)
+        self.assertAlmostEqual(rows["pytest (1×)"], 4.0, places=6)
 
     def test_delegation_wall_clock_is_not_charted_as_tool_time(self):
         # A `task` call's duration is the child agent's whole run; charting it
         # double-counts work the child's own calls already show.
         steps = [step(0, tool_calls=[tc("Task", ms=600_000), tc("Read", ms=500)])]
         rows = self._row_totals(build_tool_duration_chart(steps))
-        self.assertEqual(set(rows), {"Read"})
-        self.assertAlmostEqual(rows["Read"], 0.5, places=6)
+        self.assertEqual(set(rows), {"Read (1×)"})
+        self.assertAlmostEqual(rows["Read (1×)"], 0.5, places=6)
 
     def test_untimed_calls_report_no_timing_instead_of_zero_bars(self):
         # "This export records no per-tool timing" is not "the tools took 0s".

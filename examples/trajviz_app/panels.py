@@ -9,6 +9,8 @@ import html
 import json
 from typing import Any
 
+from agent_trajviz.insight.metrics import format_duration_seconds
+
 E = html.escape
 
 
@@ -19,7 +21,7 @@ def _fmt_int(value: Any) -> str:
 def _fmt_secs(value: Any) -> str:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return "n/a"
-    return f"{value:.0f}s" if value < 3600 else f"{value / 60:.1f}m"
+    return format_duration_seconds(value)
 
 
 def sparkline(values: list[float], width: int = 100, height: int = 20) -> str:
