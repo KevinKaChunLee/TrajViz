@@ -7,6 +7,8 @@ change the public API (the names exported from `agent_trajviz`).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-27
+
 ### Added
 
 - Read OpenCode 2 typed session exports and collect selected parent/child families
@@ -277,6 +279,7 @@ First release as the `agent-trajviz` package.
   passwords, authorization headers and generated-looking values of
   secret-named assignments become `[REDACTED]`.
 
-[Unreleased]: https://github.com/rshu/TrajViz/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/rshu/TrajViz/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/rshu/TrajViz/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rshu/TrajViz/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rshu/TrajViz/releases/tag/v0.1.0
