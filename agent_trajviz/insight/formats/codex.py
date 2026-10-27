@@ -9,6 +9,58 @@ from .codex_files import agent_path as _codex_agent_path
 from .codex_files import own_codex_events, parent_thread_id, session_meta
 
 
+def _codex_tool_status(output: object) -> str:
+    """Read classic results and code-mode text blocks without inspecting stdout.
+
+    Recent rollouts wrap tool results in ``input_text`` blocks. A code-mode
+    invocation may report several shell results; any nonzero exit fails that
+    invocation. Structured exits take precedence over incidental error wording.
+    """
+    pending = [(output, 0)]
+    texts: list[str] = []
+    exits: list[int] = []
+    explicit_error = False
+    while pending:
+        value, depth = pending.pop()
+        if depth > 8:
+            continue
+        if isinstance(value, str):
+            texts.append(value)
+            explicit_error |= bool(re.search(
+                r"(?im)^(?:script failed\b|error executing code:|failed to spawn code-mode host\b)",
+                value[:200],
+            ))
+            try:
+                decoded = json.loads(value)
+            except (ValueError, RecursionError):
+                continue
+            if isinstance(decoded, (dict, list)):
+                pending.append((decoded, depth + 1))
+        elif isinstance(value, list):
+            pending.extend((item, depth + 1) for item in value)
+        elif isinstance(value, dict):
+            metadata = value.get("metadata")
+            for candidate in (value.get("exit_code"),
+                              metadata.get("exit_code") if isinstance(metadata, dict) else None):
+                if isinstance(candidate, int) and not isinstance(candidate, bool):
+                    exits.append(candidate)
+            explicit_error |= value.get("isError") is True
+            if value.get("type") in ("input_text", "output_text", "text"):
+                pending.append((value.get("text"), depth + 1))
+            if isinstance(value.get("content"), list):
+                pending.append((value["content"], depth + 1))
+    if explicit_error or any(exits):
+        return "error"
+    if exits:
+        return "success"
+    for text in texts:
+        if re.search(r"(?i)\b(?:error:|traceback \(most recent call last\))", text[:200]):
+            return "error"
+        if any(int(code) != 0 for code in re.findall(r"(?i)exited with code\s+(-?\d+)", text)):
+            return "error"
+    return "success"
+
+
 def _codex_spawn_info(meta: dict) -> dict:
     source = meta.get("source")
     subagent = source.get("subagent") if isinstance(source, dict) else None
@@ -226,33 +278,7 @@ def _convert_codex_to_internal(events: list[dict], *, source_path: str = "",
                 output = payload.get("output", "")
                 tc = pending_tool_calls.pop(call_id, {})
 
-                # Determine status from output.  Structured metadata
-                # (metadata.exit_code) is authoritative; the substring
-                # heuristic is only a fallback when no exit code exists.
-                status = "success"
-                if isinstance(output, str):
-                    exit_code = None
-                    try:
-                        output_data = json.loads(output)
-                    except json.JSONDecodeError:
-                        output_data = None
-                    if isinstance(output_data, dict):
-                        metadata = output_data.get("metadata")
-                        if isinstance(metadata, dict):
-                            candidate = metadata.get("exit_code")
-                            if isinstance(candidate, int) and not isinstance(candidate, bool):
-                                exit_code = candidate
-                    if exit_code is not None:
-                        status = "error" if exit_code != 0 else "success"
-                    else:
-                        # Anchored fallback so benign text ("Found 0 errors",
-                        # "error-free") does not flag a successful call.
-                        if re.search(r"(?i)\b(?:error:|traceback \(most recent call last\))",
-                                     output[:200]):
-                            status = "error"
-                        # Check exit code reported in the output text
-                        if "exited with code" in output and "code 0" not in output:
-                            status = "error"
+                status = _codex_tool_status(output)
 
                 current_parts.append({
                     "type": "tool_call" if tc else "tool",
