@@ -47,7 +47,10 @@
             "type": "string"
           },
           "before_pct": {
-            "type": "number"
+            "type": [
+              "number",
+              "null"
+            ]
           },
           "grew": {
             "type": "boolean"
@@ -56,7 +59,10 @@
             "type": "string"
           },
           "occupancy_after": {
-            "type": "number"
+            "type": [
+              "number",
+              "null"
+            ]
           },
           "occupancy_before": {
             "type": "number"
@@ -68,7 +74,10 @@
             "type": "number"
           },
           "window_limit": {
-            "type": "number"
+            "type": [
+              "number",
+              "null"
+            ]
           }
         }
       }
