@@ -4,6 +4,7 @@ import math
 from datetime import datetime, UTC
 
 from .common import as_text
+from .opencode_v2 import normalize_opencode_v2
 
 
 def _opencode_ms_to_iso(ms: object) -> str:
@@ -52,6 +53,7 @@ def _convert_opencode_metadata(raw: dict) -> dict:
     Mutates *raw* in place so that compute_metrics() and the session-detail
     renderer can read the standard fields.  Returns the same dict for convenience.
     """
+    normalize_opencode_v2(raw)
     info = raw.get("info", {})
     if not isinstance(info, dict):
         return raw
@@ -71,12 +73,19 @@ def _convert_opencode_metadata(raw: dict) -> dict:
 
     summary = info.get("summary", {}) if isinstance(info.get("summary"), dict) else {}
     model_info = {}
+    # Prefer session model, then the first assistant request model.
+    session_model = info.get("model") if isinstance(info.get("model"), dict) else {}
+    model_info = {"modelID": session_model.get("modelID") or session_model.get("id")}
     # Try to get model from first message's info
     messages = raw.get("messages", [])
     if isinstance(messages, list) and messages:
-        first_msg_info = messages[0].get("info", {}) if isinstance(messages[0], dict) else {}
+        first_msg_info = next((m["info"] for m in messages if isinstance(m, dict)
+                               and isinstance(m.get("info"), dict)
+                               and m["info"].get("role") == "assistant"), {})
         if isinstance(first_msg_info, dict):
-            model_info = first_msg_info.get("model", {}) if isinstance(first_msg_info.get("model"), dict) else {}
+            request_model = first_msg_info.get("model", {})
+            if isinstance(request_model, dict) and request_model.get("modelID"):
+                model_info = request_model
 
     # Consolidated OpenCode/CodeArts exports flatten child-session messages into
     # the main messages array.  Count distinct child session IDs instead of
@@ -150,7 +159,7 @@ def _convert_opencode_metadata(raw: dict) -> dict:
         "generator_version": as_text(info.get("version")),
         "format_version": "",
         "sub_agent_count": sub_agent_count,
-        "event_count": event_count,
+        "event_count": event_count + raw.get("_opencode_v2_control_count", 0),
     }
     raw["timing"] = {
         "total_duration": duration_seconds,
@@ -160,7 +169,7 @@ def _convert_opencode_metadata(raw: dict) -> dict:
     raw["output"] = {
         "patch": "", "patch_length": 0, "patch_lines": 0,
         "has_patch": bool(summary.get("additions") or summary.get("deletions")),
-        "error": None,
+        "error": "\n".join(raw.get("_opencode_v2_errors", [])) or None,
         "additions": summary.get("additions", 0),
         "deletions": summary.get("deletions", 0),
         "files_changed": summary.get("files", 0),

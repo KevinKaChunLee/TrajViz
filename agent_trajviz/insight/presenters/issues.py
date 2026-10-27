@@ -133,7 +133,7 @@ def render_overview_issues_html(
     if not issues:
         status = "limited evidence" if limited_evidence else "none detected"
         detail = (
-            "Some workflow checks are unavailable for this telemetry capture. "
+            "Some workflow checks are unavailable for this capture. "
             "The available evidence does not establish that the run is free of issues."
             if limited_evidence else "No major workflow issues detected."
         )
@@ -194,4 +194,5 @@ def build_overview_issues_html(
     else:
         ranked = list(issues)
     return render_overview_issues_html(ranked, banner=banner, progress=progress,
-                                       limited_evidence=session.format == "otlp")
+                                       limited_evidence=(session.format == "otlp" or bool(
+                                           getattr(session, "metrics", {}).get("tool_unknown_outcomes"))))

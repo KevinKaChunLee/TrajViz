@@ -221,12 +221,15 @@ def _build_per_message_md(rows: list[dict], limit: int = 80) -> str:
 def format_performance_md(metrics: dict, wall_fmt: str) -> str:
     """Format performance & token metrics as a markdown table."""
     tok = metrics["tokens"]
+    def _seconds(value: int | float | None) -> str:
+        return "N/A" if value is None else f"{value}s"
+
     timing_chips = [
         _metric_chip("Steps", str(metrics["total_steps"])),
         _metric_chip("Wall-clock", wall_fmt),
-        _metric_chip("Avg duration", f"{metrics['avg_duration']}s"),
-        _metric_chip("Med / P95", f"{metrics['median_duration']}s / {metrics['p95_duration']}s", wide=True),
-        _metric_chip("Max duration", f"{metrics['max_duration']}s"),
+        _metric_chip("Avg duration", _seconds(metrics['avg_duration'])),
+        _metric_chip("Med / P95", f"{_seconds(metrics['median_duration'])} / {_seconds(metrics['p95_duration'])}", wide=True),
+        _metric_chip("Max duration", _seconds(metrics['max_duration'])),
     ]
     # Token breakdown: show N/A when format doesn't provide subcategories
     has_breakdown = any((tok.get(key) or 0) > 0 for key in ('input', 'output', 'cache_read'))

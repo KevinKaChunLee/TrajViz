@@ -235,9 +235,9 @@ def build_overview_kpi_html(
     issue_value, issue_sub, issue_status, issue_detail, issue_breakdown = _issues_kpi_parts(
         issues or [],
     )
-    if metrics.get("data_quality", {}).get("source") == "otlp":
+    if metrics.get("data_quality", {}).get("source") == "otlp" or metrics.get("tool_unknown_outcomes"):
         if not issues:
-            issue_value, issue_sub, issue_status = "N/A", "Limited telemetry evidence", "unavailable"
+            issue_value, issue_sub, issue_status = "N/A", "Limited captured evidence", "unavailable"
             issue_detail = "Unavailable checks cannot establish that the run is free of issues."
         else:
             issue_sub = "observed in this capture"
@@ -253,7 +253,7 @@ def build_overview_kpi_html(
     sparkline_data: dict[str, list[float]] = {}
     if message_rows:
         sparkline_data["Tokens"] = [r["tokens_total"] for r in message_rows if r.get("tokens_total") is not None]
-        sparkline_data["Wall-Clock"] = [r.get("duration", 0) or 0 for r in message_rows]
+        sparkline_data["Wall-Clock"] = [r["duration"] for r in message_rows if r.get("duration") is not None]
 
     _label_to_help_key = {
         "Steps": "steps",
@@ -280,6 +280,8 @@ def build_overview_kpi_html(
     ):
         throughput_sub += f" · {timed_steps}/{throughput_steps} timed"
 
+    p95 = metrics.get("p95_duration")
+    p95_sub = f"P95 {p95}s" if isinstance(p95, (int, float)) else "P95 N/A"
     user_steps = metrics.get("user_steps", 0)
     agent_breakdown = _agent_steps_breakdown(agent_summaries)
     cards = [
@@ -288,7 +290,7 @@ def build_overview_kpi_html(
             f"{metrics.get('total_steps', 0):,}",
             f"{metrics.get('assistant_steps', 0)} assistant, {user_steps} user",
         ),
-        ("Wall-Clock", wall_fmt, f"P95 {metrics.get('p95_duration', 0)}s"),
+        ("Wall-Clock", wall_fmt, p95_sub),
         (
             "Tokens",
             ("\u2248" if tokens_estimated else "")

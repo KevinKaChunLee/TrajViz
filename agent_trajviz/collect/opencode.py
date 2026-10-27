@@ -149,6 +149,16 @@ def export_session_and_collect_children(
         A dict with 'info' (from the main/parent session) and 'messages' (from all sessions).
         Messages from subagent sessions have their agent name prefixed with the subagent type.
     """
+    tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('session', 'session_v2')"
+    )}
+    if "session_v2" in tables and ("session" not in tables or conn.execute(
+        "SELECT 1 FROM session_v2 WHERE id = ?", (session_id,)
+    ).fetchone()):
+        from .opencode_v2 import export_v2_session
+
+        return export_v2_session(conn, session_id, max_depth=max_depth)
+
     if all_messages is None:
         all_messages = []
 
@@ -477,7 +487,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         # Sort messages by creation time
         if result.get("messages"):
-            result["messages"].sort(key=lambda m: m.get("info", {}).get("time", {}).get("created", 0))
+            result["messages"].sort(key=lambda m: m.get("info", m).get("time", {}).get("created", 0))
 
         output = json.dumps(result, indent=2, ensure_ascii=False)
 

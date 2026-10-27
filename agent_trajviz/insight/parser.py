@@ -622,7 +622,7 @@ def parse_steps(raw: dict) -> list[dict]:
 
     for step in steps:
         _normalize_step(step)
-    if raw.get("_pi_format") or raw.get("_dsh_native_v4"):
+    if raw.get("_pi_format") or raw.get("_dsh_native_v4") or raw.get("_opencode_v2"):
         for step, message in zip(steps, (m for m in trajectory if isinstance(m, dict)), strict=True):
             info = message.get("info") or {}
             if info.get("timing_source") == "model_request":

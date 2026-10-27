@@ -9,6 +9,8 @@ change the public API (the names exported from `agent_trajviz`).
 
 ### Added
 
+- Read OpenCode 2 typed session exports and collect selected parent/child families
+  from its native session store without modifying the database.
 - Import Cursor Agent CLI stream JSONL, retaining thinking, tool results and
   execution clocks while deduplicating response flushes and replayed events.
 - Collect Codex native parent/reviewer sessions with an explicit read-only
@@ -40,6 +42,11 @@ change the public API (the names exported from `agent_trajviz`).
 
 ### Fixed
 
+- Preserve current Codex structured tool failures and DeepSeek v4 result fields.
+- Keep missing native clocks and unresolved search outcomes unavailable instead
+  of reporting measured zero durations or fruitless-search verdicts.
+- Use OpenCode 2 model response clocks separately from later tool settlement,
+  preserving running tools, lifecycle failures and compaction status.
 - Harden saved OTLP imports against corrupt compressed members and ambiguous
   request joins; preserve model errors, token evidence and sub-millisecond tool
   timing. Keep session selection, missing-data displays and report exports

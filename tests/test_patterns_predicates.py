@@ -21,10 +21,8 @@ The four behaviour-preserving ones:
   definition in `metrics.py` (which divides by user+assistant turns, not by all
   steps — real exports carry a third `developer` role, so the two differ on Codex).
 
-The fourth, `_is_fruitless_step` treating a missing output as an empty one, is
-characterised here rather than fixed: the fix would move `fruitless_streaks`
-and the wasted-step total the Overview reports. See the comment at its
-definition.
+Fruitless-search regressions below require observed successful empty results;
+unresolved and failed calls cannot establish that a search found nothing.
 """
 
 from __future__ import annotations
@@ -141,31 +139,35 @@ class AutonomyRatioHasOneDefinition(unittest.TestCase):
         self.assertEqual(ratio, round(2 / 3, 4))
 
 
-class FruitlessSearchTreatsMissingOutputAsEmpty(unittest.TestCase):
-    """Characterisation, NOT a fix: `fruitless_streaks` is a reported number.
+class FruitlessSearchRequiresObservedResults(unittest.TestCase):
+    def test_unresolved_search_calls_are_not_fruitless(self):
+        for status in ("unknown", "pending", "running"):
+            with self.subTest(status=status):
+                steps = [_step(i, calls=[{"tool_name": "Grep", "status": status,
+                                         "input": {"pattern": "x"}, "output": ""}]) for i in range(3)]
+                self.assertEqual(detect_fruitless_streaks(steps), [])
 
-    `_is_fruitless_step` cannot distinguish "the search returned nothing" from
-    "the call never resolved, so nothing was recorded" — both read as empty.
-    `parse_steps` always materialises `output`, so the only real exposure is an
-    unresolved or failed search call (cursor's `status: unknown`, three opencode
-    `status: error` steps). Tightening the predicate would shorten streaks and
-    the wasted-step total the Overview reports, so it stays, pinned here.
-    """
+    def test_failed_search_calls_are_not_fruitless(self):
+        steps = [_step(i, calls=[{"tool_name": "Grep", "status": "error",
+                                 "input": {"pattern": "x"}, "output": ""}]) for i in range(3)]
+        self.assertEqual(detect_fruitless_streaks(steps), [])
 
-    def test_unresolved_search_calls_still_count_as_fruitless(self):
-        steps = [
-            _step(i, calls=[{"tool_name": "Grep", "status": "unknown", "input": {"pattern": "x"}}])
-            for i in range(3)
-        ]
-        streaks = detect_fruitless_streaks(steps)
-        self.assertEqual([s["length"] for s in streaks], [3])
+    def test_success_without_a_recorded_output_is_not_fruitless(self):
+        for extra in ({}, {"output": None}):
+            with self.subTest(extra=extra):
+                steps = [_step(i, calls=[{"tool_name": "Grep", "status": "success",
+                                         "input": {"pattern": "x"}, **extra}]) for i in range(3)]
+                self.assertEqual(detect_fruitless_streaks(steps), [])
 
-    def test_failed_search_calls_still_count_as_fruitless(self):
-        steps = [
-            _step(i, calls=[{"tool_name": "Grep", "status": "error", "input": {"pattern": "x"}}])
-            for i in range(3)
-        ]
+    def test_completed_empty_searches_remain_fruitless(self):
+        steps = [_step(i, calls=[{"tool_name": "Grep", "status": "completed",
+                                 "input": {"pattern": "x"}, "output": "No matches found"}]) for i in range(3)]
         self.assertEqual([s["length"] for s in detect_fruitless_streaks(steps)], [3])
+
+    def test_unknown_search_breaks_a_streak_despite_other_empty_results(self):
+        steps = [_step(i, calls=[{"tool_name": "Grep", "status": "success", "output": ""},
+                                 {"tool_name": "Grep", "status": "unknown", "output": ""}]) for i in range(3)]
+        self.assertEqual(detect_fruitless_streaks(steps), [])
 
 
 class RecoveryWalkSharesOneFailureDefinition(unittest.TestCase):

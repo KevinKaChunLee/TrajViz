@@ -312,7 +312,7 @@ detected as a *different* format is rejected with a "Format mismatch" message
 |---|---|---|
 | Claude Code | Native `.jsonl` session records with `type`, `message`, and Claude session metadata | Tokens, cache, tool calls/results, thinking, and subagent logs. Local loading discovers associated children; upload a ZIP to preserve them on a hosted dashboard. Format key: `claude_code`. |
 | Cursor | IDE `cursor_composer` exports or native CLI `stream-json` with Cursor tool records | Consolidated from local `agent-transcripts` JSONL + Composer `state.vscdb`. Tool inputs always; tool outputs, step clocks (`startedAtMs`/`completedAtMs`), and context-window occupancy when the DB row is present. Per-step token bars are ≈4-chars/token estimates of logged text and tools — Cursor does not persist billed per-request tokens. |
-| OpenCode | `info` + `messages` shape | Includes sub-agent sessions |
+| OpenCode | `info` + `messages`, including v2 typed message records | Native v1/v2 exports, tool outcomes, reported usage and subagent families from the read-only collector. |
 | CodeArts | `export_metadata.source_format: codearts_opencode_sqlite` with schema version 2 | Preserved token breakdown and consolidated parent/sub-agent sessions |
 | ICode | `_chrys_export.format: chrys-expanded-session-v1` (or `meta` + `state.messages`) | Normalized from a Chrys expanded-session JSON; `glob` / `grep` / `sh` / `explore_agent` mapped into the shared step model. Nested `_chrys_sub_agent_sessions` are flattened. |
 | Codex CLI | Native `.jsonl` rollout starting with `session_meta`, or the collector’s consolidated JSON | Parent and verified child rollouts, model metadata, reported usage and tool results. Inherited child history is excluded. The collector preserves children for dashboard upload. |
@@ -548,6 +548,9 @@ The stream importer joins tool start/completion events, preserves thinking and
 reported tool clocks, and avoids counting repeated response flushes twice.
 Token counts remain estimates because this stream does not report billed usage.
 The CLI stream and IDE transcript are different protocols; both are supported.
+Native transcript families retain child activity, but can omit tool outcomes,
+outputs and clocks when Composer metadata is absent. Those fields remain
+unavailable; the CLI stream can supply parent tool results and execution clocks.
 
 Cursor stores each Agent chat as JSONL under
 `~/.cursor/projects/<workspace>/agent-transcripts/<chat-id>/` plus Composer
@@ -582,7 +585,7 @@ with the consolidator:
 
 OpenCode stores sessions in its local store (`~/.local/share/opencode/`; on
 Windows `%USERPROFILE%\.local\share\opencode\`) and
-exposes an `export` command that writes trajectory JSON to stdout.
+provides session export commands that write trajectory JSON to stdout.
 
 1. Run an OpenCode session as normal.
 2. List recent sessions and pick the one you want — **run this from the same
@@ -590,7 +593,7 @@ exposes an `export` command that writes trajectory JSON to stdout.
    is scoped to the current directory's project ID:
    ```bash
    cd /path/to/your/project
-   opencode session list --format json -n 10
+   opencode session list
    ```
 3. Export the chosen session to JSON. Two paths depending on whether the
    session spawned sub-agents:
@@ -599,10 +602,13 @@ exposes an `export` command that writes trajectory JSON to stdout.
    exporter (banner output goes to stderr, so redirection produces a clean
    file):
    ```bash
+   # OpenCode 2
+   opencode session export <session-id> --standalone > op_trajectory.json
+   # OpenCode 1
    opencode export <session-id> > op_trajectory.json
    ```
 
-   **Customized case — session has special sub-agents.** Sub-agent invocations live
+   **Parent and subagent family.** Sub-agent invocations live
    under their own session IDs, so `opencode export` on the parent only gives
    you the parent's messages. Use `agent-trajviz-collect opencode` to
    recursively pull the parent and every child session into one JSON:

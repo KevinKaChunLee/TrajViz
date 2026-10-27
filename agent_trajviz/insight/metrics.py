@@ -1080,6 +1080,17 @@ def compute_metrics(steps: list[dict], raw: dict, message_rows: list[dict] | Non
         **_compute_timing_metrics(steps),
         **_compute_plan_metrics(steps),
     }
+    # Native mirrors explicitly identify absent clocks. Preserve observed
+    # zero-duration records, and keep legacy/custom formats' fallback behavior.
+    capabilities = raw.get("_capabilities")
+    missing_native_clocks = isinstance(capabilities, dict) and capabilities.get("has_timing") is False
+    native_cursor = raw.get("_cursor_format") is True
+    if not durations and (missing_native_clocks or native_cursor):
+        for key in ("total_duration", "avg_duration", "median_duration", "p95_duration", "max_duration",
+                    "tokens_per_second", "median_tokens_per_second"):
+            result[key] = None
+        if session_wall_clock_seconds(steps, timing) is None:
+            result["wall_clock"] = None
     quality = data_quality(steps, raw)
     if quality["source"] == "otlp":
         from .telemetry_quality import public_token_totals
@@ -1451,6 +1462,12 @@ def compute_agent_summary(steps: list[dict], raw: dict) -> list[dict]:
             "output_throughput_timed_steps": throughput["timed_steps"],
             "spawned_by_step": spawned_by_step,
         }
+        capabilities = raw.get("_capabilities")
+        missing_native_clocks = isinstance(capabilities, dict) and capabilities.get("has_timing") is False
+        if (missing_native_clocks or raw.get("_cursor_format") is True) and not any(
+            isinstance(step.get("duration"), (int, float)) for step in agent_steps[agent_id]
+        ):
+            row["total_duration_s"] = None
         quality = data_quality(agent_steps[agent_id], raw)
         if quality["source"] == "otlp":
             visible = public_token_totals(tok_totals, quality)
