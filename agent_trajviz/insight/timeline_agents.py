@@ -137,10 +137,22 @@ def _disambiguate_timeline_labels(ids: list[str], steps: list[dict]) -> dict[str
     """Unique legend labels; suffix short session id when names collide."""
     raw = {aid: _timeline_display_label(aid, steps) for aid in ids}
     counts = Counter(raw.values())
+    session_counts = Counter((_timeline_id_session(aid), label) for aid, label in raw.items() if aid)
     out: dict[str, str] = {}
     for aid, label in raw.items():
         if counts[label] > 1 and aid:
             sid = _timeline_id_session(aid)
+            if session_counts[sid, label] > 1:
+                mode = aid.partition("::")[2].strip()
+                if not mode:
+                    roles = {s.get("role") for s in steps if isinstance(s, dict)
+                             and s.get("session_id") == sid and not s.get("agent")}
+                    mode = "prompt" if roles == {"user"} else "default"
+                    named_modes = {other.partition("::")[2].strip() for other, other_label in raw.items()
+                                   if _timeline_id_session(other) == sid and other_label == label}
+                    while mode in named_modes:
+                        mode += " (no agent)"
+                label = f"{label} · {mode}"
             suffix = sid[-6:] if len(sid) > 6 else sid
             out[aid] = f"{label} ({suffix})"
         else:

@@ -45,8 +45,10 @@ charts = ["plotly>=5.15", "pygments>=2.13"]
 llm = ["requests>=2.32.4"]
 # The Insight and Converge dashboards, with charts and LLM features.
 app = ["agent-trajviz[charts,llm]", "gradio>=6.14.0"]
+# Compressed native session logs use the standard library on Python 3.14+.
+zstd = ["zstandard>=0.23; python_version < '3.14'"]
 # Everything a user can install.
-all = ["agent-trajviz[app]"]
+all = ["agent-trajviz[app,zstd]"]
 # Development: the full feature set plus the test and lint tools. CI installs it
 # with `uv sync --locked --extra dev`, so an undeclared test import is a
 # collection error there, not a skip.
@@ -58,8 +60,6 @@ dev = [
     # Validates every view against its shipped JSON Schema.
     "jsonschema>=4.18",
 ]
-# DECAF (the Attribution tab) is not on PyPI, so it has no extra: clone it and
-# set AWE_DECAF_PATH (default: a sibling ../DECAF checkout).
 
 [project.scripts]
 # Every command carries the distribution's prefix. The Converge dashboard has
@@ -120,3 +120,9 @@ ignore = [
 minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.mypy]
+# CI checks the six public modules explicitly under --strict. Follow internal
+# implementation imports for their types without checking those modules as
+# additional strict targets.
+follow_imports = "silent"

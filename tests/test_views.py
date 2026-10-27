@@ -54,7 +54,7 @@ class SerializationTests(unittest.TestCase):
                     doc = json.loads(view.to_json())  # to_json refuses NaN/inf
                     self.assertEqual(doc["id"], vid)
                     self.assertEqual(doc["schema_version"], tv.VIEWS_SCHEMA_VERSION)
-                    self.assertEqual(set(doc), {"schema_version", "id", "title", "kind", "description", "data"})
+                    self.assertEqual(set(doc), {"schema_version", "id", "title", "kind", "description", "data", "availability"})
 
     def test_jsonable_normalizes_or_refuses(self):
         self.assertEqual(_jsonable({"s": {"b", "a"}, "t": (1, 2), "n": math.nan}), {"s": ["a", "b"], "t": [1, 2], "n": None})

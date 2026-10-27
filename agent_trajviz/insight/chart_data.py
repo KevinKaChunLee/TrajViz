@@ -37,6 +37,7 @@ from .timeline_agents import (
 )
 from .tool_failure import tool_call_failed
 from .workflow_role import workflow_role
+from .telemetry_quality import field_observed, is_otel_step, tool_field_observed
 
 #: Lane id and label of the human user on the agent swimlane.
 USER_LANE_ID = "__user__"
@@ -106,7 +107,7 @@ def token_usage(steps: list[dict], fmt: str | None = None) -> dict:
         invalid = impossible_token_fields(tok)
         if invalid:
             seg.update(fresh=0, cache_read=0, cache_write=0, output=0, reasoning=0)
-        rows.append({
+        row = {
             "position": position,
             "step": s.get("index", position),
             "agent": agent_id_of(s),
@@ -118,7 +119,18 @@ def token_usage(steps: list[dict], fmt: str | None = None) -> dict:
             "total": tok["total"],
             "usable_total": usable_token_count(tok["total"]),
             "invalid": [[field, value] for field, value in invalid],
-        })
+        }
+        if is_otel_step(s):
+            row["fresh_input"] = tok.get("input", 0)
+            row["cache_write"] = tok.get("cache_write", 0)
+            for key, field in {
+                "fresh_input": "input", "cache_read": "cache_read", "cache_write": "cache_write",
+                "output": "output", "reasoning": "reasoning", "total": "total", "usable_total": "total",
+            }.items():
+                if not field_observed(s, f"tokens.{field}"):
+                    row[key] = None
+            row["availability"] = dict(s["_otel"].get("fields", {}))
+        rows.append(row)
     has_breakdown = any(
         s["tokens"]["input"] > 0 or s["tokens"]["output"] > 0 or s["tokens"]["cache_read"] > 0 for s in steps
     )
@@ -141,7 +153,11 @@ def step_durations(steps: list[dict]) -> dict:
     ``agent``; ``agents`` lists every timeline agent in palette order.
     """
     color_map, labels, agent_id_of = bind_timeline_agents(steps)
-    chart_durs = [step_duration_excluding_spawn(s) for s in steps]
+    chart_durs = [
+        step_duration_excluding_spawn(s)
+        if not is_otel_step(s) or (s["_otel"].get("kind") == "model_request" and field_observed(s, "duration"))
+        else None for s in steps
+    ]
     durations = [d if d is not None else 0 for d in chart_durs]
     real = [d for d in chart_durs if d is not None]
     outliers = {idx for idx, _, _ in detect_outliers(durations)}
@@ -152,12 +168,13 @@ def step_durations(steps: list[dict]) -> dict:
             "step": int(s.get("index", i)),
             "agent": agent_id_of(s),
             "duration_s": d,
-            "spawn_adjusted": d is not None and spawn_wait_seconds(s) > 0,
+            "spawn_adjusted": (d is not None and not is_otel_step(s)
+                               and s.get("timing_source") != "model_request" and spawn_wait_seconds(s) > 0),
             "error_kind": step_error_kind(s),
             "outlier": i in outliers,
         })
     return {
-        "average_s": sum(real) / len(real) if real else 0,
+        "average_s": sum(real) / len(real) if real else None if any(is_otel_step(s) for s in steps) else 0,
         "agents": _agent_list(color_map, labels),
         "steps": rows,
     }
@@ -264,7 +281,7 @@ def tool_outcomes(steps: list[dict]) -> dict:
             calls.append({
                 "step": idx,
                 "tool": tool_chart_name(tc),
-                "ok": not tool_call_failed(tc),
+                "ok": not tool_call_failed(tc) if tool_field_observed(tc, "tool_outcomes") else None,
                 "hint": tool_call_hint(tc),
                 "agent": agent,
             })
@@ -280,9 +297,18 @@ def agent_tokens(agent_summaries: list[dict]) -> dict:
     agents = []
     for a in agent_summaries:
         seg = token_segments(
-            a["total_tokens"], a["input_tokens"], a["output_tokens"], a["reasoning_tokens"],
-            a["cache_read_tokens"], a.get("cache_write_tokens", 0) or 0,
+            a["total_tokens"] or 0, a["input_tokens"] or 0, a["output_tokens"] or 0, a["reasoning_tokens"] or 0,
+            a["cache_read_tokens"] or 0, a.get("cache_write_tokens", 0) or 0,
         )
+        if a.get("data_quality", {}).get("source") == "otlp":
+            seg["fresh"] = a["input_tokens"]
+            seg["cache_write"] = a.get("cache_write_tokens")
+        for segment, field in {
+            "fresh": "input_tokens", "cache_read": "cache_read_tokens", "cache_write": "cache_write_tokens",
+            "output": "output_tokens", "reasoning": "reasoning_tokens",
+        }.items():
+            if field in a and a[field] is None:
+                seg[segment] = None
         agents.append({
             "agent_id": a.get("agent_id", ""),
             "label": a["label"],
@@ -291,7 +317,7 @@ def agent_tokens(agent_summaries: list[dict]) -> dict:
             "output": a["output_tokens"],
             "reasoning": a["reasoning_tokens"],
             "cache_read": a["cache_read_tokens"],
-            "cache_write": a.get("cache_write_tokens", 0) or 0,
+            "cache_write": a.get("cache_write_tokens", 0),
             "input_unusable_steps": a.get("input_tokens_unusable_steps", 0) or 0,
             "segments": {k: seg[k] for k in ("fresh", "cache_read", "cache_write", "output", "reasoning")},
         })
@@ -307,6 +333,9 @@ def agent_swimlane(steps: list[dict]) -> dict:
     """
     color_map, label_map, agent_id_of = bind_timeline_agents(steps)
     runs: dict[str, list[list[int]]] = defaultdict(list)
+    unavailable_tokens: set[str] = set()
+    observed_token_agents: set[str] = set()
+    telemetry = any(is_otel_step(step) for step in steps)
     prev: dict[str, int] = {}
     for s in steps:
         if not isinstance(s, dict):
@@ -315,6 +344,10 @@ def agent_swimlane(steps: list[dict]) -> dict:
         idx = int(s.get("index") if s.get("index") is not None else 0)
         tok = int((s.get("tokens") or {}).get("total") or 0)
         tools = int(s.get("tool_call_count") or 0)
+        if is_otel_step(s) and s["_otel"].get("kind") == "model_request" and not field_observed(s, "tokens.total"):
+            unavailable_tokens.add(agent)
+        if not is_otel_step(s) or (s["_otel"].get("kind") == "model_request" and field_observed(s, "tokens.total")):
+            observed_token_agents.add(agent)
         if agent not in prev:
             runs[agent].append([idx, idx, tok, tools])
         else:
@@ -334,7 +367,9 @@ def agent_swimlane(steps: list[dict]) -> dict:
                 "label": USER_LANE_LABEL if aid == USER_LANE_ID else _legend_label(aid, label_map),
                 "color_index": None if aid == USER_LANE_ID else color_map.get(aid, 0),
                 "segments": [
-                    {"start": a, "end": b, "steps": b - a + 1, "tokens": tok, "tool_calls": tools}
+                    {"start": a, "end": b, "steps": b - a + 1,
+                     "tokens": tok if aid not in unavailable_tokens and (not telemetry or aid in observed_token_agents) else None,
+                     "tool_calls": tools}
                     for a, b, tok, tools in runs[aid]
                 ],
             }
@@ -503,16 +538,25 @@ def run_timelines(runs: list[dict]) -> dict:
             idx = int(s.get("index") if s.get("index") is not None else 0)
             tok = int((s.get("tokens") or {}).get("total") or 0)
             tools = int(s.get("tool_call_count") or 0)
+            eligible = not is_otel_step(s) or s["_otel"].get("kind") == "model_request"
+            observed = eligible and field_observed(s, "tokens.total")
+            missing = eligible and not observed
             if cur is not None and aid == cur["agent"] and idx == cur["end"] + 1:
                 cur.update(end=idx, tokens=cur["tokens"] + tok, tool_calls=cur["tool_calls"] + tools)
+                cur["_observed"] = cur["_observed"] or observed
+                cur["_missing"] = cur["_missing"] or missing
                 continue
             if cur is not None:
                 segments.append(cur)
             cur = {"agent": aid, "agent_label": _legend_label(aid, label_map), "bucket": bucket_of[aid],
-                   "start": idx, "end": idx, "tokens": tok, "tool_calls": tools}
+                   "start": idx, "end": idx, "tokens": tok, "tool_calls": tools,
+                   "_observed": observed, "_missing": missing}
         if cur is not None:
             segments.append(cur)
         for seg in segments:
+            observed, missing = seg.pop("_observed"), seg.pop("_missing")
+            if not observed or missing:
+                seg["tokens"] = None
             seg["steps"] = seg["end"] - seg["start"] + 1
         out_runs.append({
             "run_id": run.get("run_id"),

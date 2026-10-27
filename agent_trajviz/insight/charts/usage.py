@@ -92,7 +92,7 @@ def _add_token_bar_traces(
     step_prefix = f"{x_label} " if x_label else ""
     for name, values, color in traces:
         forced = include_empty and name != "Cache Write"
-        if forced or any(v > 0 for v in values):
+        if forced or any(v is not None and v > 0 for v in values):
             show = _claim_legend(legend_shown, name) if legend_shown is not None else True
             bar_kwargs: dict = dict(
                 x=x_values,
@@ -208,8 +208,8 @@ def _group_rows_by_agent(data: dict) -> tuple[list[dict], dict[str, list[dict]]]
     """Agents that have at least one row, plus rows grouped by agent id."""
     groups: dict[str, list[dict]] = defaultdict(list)
     for row in data["steps"]:
-        groups[row["agent"]].append(row)
-    agents = [a for a in data["agents"] if groups.get(a["id"])]
+        groups[row.get("agent", "")].append(row)
+    agents = [a for a in data.get("agents", []) if groups.get(a["id"])]
     return agents, groups
 
 
@@ -405,13 +405,14 @@ def _draw_duration_panel(
     """Draw one step-duration panel (bars, spikes, avg) onto *fig*."""
     rc = _subplot_rc(row, col)
     legend_shown = legend_shown if legend_shown is not None else {}
-    durations = [r["duration_s"] if r["duration_s"] is not None else 0 for r in rows]
+    # Keep missing durations as None so Plotly draws gaps rather than fake zeros.
+    durations = [r["duration_s"] for r in rows]
     spawn_adjusted = [r["spawn_adjusted"] for r in rows]
     kinds = [r["error_kind"] for r in rows]
     step_ids = [r["step"] for r in rows]
     outlier_steps = {step_ids[i] for i, r in enumerate(rows) if r["outlier"]}
     real = [r["duration_s"] for r in rows if r["duration_s"] is not None]
-    avg_d = sum(real) / len(real) if real else 0
+    avg_d = sum(real) / len(real) if real else None
 
     series = [
         ("Normal", None, "#3b82f6", ""),
@@ -445,8 +446,10 @@ def _draw_duration_panel(
             ),
             **rc,
         )
-        spike_x = [x for x, y in zip(xs, ys, strict=True) if x in outlier_steps]
-        spike_y = [y for x, y in zip(xs, ys, strict=True) if x in outlier_steps]
+        spike_x = [x for x, y in zip(xs, ys, strict=True)
+                   if x in outlier_steps and y is not None]
+        spike_y = [y for x, y in zip(xs, ys, strict=True)
+                   if x in outlier_steps and y is not None]
         if spike_x:
             fig.add_trace(
                 go.Scatter(
@@ -464,16 +467,17 @@ def _draw_duration_panel(
                 **rc,
             )
 
-    fig.add_hline(
-        y=avg_d,
-        line_dash="dash",
-        line_color="#94a3b8",
-        line_width=1,
-        annotation_text=f"Avg: {avg_d:.1f}s",
-        annotation_position="top left",
-        annotation_font=dict(color="#64748b", size=11),
-        **rc,
-    )
+    if avg_d is not None:
+        fig.add_hline(
+            y=avg_d,
+            line_dash="dash",
+            line_color="#94a3b8",
+            line_width=1,
+            annotation_text=f"Avg: {avg_d:.1f}s",
+            annotation_position="top left",
+            annotation_font=dict(color="#64748b", size=11),
+            **rc,
+        )
 
 
 def draw_step_durations(data: dict, dark: bool = False) -> go.Figure:

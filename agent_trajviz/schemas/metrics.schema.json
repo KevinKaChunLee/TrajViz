@@ -13,7 +13,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "id": {
       "const": "metrics"
@@ -129,7 +129,10 @@
         "agent_breakdown": {
           "type": "object",
           "additionalProperties": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "agent_labels": {
@@ -139,13 +142,22 @@
           }
         },
         "assistant_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "assistant_turns": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "autonomy_ratio": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "avg_cache_ratio": {
           "type": [
@@ -154,13 +166,22 @@
           ]
         },
         "avg_duration": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "avg_tokens_per_assistant_step": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "avg_tokens_per_step": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "avg_tool_duration": {
           "type": [
@@ -169,13 +190,22 @@
           ]
         },
         "cache_dominant_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "cache_ratio_unusable_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "cache_read_tokens": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "churn": {
           "type": [
@@ -202,7 +232,10 @@
           ]
         },
         "delegated_call_count": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "delegation_time_total": {
           "type": [
@@ -225,20 +258,35 @@
         "finish_breakdown": {
           "type": "object",
           "additionalProperties": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "has_patch": {
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "input_tokens": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "input_tokens_unusable_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "max_duration": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "max_tool_duration": {
           "type": [
@@ -247,28 +295,46 @@
           ]
         },
         "median_duration": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "median_step_tokens": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "median_tokens_per_second": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "messages_breakdown": {
           "type": "object",
           "additionalProperties": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "model_breakdown": {
           "type": "object",
           "additionalProperties": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "multi_tool_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "net_change": {
           "type": [
@@ -277,13 +343,22 @@
           ]
         },
         "no_tool_assistant_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "non_cache_ratio": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "non_cache_tokens": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "output_input_ratio": {
           "type": [
@@ -298,25 +373,46 @@
           ]
         },
         "output_throughput_incomplete": {
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "output_throughput_timed_seconds": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "output_throughput_timed_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "output_throughput_timed_tokens": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "output_throughput_tool_wait_seconds": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "output_throughput_total_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "output_tokens": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "output_tokens_per_sec": {
           "type": [
@@ -337,10 +433,16 @@
           ]
         },
         "p95_duration": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "p95_step_tokens": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "p95_tool_duration": {
           "type": [
@@ -356,10 +458,16 @@
         },
         "patch_error": {},
         "patch_lines": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "patch_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "plan_completion_ratio": {
           "type": [
@@ -380,16 +488,28 @@
           ]
         },
         "reasoning_parts": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "reasoning_tokens_reported": {
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "snapshot_parts": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "text_parts": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "time_to_first_token": {
           "type": [
@@ -415,22 +535,40 @@
           ],
           "properties": {
             "cache_read": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "cache_write": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "input": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "output": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "reasoning": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "total": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             }
           }
         },
@@ -446,22 +584,40 @@
           ],
           "properties": {
             "cache_read": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "cache_write": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "input": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "output": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "reasoning": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "total": {
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             }
           }
         },
@@ -478,19 +634,31 @@
           ]
         },
         "tokens_per_second": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "tokens_per_tool": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "tool_breakdown": {
           "type": "object",
           "additionalProperties": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "tool_call_count": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "tool_calls_per_min": {
           "type": [
@@ -499,16 +667,25 @@
           ]
         },
         "tool_fail": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "tool_status_breakdown": {
           "type": "object",
           "additionalProperties": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "tool_success": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "tool_success_rate": {
           "type": [
@@ -541,19 +718,199 @@
           ]
         },
         "total_duration": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "total_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "user_steps": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "user_turns": {
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "wall_clock": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "data_quality": {
+          "type": "object",
+          "required": [
+            "source",
+            "basis",
+            "capture_complete",
+            "fields"
+          ],
+          "properties": {
+            "source": {
+              "enum": [
+                "native",
+                "otlp"
+              ]
+            },
+            "basis": {
+              "enum": [
+                "source_records",
+                "captured_operations"
+              ]
+            },
+            "capture_complete": {
+              "type": "null"
+            },
+            "profile": {
+              "type": "string"
+            },
+            "profile_version": {
+              "type": "integer"
+            },
+            "fields": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "required": [
+                  "status",
+                  "observed",
+                  "partial",
+                  "total",
+                  "reasons"
+                ],
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "observed",
+                      "partial",
+                      "unavailable",
+                      "unknown"
+                    ]
+                  },
+                  "observed": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "partial": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reasons": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            },
+            "limitations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "metric_coverage": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "observed",
+              "partial",
+              "unavailable",
+              "unknown"
+            ]
+          }
+        },
+        "measurement_basis": {
+          "const": "captured_operations"
+        },
+        "tool_unknown_outcomes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_observed_outcomes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "availability": {
+      "type": "object",
+      "required": [
+        "status",
+        "basis",
+        "fields"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "observed",
+            "partial",
+            "unavailable",
+            "unknown"
+          ]
+        },
+        "basis": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "status",
+              "observed",
+              "partial",
+              "total",
+              "reasons"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "observed",
+                  "partial",
+                  "unavailable",
+                  "unknown"
+                ]
+              },
+              "observed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "partial": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reasons": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
         }
       }
     }

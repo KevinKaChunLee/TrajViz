@@ -42,6 +42,7 @@ from .patterns import (
     detect_tool_sequences,
 )
 from .tool_failure import tool_call_failed
+from .tool_output import tool_output_text
 
 if TYPE_CHECKING:
     from .session import LoadedSession
@@ -300,6 +301,8 @@ def _metrics_lines(metrics: dict, steps: list[dict]) -> list[str]:
         (step.get("tokens") or {}).get("total", 0)
         for step in steps
         if isinstance(step.get("tokens"), dict)
+        and ((step.get("_otel") or {}).get("fields", {}).get("tokens.total") == "observed"
+             or "_otel" not in step)
     ]
     if totals:
         lines.append(
@@ -312,6 +315,9 @@ def _metrics_lines(metrics: dict, steps: list[dict]) -> list[str]:
             f"{metrics.get('output_throughput_timed_steps')}/"
             f"{metrics.get('output_throughput_total_steps')} timed assistant steps"
         )
+    if metrics.get("data_quality", {}).get("source") == "otlp":
+        lines.append("telemetry_evidence: " + json.dumps(metrics["data_quality"], ensure_ascii=False))
+        lines.append("Unavailable checks are not evidence of success; totals cover captured operations only.")
     return lines
 
 
@@ -452,7 +458,7 @@ def _error_step_lines(steps: list[dict], limit: int = 16) -> list[str]:
             preview = _tool_arg_preview(tool_call)
             err_type = tool_call.get("error_type")
             error = tool_call.get("error")
-            output = _clip(str(tool_call.get("output") or error or ""), _OUTPUT_CLIP)
+            output = _clip(tool_output_text(tool_call.get("output") or error or "", errors_only=True), _OUTPUT_CLIP)
             lines.append(
                 f"- step {step.get('index')} {tool_call.get('tool_name', '?')} "
                 f"status={status or '?'} type={err_type or ''} {preview}"
@@ -540,6 +546,11 @@ def build_analysis_brief(steps: list[dict], raw: dict | None = None) -> str:
     raw = raw if isinstance(raw, dict) else {}
     if not steps:
         return ""
+    if raw.get("_otel"):
+        from ..api import Trajectory
+        from .session import session_from_run
+
+        return build_analysis_brief_from_session(session_from_run(Trajectory(format="otlp", steps=steps, raw=raw)))
     message_rows = build_message_metrics(steps)
     metrics = compute_metrics(steps, raw, message_rows=message_rows)
     _, wall_fmt = wall_clock_fmt(metrics)

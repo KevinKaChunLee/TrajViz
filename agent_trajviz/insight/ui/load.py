@@ -227,6 +227,7 @@ def do_load(
     *,
     slots: dict[str, Any] | None = None,
     request: gr.Request | None = None,
+    session_id: str | None = None,
 ):
     """Load wrapper: surface unexpected failures as a visible banner.
 
@@ -237,7 +238,8 @@ def do_load(
     """
     try:
         file_path = resolve_upload_path(upload_obj)
-        result = load_session(file_path or "", format_hint=selected_format or "")
+        options = {"session_id": session_id} if session_id else {}
+        result = load_session(file_path or "", format_hint=selected_format or "", **options)
         packed = pack_load_outputs(result, dark=bool(dark))
     except Exception as exc:  # noqa: BLE001
         logger.exception("loading the upload failed")
@@ -251,7 +253,23 @@ def do_load(
     return {slots[key]: packed[key] for key in slots}
 
 
-def bind_load(*, file_upload, load_btn, format_selector, state_dark, slots: dict[str, Any]):
+def _inspect_sessions(upload_obj):
+    """Inspect a capture without running analysis or any load-event fan-out."""
+    from ...api import list_sessions
+    from ...errors import LoadError as PublicLoadError
+    path = resolve_upload_path(upload_obj)
+    if not path:
+        return gr.update(choices=[], value=None, visible=False)
+    try:
+        sessions = list_sessions(path, format="otlp")
+    except (PublicLoadError, OSError, ValueError):
+        return gr.update(choices=[], value=None, visible=False)
+    choices = [(str(row.get("label") or row["id"]), row["id"]) for row in sessions]
+    return gr.update(choices=choices, value=sessions[0]["id"] if len(sessions) == 1 else None,
+                     visible=True)
+
+
+def bind_load(*, file_upload, load_btn, format_selector, state_dark, slots: dict[str, Any], session_selector=None):
     """Wire the Load Trajectory click. Returns the load event(s) to chain onto.
 
     Auto-load on file change is a browser-side re-click of the same button, not a
@@ -270,21 +288,43 @@ def bind_load(*, file_upload, load_btn, format_selector, state_dark, slots: dict
             f"Load slot keys mismatch vs packer: missing={sorted(expected - got)} extra={sorted(got - expected)}"
         )
 
-    def _do_load(upload_obj, dark=False, selected_format="", request: gr.Request | None = None):
-        return do_load(upload_obj, dark, selected_format, slots=slots, request=request)
+    def _do_load(
+        upload_obj,
+        dark=False,
+        selected_format="",
+        session_id=None,
+        request: gr.Request | None = None,
+    ):
+        return do_load(
+            upload_obj,
+            dark,
+            selected_format,
+            slots=slots,
+            request=request,
+            session_id=session_id,
+        )
 
     outputs = list(slots.values())
+    load_inputs = [file_upload, state_dark, format_selector]
+    if session_selector is not None:
+        load_inputs.append(session_selector)
     _load_ev = load_btn.click(
         fn=_do_load,
-        inputs=[file_upload, state_dark, format_selector],
+        inputs=load_inputs,
         outputs=outputs,
     )
-    file_upload.change(
-        fn=None,
-        js=(
+    click_load = (
             "() => { const b = document.querySelector("
             f"'#{upload.LOAD_BTN_ELEM_ID} button, #{upload.LOAD_BTN_ELEM_ID}'"
             "); if (b) b.click(); }"
-        ),
     )
+    if session_selector is None:
+        file_upload.change(fn=None, js=click_load)
+    else:
+        file_upload.change(fn=_inspect_sessions, inputs=[file_upload], outputs=[session_selector]).then(
+            fn=None, js=click_load,
+        )
+        # input fires only for a user's choice; inspection updates do not trigger
+        # a second load, report export or automatic analysis.
+        session_selector.input(fn=None, js=click_load)
     return (_load_ev,)

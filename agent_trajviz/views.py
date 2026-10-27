@@ -31,6 +31,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 from .insight import chart_data
+from .insight.telemetry_quality import supports, view_availability
 from .insight.context_usage import (
     PRESSURE_ALL_AGENTS,
     context_pressure_series,
@@ -44,7 +45,7 @@ if TYPE_CHECKING:
     from .insight.analysis import Analysis
 
 #: Version of the layout of :meth:`View.to_dict` and the files :func:`export_json` writes.
-VIEWS_SCHEMA_VERSION = 1
+VIEWS_SCHEMA_VERSION = 2
 
 ViewKind = Literal["chart", "table", "summary"]
 
@@ -61,6 +62,8 @@ class View:
     description: str
     #: JSON-serializable: dicts, lists, strings, numbers, booleans and None.
     data: Any
+    #: Evidence availability for this view; does not assert capture completeness.
+    availability: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """The view as one JSON object."""
@@ -71,6 +74,7 @@ class View:
             "kind": self.kind,
             "description": self.description,
             "data": self.data,
+            **({"availability": dict(self.availability)} if self.availability is not None else {}),
         }
 
     def to_json(self, **kwargs: Any) -> str:
@@ -138,6 +142,7 @@ def _summary(run: Trajectory, a: Analysis) -> dict[str, Any]:
         "output_tokens_per_sec": m.get("output_tokens_per_sec"),
         "health": {v["metric"]: v["status"] for v in a.verdicts},
         "issues": len(a.issues),
+        "data_quality": a.data_quality,
     }
 
 
@@ -176,7 +181,8 @@ def _context_pressure(
     if key == PRESSURE_ALL_AGENTS and window_limit is None:
         series = a.pressure_series
     else:
-        series = context_pressure_series(_steps(run), agent_key=key, raw=run.raw, window_limit=window_limit)
+        steps = _steps(run) if supports(_steps(run), "context") else []
+        series = context_pressure_series(steps, agent_key=key, raw=run.raw, window_limit=window_limit)
     return {
         "agent": key,
         "agents": [{"label": label, "key": value} for label, value in a.pressure_choices],
@@ -194,10 +200,11 @@ def _context_usage(
     snapshot_step: int | None = None,
     window_limit: int | float | None = None,
 ) -> dict[str, Any]:
+    steps = _steps(run) if all(supports(_steps(run), field) for field in ("context", "text", "tool_inputs", "tool_outputs")) else []
     breakdown = context_usage_breakdown(
-        _steps(run), raw=run.raw, agent_key=agent, window_limit=window_limit, snapshot_step=snapshot_step,
+        steps, raw=run.raw, agent_key=agent, window_limit=window_limit, snapshot_step=snapshot_step,
     )
-    snapshots = usage_snapshot_choices(_steps(run), agent_key=agent)
+    snapshots = usage_snapshot_choices(steps, agent_key=agent)
     return {**breakdown, "snapshots": [{"label": label, "value": value} for label, value in snapshots]}
 
 
@@ -220,6 +227,10 @@ _SPECS: dict[str, _Spec] = {
         "summary", "Summary",
         "Provenance and headline numbers: format, steps, agents, tokens, tool use, health and issue count.",
         _summary),
+    "data_quality": _Spec(
+        "summary", "Data quality",
+        "Evidence coverage and missing-data reasons over captured operations; capture completeness is unknown.",
+        lambda run, a: a.data_quality),
     "session": _Spec(
         "summary", "Session details",
         "Where and how the run happened: model, provider, agent, start and end, session id, title, "
@@ -232,7 +243,7 @@ _SPECS: dict[str, _Spec] = {
         lambda run, a: a.metrics),
     "health": _Spec(
         "table", "Health checks",
-        "One verdict per check (good/warn/bad) with the value it judged and why.",
+        "One verdict per check (good/warn/bad/unavailable) with the value it judged and why.",
         lambda run, a: a.verdicts),
     "issues": _Spec(
         "table", "Issues",
@@ -459,6 +470,7 @@ def _document_schema(view_id: str, title: str, kind: str, description: str, data
             "kind": {"const": kind},
             "description": {"type": "string"},
             "data": data,
+            "availability": {"type": "object"},
         },
     }
 
@@ -516,7 +528,10 @@ def build_view(run: Trajectory, analysis: Analysis, view_id: str, options: Mappi
     if bad:
         raise TypeError(f"view {view_id!r} takes no option(s) {', '.join(bad)}; "
                         f"it takes: {', '.join(spec.options) or 'none'}")
-    return View(view_id, spec.title, spec.kind, spec.description, _jsonable(spec.build(run, analysis, **options)))
+    return View(
+        view_id, spec.title, spec.kind, spec.description, _jsonable(spec.build(run, analysis, **options)),
+        view_availability(view_id, analysis.data_quality, _steps(run)),
+    )
 
 
 def build_views(run: Trajectory, analysis: Analysis, only: Iterable[str] | None = None) -> dict[str, View]:

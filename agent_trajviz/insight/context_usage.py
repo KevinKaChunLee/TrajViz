@@ -412,12 +412,19 @@ def _next_agent_occupancy(
     steps: list[dict],
     index: int,
     agent_id: str,
+    *,
+    not_before_ms: int | float | None = None,
 ) -> int | None:
     for step in steps[index + 1:]:
-        if not _is_occupancy_step(step):
+        if not _is_occupancy_step(step) or _is_summary_turn(step):
             continue
         if _pressure_agent(step) != agent_id:
             continue
+        if not_before_ms is not None:
+            created = step.get("time_created_ms")
+            if (isinstance(created, bool) or not isinstance(created, (int, float))
+                    or not math.isfinite(created) or created < not_before_ms):
+                continue
         occ = step_context_occupancy(step)["occupancy"]
         if occ > 0:
             return occ
@@ -618,12 +625,22 @@ def detect_compaction_events(steps: list[dict]) -> list[dict]:
         if before is None:
             before = _previous_agent_occupancy(steps, pos, agent_id)
         after = extra.get("occupancy_after")
-        if after is None:
-            after = step_context_occupancy(step)["occupancy"]
-        # Compaction parts live on user turns with no token totals — look
-        # ahead to the next live occupancy of this window.
-        if not after:
-            after = _next_agent_occupancy(steps, pos, agent_id)
+        if kind == "compaction_message":
+            # Checkpoint tokens can be the compaction request's billed usage,
+            # not the resulting context. Only an explicit window snapshot or
+            # a subsequent live request can measure the post-compaction size.
+            after = _context_window_tokens(step) if after is None else after
+            boundary = next((step[key] for key in ("time_completed_ms", "time_created_ms")
+                             if isinstance(step.get(key), (int, float)) and not isinstance(step[key], bool)
+                             and math.isfinite(step[key])), None)
+            if after is None:
+                after = _next_agent_occupancy(steps, pos, agent_id, not_before_ms=boundary)
+        else:
+            if after is None:
+                after = step_context_occupancy(step)["occupancy"]
+            # Compaction parts on user turns carry no token totals.
+            if not after:
+                after = _next_agent_occupancy(steps, pos, agent_id)
         dropped = None
         if isinstance(before, (int, float)) and isinstance(after, (int, float)):
             dropped = max(0, int(before) - int(after))
@@ -1394,7 +1411,7 @@ def context_usage_breakdown(
     occupancy point unless *snapshot_step* selects a live occupancy turn
     (typically the point right before a compaction). Percentages of *window*
     use the resolved window limit (user override, inferred model/metadata, or
-    128k).
+    128k). An assumed window contradicted by observed occupancy stays unknown.
     """
     empty_buckets = {key: 0 for key, _label, _color in USAGE_CATEGORIES}
     empty = {
@@ -1420,7 +1437,7 @@ def context_usage_breakdown(
         hit = _occupancy_at(steps, snapshot_step, target)
         if hit is not None:
             agent_id, anchor_step, occupancy = hit
-    window_limit = resolve_context_window_limit(steps, raw, override=window_limit)
+    window_limit, _window_source, _window_note = resolve_context_window(steps, raw, override=window_limit)
     buckets = dict(empty_buckets)
     raw_dict = raw if isinstance(raw, dict) else None
     buckets["tools"] = _raw_blob_tokens(raw_dict, _TOOL_DEF_KEYS)

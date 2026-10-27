@@ -13,7 +13,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "id": {
       "const": "agents"
@@ -62,28 +62,49 @@
             ]
           },
           "cache_read_tokens": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "cache_write_tokens": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "error_count": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "input_tokens": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "input_tokens_unusable_steps": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "label": {
             "type": "string"
           },
           "output_throughput_timed_steps": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "output_tokens": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "output_tokens_per_sec": {
             "type": [
@@ -92,7 +113,10 @@
             ]
           },
           "reasoning_tokens": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "spawned_by_step": {
             "type": [
@@ -101,7 +125,10 @@
             ]
           },
           "step_count": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "token_unusable_steps": {
             "type": "object",
@@ -115,33 +142,203 @@
             ],
             "properties": {
               "cache_read": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "cache_write": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "input": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "output": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "reasoning": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "total": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             }
           },
           "tool_call_count": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "total_duration_s": {
-            "type": "number"
+            "type": [
+              "number",
+              "null"
+            ]
           },
           "total_tokens": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "data_quality": {
+            "type": "object",
+            "required": [
+              "source",
+              "basis",
+              "capture_complete",
+              "fields"
+            ],
+            "properties": {
+              "source": {
+                "enum": [
+                  "native",
+                  "otlp"
+                ]
+              },
+              "basis": {
+                "enum": [
+                  "source_records",
+                  "captured_operations"
+                ]
+              },
+              "capture_complete": {
+                "type": "null"
+              },
+              "profile": {
+                "type": "string"
+              },
+              "profile_version": {
+                "type": "integer"
+              },
+              "fields": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "observed",
+                    "partial",
+                    "total",
+                    "reasons"
+                  ],
+                  "properties": {
+                    "status": {
+                      "enum": [
+                        "observed",
+                        "partial",
+                        "unavailable",
+                        "unknown"
+                      ]
+                    },
+                    "observed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "partial": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "reasons": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  }
+                }
+              },
+              "limitations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "availability": {
+      "type": "object",
+      "required": [
+        "status",
+        "basis",
+        "fields"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "observed",
+            "partial",
+            "unavailable",
+            "unknown"
+          ]
+        },
+        "basis": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "status",
+              "observed",
+              "partial",
+              "total",
+              "reasons"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "observed",
+                  "partial",
+                  "unavailable",
+                  "unknown"
+                ]
+              },
+              "observed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "partial": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reasons": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
           }
         }
       }

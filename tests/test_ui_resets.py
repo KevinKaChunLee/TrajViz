@@ -31,7 +31,7 @@ import gradio as gr
 from agent_trajviz.insight import insight as insight_mod
 from agent_trajviz.insight.ui import comparison_tab, overview_tab, shared, upload
 
-_TRAJECTORY_FILE_LABEL = "Trajectory (.json / .jsonl / .zip)"
+_TRAJECTORY_FILE_LABEL = "Trajectory (.json / .jsonl / .zstd / .zip)"
 _LOAD_BUTTON_LABEL = "Load Trajectory"
 
 _APP = None
@@ -100,8 +100,15 @@ class SingleLoadPathTests(unittest.TestCase):
         file_id = _component_id(cfg, "file", "label", _TRAJECTORY_FILE_LABEL)
         change_deps = _deps_targeting(cfg, file_id, "change")
         self.assertEqual(len(change_deps), 1, "the Trajectory file input still has extra listeners")
-        self.assertTrue(change_deps[0].get("js"), "auto-load should re-click Load in the browser")
-        self.assertFalse(change_deps[0].get("backend_fn"), "auto-load still runs a second Python load")
+        inspection = change_deps[0]
+        self.assertTrue(inspection.get("backend_fn"), "file selection should inspect capture sessions")
+        follows = [dep for dep in cfg["dependencies"] if dep.get("trigger_after") == inspection["id"]]
+        self.assertEqual(len(follows), 1)
+        self.assertTrue(follows[0].get("js"), "auto-load should re-click Load after session inspection")
+        self.assertFalse(follows[0].get("backend_fn"), "the follow-up must not create a second load path")
+        inspect_fns = [bf for bf in _fns(app) if getattr(bf.fn, "__name__", "") == "_inspect_sessions"]
+        self.assertEqual(len(inspect_fns), 1)
+        self.assertEqual(list(inspect_fns[0].targets), [(file_id, "change")])
 
     def test_the_export_writer_is_registered_once(self):
         app, _ = _app()

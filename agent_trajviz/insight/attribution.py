@@ -1,19 +1,19 @@
-"""DECAF failure-attribution seam for TrajViz.
+"""attribution backend failure-attribution seam for TrajViz.
 
-The single, one-directional bridge between TrajViz and DECAF's ``awe`` package:
-this module imports ``awe``; ``awe`` never imports ``agent_trajviz``. Every DECAF call
+The single, one-directional bridge between TrajViz and attribution backend's ``awe`` package:
+this module imports ``awe``; ``awe`` never imports ``agent_trajviz``. Every attribution backend call
 the UI makes goes through :func:`diagnose`, which returns a plain
 :class:`AttributionResult` (no Gradio types) so it is unit-testable headless.
 
 Integrity model (hardened over three review rounds):
 
-* **Gold-grounded.** DECAF's blame needs the run's reference patch + test
+* **Gold-grounded.** attribution backend's blame needs the run's reference patch + test
   outcome; without them we degrade honestly (never fabricate).
 * **Canonical identity.** A displayed file must be byte-identical to the file
-  DECAF itself parses for (agent, instance) — resolved by DECAF's own
+  attribution backend itself parses for (agent, instance) — resolved by attribution backend's own
   ``canonical_trajectory_path`` (codex prefers ``.jsonl``) so verification and
   diagnosis can never read different sources.
-* **Cache provenance.** DECAF's normtraj/trajsig caches are content-keyed
+* **Cache provenance.** attribution backend's normtraj/trajsig caches are content-keyed
   (v0.34). Judge/arbiter verdicts are accepted only when their stamped
   ``trajectory_sha256`` matches the canonical trajectory; unverifiable verdicts
   disable the LLM layers for that diagnosis (noted in the result) rather than
@@ -22,7 +22,7 @@ Integrity model (hardened over three review rounds):
   immutable import-time default unless the caller passes one) under a module
   lock, so no request inherits another session's root and concurrent callers
   cannot interleave configuration and diagnosis.
-* **Input validation.** ``agent`` must be an agent DECAF knows and
+* **Input validation.** ``agent`` must be an agent attribution backend knows and
   ``instance_id`` a plain filename stem — path traversal cannot reach the
   filesystem.
 """
@@ -37,7 +37,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Causal capability order (mirrors DECAF's UPSTREAM_ORDER).
+# Causal capability order (mirrors attribution backend's UPSTREAM_ORDER).
 CAPABILITIES: tuple[str, ...] = (
     "requirement_understanding", "task_planning", "code_localization",
     "code_editing", "code_verification", "self_repair_loop", "tool_use",
@@ -51,13 +51,13 @@ _ALWAYS_ASSESSED = frozenset({"code_localization", "code_editing"})
 _VALID_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # RLock: diagnose() holds it end-to-end, and the public configure() acquires the
-# SAME lock so no caller can rewrite DECAF's process-global root/caches while a
+# SAME lock so no caller can rewrite attribution backend's process-global root/caches while a
 # diagnosis is in flight (reentrancy lets diagnose call configure internally).
 _LOCK = threading.RLock()
 
 
 # --------------------------------------------------------------------------- #
-# DECAF discovery + import (stdlib-only, not a pip package)
+# attribution backend discovery + import (stdlib-only, not a pip package)
 # --------------------------------------------------------------------------- #
 def _decaf_root() -> Path | None:
     candidates = []
@@ -114,9 +114,9 @@ _JUDGE_MODEL_EXPLICIT = bool(os.environ.get("AWE_JUDGE_MODEL"))
 
 
 def _select_judge_model(judge_cache_dir: Path, schema: int) -> str | None:
-    """The model whose cached verdicts DECAF's current schema can verify.
+    """The model whose cached verdicts attribution backend's current schema can verify.
 
-    DECAF partitions judge verdicts by model slug and stamps each with the
+    attribution backend partitions judge verdicts by model slug and stamps each with the
     evidence schema it was produced under; :func:`_verdict_verifies` refuses any
     other schema. A model named by hand therefore goes stale on the next
     move to another model or schema bump — every verdict in its namespace is refused and
@@ -149,18 +149,18 @@ _IMPORT_ERROR: str | None = None
 try:
     if _DECAF_ROOT is None:
         raise ImportError(
-            "DECAF (awe) not found — set AWE_DECAF_PATH to a DECAF checkout")
+            "Attribution backend not found — configure a compatible backend checkout")
     from awe import config as _cfg  # noqa: E402
     DECAF_AVAILABLE = True
 except Exception as exc:  # pragma: no cover - environment-dependent
     # Optional dependency import failures can include private environment values
     # or paths. Keep the public reason useful without forwarding their text.
-    _IMPORT_ERROR = f"DECAF import failed ({type(exc).__name__})"
+    _IMPORT_ERROR = f"Attribution backend import failed ({type(exc).__name__})"
 
 if DECAF_AVAILABLE and not _JUDGE_MODEL_EXPLICIT:
-    # DECAF reads config.JUDGE_MODEL at call time (judge, arbiter and
+    # attribution backend reads config.JUDGE_MODEL at call time (judge, arbiter and
     # model_slug), so setting it after import takes effect everywhere. Without a
-    # match DECAF keeps its own default and the layers degrade with a note.
+    # match attribution backend keeps its own default and the layers degrade with a note.
     from awe.trajectory import SCHEMA_VERSION as _SCHEMA_VERSION  # noqa: E402
 
     _detected_model = _select_judge_model(_cfg.JUDGE_CACHE_DIR, _SCHEMA_VERSION)
@@ -169,10 +169,10 @@ if DECAF_AVAILABLE and not _JUDGE_MODEL_EXPLICIT:
 
 
 def configure(reference_root: str | os.PathLike) -> None:
-    """Point DECAF at a reference root and clear its root-dependent memory caches.
+    """Point attribution backend at a reference root and clear its root-dependent memory caches.
 
     Acquires the SAME module lock as diagnose(), so an external caller cannot
-    rewrite DECAF's process-global root/caches while a diagnosis is in flight.
+    rewrite attribution backend's process-global root/caches while a diagnosis is in flight.
     diagnose() itself re-configures per request (explicit root or the immutable
     default) — configuration is never inherited across callers.
     Older releases cache build_gold_reference/load_outcomes themselves; newer
@@ -185,7 +185,7 @@ def configure(reference_root: str | os.PathLike) -> None:
 
 
 def _configure_unlocked(reference_root: str | os.PathLike) -> None:
-    # DECAF resolves every input path from these attributes at call time, so
+    # attribution backend resolves every input path from these attributes at call time, so
     # setting them is the whole configuration; the process environment is left
     # alone.
     root = Path(reference_root).resolve()
@@ -203,8 +203,8 @@ def _configure_unlocked(reference_root: str | os.PathLike) -> None:
 
 
 if DECAF_AVAILABLE:
-    # DECAF's own default is its checkout; point it at the reference root from
-    # import on, so a caller that reaches DECAF before any diagnose() reads the
+    # attribution backend's own default is its checkout; point it at the reference root from
+    # import on, so a caller that reaches attribution backend before any diagnose() reads the
     # same data diagnose() will. Every diagnose() re-configures explicitly.
     try:
         _configure_unlocked(_DEFAULT_ROOT)
@@ -212,7 +212,7 @@ if DECAF_AVAILABLE:
         # Importing the public optional facade must remain safe on API drift.
         # Exception text can contain private paths or source data.
         DECAF_AVAILABLE = False
-        _IMPORT_ERROR = f"DECAF configuration failed ({type(exc).__name__})"
+        _IMPORT_ERROR = f"Attribution backend configuration failed ({type(exc).__name__})"
 
 
 # --------------------------------------------------------------------------- #
@@ -262,7 +262,7 @@ def _canonical_trajectory_path(agent: str, instance_id: str) -> Path | None:
     resolver = getattr(adapters, "canonical_trajectory_path", None)
     if callable(resolver):
         return resolver(agent, instance_id)
-    # Current DECAF resolves these two sources in _parse_normalized. The
+    # Current attribution backend resolves these two sources in _parse_normalized. The
     # normalized source stamp is checked independently before any diagnosis, so
     # an adapter that changes its resolution cannot silently certify this path.
     base = _cfg.TRAJECTORY_DIR / agent
@@ -277,10 +277,10 @@ def _supports_layer_controls(case_record) -> bool:
 
 
 def _objective_record(agent: str, instance_id: str, canon: Path, canon_sha: str):
-    """Current DECAF without per-call dossier controls: keep LLM layers off.
+    """Current attribution backend without per-call dossier controls: keep LLM layers off.
 
-    Never monkeypatch process-global DECAF functions or temporarily move its
-    cache directories. Such changes could affect independent DECAF consumers.
+    Never monkeypatch process-global attribution backend functions or temporarily move its
+    cache directories. Such changes could affect independent attribution backend consumers.
     Build the objective dossier from its explicit detector and blame APIs.
     """
     from awe.adapters import load_normalized
@@ -355,7 +355,7 @@ def _llm_layer_policy(agent: str, instance_id: str, canon_sha: str):
     a stale verdict must never judge a different trajectory OR a different task.
 
     Returns (use_judge, adjudicate, notes): use_judge False disables the judge;
-    adjudicate None disables the arbiter; _AUTO keeps DECAF's default.
+    adjudicate None disables the arbiter; _AUTO keeps attribution backend's default.
     """
     import hashlib
     import json as _json
@@ -370,7 +370,7 @@ def _llm_layer_policy(agent: str, instance_id: str, canon_sha: str):
     j_prompt = hashlib.sha256(_judge.SYSTEM_PROMPT.encode()).hexdigest()[:12]
     a_prompt = hashlib.sha256(_arb.SYSTEM_PROMPT.encode()).hexdigest()[:12]
 
-    use_judge: bool | None = None      # DECAF auto
+    use_judge: bool | None = None      # attribution backend auto
     jrec = _judge.verdict_cached(agent, instance_id)
     if jrec is not None and not _verdict_verifies(
             jrec, canon_sha=canon_sha, req_sha=req_sha,
@@ -429,8 +429,11 @@ def diagnose(*, agent: str | None, instance_id: str | None,
     export tree). Anything above zero is unverifiable here by construction, so
     it is refused with that reason rather than compared.
     """
+    if fmt == "otlp":
+        return AttributionResult(False, reason="failure attribution does not support saved OTLP captures; "
+                                 "use the native trajectory and its verified reference data.")
     if not DECAF_AVAILABLE:
-        return AttributionResult(False, reason=f"DECAF unavailable ({_IMPORT_ERROR})")
+        return AttributionResult(False, reason=f"Attribution unavailable ({_IMPORT_ERROR})")
     with _LOCK:
         try:
             return _diagnose_locked(agent=agent, instance_id=instance_id,
@@ -440,7 +443,7 @@ def diagnose(*, agent: str | None, instance_id: str | None,
                                     reference_root=reference_root)
         except Exception as exc:
             return AttributionResult(False, mode="reference", agent=agent, instance_id=instance_id,
-                                     reason=f"DECAF diagnosis unavailable ({type(exc).__name__})")
+                                     reason=f"Attribution diagnosis unavailable ({type(exc).__name__})")
 
 
 def _diagnose_locked(*, agent, instance_id, source_path, fmt, expected_sha,
@@ -453,7 +456,7 @@ def _diagnose_locked(*, agent, instance_id, source_path, fmt, expected_sha,
             False, mode="gold_free", agent=agent, instance_id=instance_id,
             reason="capability attribution needs (agent, instance_id); an arbitrary "
                    "trajectory upload has no reference patch to ground blame")
-    # Validate BEFORE any filesystem access: agent from DECAF's known agents,
+    # Validate BEFORE any filesystem access: agent from attribution backend's known agents,
     # instance_id a single safe filename stem (no traversal, no separators).
     from awe import config
     if agent not in config.AGENTS:
@@ -474,7 +477,7 @@ def _diagnose_locked(*, agent, instance_id, source_path, fmt, expected_sha,
                    f"{config.DATA.parent} — attribution needs the reference patch + "
                    f"test outcome; showing trajectory-only signals instead")
 
-    # Canonical identity: resolve via DECAF's OWN source resolution so we verify
+    # Canonical identity: resolve via attribution backend's OWN source resolution so we verify
     # the very file diagnosis will parse (codex prefers .jsonl).
     canon = _canonical_trajectory_path(agent, instance_id)
     if canon is None:
@@ -539,19 +542,19 @@ def _diagnose_locked(*, agent, instance_id, source_path, fmt, expected_sha,
     used_judge = False
     try:
         if _supports_layer_controls(case_record):
-            # Legacy DECAF: use its full dossier only with verified cached
+            # Legacy attribution backend: use its full dossier only with verified cached
             # verdicts and its explicit per-call controls.
             use_judge, adjudicate, notes = _llm_layer_policy(agent, instance_id, canon_sha)
             rec = case_record(agent, instance_id, use_judge=use_judge, adjudicate=adjudicate)
             d = detect(instance_id, agent, use_judge=use_judge)
-            # None selects DECAF's automatic cached-verdict mode. Its detector
+            # None selects attribution backend's automatic cached-verdict mode. Its detector
             # reports whether this case actually had a usable verdict; task
             # opportunities or the policy flag alone cannot establish that.
             used_judge = (use_judge is not False
                           and (d.get("signals") or {}).get("judge_available") is True)
         else:
             rec, d = _objective_record(agent, instance_id, canon, canon_sha)
-            notes = ["DECAF's dossier API lacks per-call judge/arbiter controls; "
+            notes = ["attribution backend's dossier API lacks per-call judge/arbiter controls; "
                      "using objective analysis only, without cached LLM verdicts."]
     except Exception as exc:  # never surface a raw traceback to the UI
         return AttributionResult(
@@ -560,7 +563,7 @@ def _diagnose_locked(*, agent, instance_id, source_path, fmt, expected_sha,
     if rec is None:
         return AttributionResult(
             False, mode="reference", agent=agent, instance_id=instance_id,
-            reason="this run resolved (or its outcome is unknown); DECAF attributes "
+            reason="this run resolved (or its outcome is unknown); attribution applies to "
                    "failures only")
     # Close the mid-diagnosis mutation window: case_record/detect re-read the
     # reference data from disk AFTER the identity gate above, and an external
@@ -594,7 +597,7 @@ def _shape(rec: dict, opportunities: dict, notes: list[str], *, used_judge: bool
     Blame is NON-ZERO only (arbiter-refuted faults carry weight 0). Assessment
     is per capability: the deductive core always; every other capability —
     including EACH judge capability separately — only when its own opportunity
-    opened (DECAF can judge requirement_understanding while task_planning is out
+    opened (attribution backend can judge requirement_understanding while task_planning is out
     of scope for the same case)."""
     faults = rec.get("faults", [])
     primary = next(({"capability": f["capability"], "error_type": f["error_type"]}

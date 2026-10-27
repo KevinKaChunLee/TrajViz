@@ -37,6 +37,7 @@ class UploadRefs:
     summary_area: gr.Column
     summary_banner: gr.HTML
     label_badge_html: gr.HTML
+    session_selector: gr.Dropdown
 
 
 def layout() -> UploadRefs:
@@ -58,13 +59,16 @@ def layout() -> UploadRefs:
         )
         with gr.Column(scale=2, min_width=200):
             file_upload = gr.File(
-                label="Trajectory (.json / .jsonl / .zip)",
-                file_types=[".json", ".jsonl", ".zip"],
+                label="Trajectory (.json / .jsonl / .zstd / .zip)",
+                file_types=[".json", ".jsonl", ".zstd", ".zip"],
                 height=110,
             )
             gr.Markdown(
-                "Claude Code subagents: ZIP the parent log with its session folder.",
+                "Subagents: upload a Claude Code ZIP or a consolidated session export. "
+                "OTLP captures: upload traces or a manifest bundle with companion logs.",
             )
+            session_selector = gr.Dropdown(label="Captured session", choices=[], value=None,
+                                           visible=False, interactive=True)
             with gr.Row():
                 load_btn = gr.Button(
                     "Load Trajectory",
@@ -105,6 +109,7 @@ def layout() -> UploadRefs:
         summary_area=summary_area,
         summary_banner=summary_banner,
         label_badge_html=label_badge_html,
+        session_selector=session_selector,
     )
 
 

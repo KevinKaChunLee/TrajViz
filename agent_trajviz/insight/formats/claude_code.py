@@ -90,6 +90,17 @@ def _message(record: dict) -> dict:
     return message if isinstance(message, dict) else {}
 
 
+def _is_interruption_marker(record: dict) -> bool:
+    """Claude's interruption control message is not a new user request."""
+    if record.get("type") != "user":
+        return False
+    content = _content_list(_message(record).get("content"))
+    return (len(content) == 1 and content[0].get("type") == "text"
+            and content[0].get("text") in {
+                "[Request interrupted by user]", "[Request interrupted by user for tool use]",
+            })
+
+
 def _output_text(content: object) -> str:
     if isinstance(content, str):
         return content
@@ -285,6 +296,7 @@ def convert_claude_code_events(events: list[dict], *, source_path: str | None = 
     actual: dict[str, list[dict]] = {"": []}
     inline: dict[str, list[dict]] = {}
     info: dict[str, dict] = {"": {"source_path": source_path or ""}}
+    control_events: list[dict] = []
 
     def note_agent(agent_id: str, *, parent: str = "", spawned_by: str = "", **fields):
         if not agent_id:
@@ -311,6 +323,12 @@ def convert_claude_code_events(events: list[dict], *, source_path: str | None = 
             own_agent = as_text(record.get("agentId")) or owner
             if own_agent:
                 note_agent(own_agent, parent=owner if own_agent != owner else "")
+            if _is_interruption_marker(record):
+                control_events.append({"kind": "request_interrupted", "agent_id": own_agent,
+                                       "timestamp": record.get("timestamp"),
+                                       "uuid": record.get("uuid"), "source_path": stream_path,
+                                       "source_index": record["_source_index"]})
+                continue
             kind = record.get("type")
             if kind in ("user", "assistant", "system"):
                 target.setdefault(own_agent, []).append(record)
@@ -365,6 +383,9 @@ def convert_claude_code_events(events: list[dict], *, source_path: str | None = 
 
     streams = dict(actual)
     warnings = list(child_warnings or [])
+    for control in control_events:
+        owner = f"sub-agent {control['agent_id']}" if control["agent_id"] else "the main agent"
+        warnings.append(f"Claude Code recorded a request interruption for {owner}; its transcript may be incomplete.")
     for child, records in inline.items():
         # An actual transcript is authoritative. The same response can appear
         # there and in several progress snapshots with different wrapper UUIDs.
@@ -517,5 +538,6 @@ def convert_claude_code_events(events: list[dict], *, source_path: str | None = 
                   "reasoning_steps": sum(s["has_reasoning"] for s in steps)},
         "trajectory": [], "_claude_code_format": True, "_claude_code_parsed_steps": steps,
         "_claude_code_sub_agents": sub_agents, "_claude_code_turn_durations": turn_durations,
+        "_claude_code_control_events": control_events,
         "_load_warnings": list(dict.fromkeys(warnings)),
     }

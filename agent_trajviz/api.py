@@ -63,7 +63,7 @@ class Trajectory:
     steps: list[Step]
     #: The file it was loaded from.
     source: str | None = None
-    #: SHA-256 of the source bytes (for a merged multi-file export, of all of them).
+    #: SHA-256 source identity (OTLP also includes session and mapping profile).
     sha256: str | None = None
     #: What the loader had to skip or could not read, in plain words.
     warnings: tuple[str, ...] = ()
@@ -104,6 +104,14 @@ class Trajectory:
         window the export declares or the model implies; without either, the
         stats say the window is assumed or unknown rather than guess silently.
         """
+        from .insight.telemetry_quality import supports
+
+        if self.format == "otlp" and not supports(_plain(self.steps), "context"):
+            series = context_pressure_series([], window_limit=window_limit)
+            stats = context_pressure_stats(series)
+            stats = {key: None if isinstance(value, (int, float)) else value for key, value in stats.items()}
+            return {"stats": stats, "series": series,
+                    "availability": {"status": "unavailable", "reason": "context occupancy is not recorded"}}
         series = context_pressure_series(_plain(self.steps), raw=self.raw, window_limit=window_limit)
         return {"stats": context_pressure_stats(series), "series": series}
 
@@ -151,6 +159,15 @@ class Trajectory:
         }
         if include_raw:
             data["raw"] = self.raw
+        if isinstance(self.raw.get("_otel"), dict):
+            # Retain evidence and selection metadata even in lightweight
+            # exports, without copying raw span/log bodies or other sessions.
+            data["telemetry"] = {
+                key: value for key, value in self.raw["_otel"].items()
+                if key not in {"spans", "logs"}
+            }
+            data["telemetry"]["session_metadata"] = self.raw.get("metadata", {})
+            data["telemetry"]["timing"] = self.raw.get("timing", {})
         return cast("dict[str, Any]", _jsonable(data))
 
     @classmethod
@@ -159,8 +176,9 @@ class Trajectory:
 
         Raises :class:`ValueError` for a document of another layout or
         version. Without ``raw`` (``to_dict()`` without ``include_raw``) the
-        steps are restored but analyses that read the export's metadata see
-        none.
+        steps are restored; OTLP exports also retain their selection, timing
+        and evidence metadata. Other formats may lose analyses that read raw
+        export metadata.
         """
         if not isinstance(data, Mapping) or not isinstance(data.get("steps"), list):
             raise ValueError("not an agent-trajviz trajectory: no steps")
@@ -172,6 +190,17 @@ class Trajectory:
             raise ValueError("not an agent-trajviz trajectory: no format")
         raw = data.get("raw")
         raw = dict(raw) if isinstance(raw, Mapping) else {}
+        telemetry = data.get("telemetry")
+        if fmt == "otlp" and isinstance(telemetry, Mapping):
+            raw.setdefault("_otel", {key: value for key, value in telemetry.items()
+                                     if key not in {"session_metadata", "timing"}})
+            raw.setdefault("metadata", telemetry.get("session_metadata", {}))
+            raw.setdefault("timing", telemetry.get("timing", {}))
+            raw.setdefault("_otlp_sub_agents", telemetry.get("agents", []))
+            raw.setdefault("_source_format", "otlp")
+            raw.setdefault("_otlp_format", True)
+            raw.setdefault("_source_sha256", data.get("sha256"))
+            raw.setdefault("_source_capture_sha256", telemetry.get("capture_sha256"))
         if fmt == "ccsession":
             # Schema-v1 public exports already contain normalized steps. Keep
             # those saved documents readable after replacing the old source
@@ -255,8 +284,8 @@ def load_plugins() -> list[str]:
     return plugins.load_plugins()
 
 
-def load(source: PathLike, *, format: str | None = None) -> Trajectory:
-    """Load a trajectory file of any supported format (see :data:`FORMATS`).
+def load(source: PathLike, *, format: str | None = None, session_id: str | None = None) -> Trajectory:
+    """Load a trajectory source of any supported format (see :data:`FORMATS`).
 
     The format is detected from the content. *format* (a key of
     :data:`FORMATS`) requires that format instead: a file detected as another
@@ -267,13 +296,51 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
     unknown *format*. Formats added with :func:`register_format` are detected
     after the built-in ones, and a :meth:`Trajectory.to_dict` document (such
     as the ``trajectory.json`` of :func:`export_json`) reloads as it was.
+
+    Saved OTLP sources can be a JSON/JSONL file, an explicit bundle manifest,
+    its directory, or a ZIP bundle. Use :func:`list_sessions` to discover
+    selectable ids, then pass *session_id* to load one; a capture containing
+    multiple sessions raises ``LoadError(code="ambiguous_session")`` without
+    a selection. Native JSONL and its subagents keep their existing behavior.
     """
     if format is not None and format not in FORMATS:
         raise ValueError(f"unknown format {format!r}; expected one of: {', '.join(FORMATS)}")
+    if session_id is not None and (not isinstance(session_id, str) or not session_id):
+        raise ValueError("session_id must be a non-empty string")
     path = os.fspath(source)
-    exported = _read_exported(path)
+    from .insight.formats.otlp_files import looks_like_otlp_source
+
+    otlp_source = looks_like_otlp_source(path)
+    directory = Path(path).is_dir()
+    if otlp_source or format == "otlp" and directory:
+        if format is not None and format != "otlp":
+            raise LoadError(f"the file is otlp, not {format}", code="mismatch", path=path, detected="otlp")
+        return _load_otlp(path, session_id=session_id)
+    exported = _read_exported(path, bounded=format == "otlp" or session_id is not None)
     if exported is not None:
-        return _load_exported(exported, path, format)
+        run = _load_exported(exported, path, format)
+        if session_id is not None and run.raw.get("_otel", {}).get("session_id") != session_id:
+            raise LoadError(f"the exported trajectory does not contain session {session_id!r}",
+                            code="session_not_found", path=path)
+        return run
+    if (format == "otlp" or session_id is not None) and not directory:
+        native_format = loaders._bounded_non_otlp_format(path)
+        if native_format == "otlp":
+            # A large envelope can put its discriminator beyond the cheap
+            # sniff prefix. Selection must still use the bounded OTLP reader,
+            # rather than reject a capture that loads without a selector.
+            if format is not None and format != "otlp":
+                raise LoadError(f"the file is otlp, not {format}", code="mismatch", path=path, detected="otlp")
+            return _load_otlp(path, session_id=session_id)
+        if format == "otlp" and native_format in FORMATS:
+            raise LoadError(f"the file is {native_format}, not otlp", code="mismatch", path=path,
+                            detected=native_format)
+    if format == "otlp" or otlp_source:
+        if format is not None and format != "otlp":
+            raise LoadError(f"the file is otlp, not {format}", code="mismatch", path=path, detected="otlp")
+        return _load_otlp(path, session_id=session_id)
+    if session_id is not None:
+        raise LoadError("session_id selection applies to saved OTLP captures", code="unsupported_selection", path=path)
     registered = plugins.registered_format(format)
     if registered is not None:
         return _load_registered(registered, path)
@@ -313,6 +380,39 @@ def load(source: PathLike, *, format: str | None = None) -> Trajectory:
         warnings=tuple(str(w) for w in raw.get("_load_warnings") or ()),
         tokens_estimated=loaders.tokens_are_estimates(raw),
         raw=raw,
+    )
+
+
+def list_sessions(source: PathLike, *, format: str | None = None) -> list[dict[str, Any]]:
+    """List selectable Claude Code sessions in a saved OTLP capture.
+
+    Each row includes an ``id`` accepted by :func:`load`'s ``session_id``.
+    Native session JSONL loading and subagent discovery keep their existing
+    behavior; this discovery API currently supports only OTLP captures.
+    """
+    if format not in (None, "otlp"):
+        raise ValueError("session discovery currently supports format='otlp'")
+    from .insight.formats.otlp_claude import list_otlp_sessions
+    from .insight.formats.otlp_files import read_otlp_capture
+
+    return list_otlp_sessions(read_otlp_capture(os.fspath(source)))
+
+
+def _load_otlp(path: str, *, session_id: str | None = None) -> Trajectory:
+    from .insight.formats.otlp_claude import convert_otlp_claude
+    from .insight.formats.otlp_files import read_otlp_capture
+
+    capture = read_otlp_capture(path)
+    raw = convert_otlp_claude(capture, session_id=session_id)
+    loaders._stamp_otlp_identity(raw)
+    raw["_source_path"] = path
+    steps = parse_steps(raw)
+    if not steps:
+        raise LoadError("no supported Claude Code operations found in the OTLP capture", code="no_steps", path=path)
+    return Trajectory(
+        format="otlp", steps=cast("list[Step]", steps), source=path,
+        sha256=raw["_source_sha256"], warnings=tuple(str(w) for w in raw.get("_load_warnings") or ()),
+        tokens_estimated=False, raw=raw,
     )
 
 
@@ -370,22 +470,36 @@ def _load_exported(data: Mapping[str, Any], path: str, format: str | None) -> Tr
     return run
 
 
-def _read_exported(path: str) -> dict[str, Any] | None:
+def _read_exported(path: str, *, bounded: bool = False) -> dict[str, Any] | None:
     """The parsed document when *path* is a :meth:`Trajectory.to_dict` export, else ``None``.
 
     Only a JSON object whose ``type`` is :data:`TRAJECTORY_TYPE` qualifies; a
     cheap prefix check keeps every other file on the format loaders' path.
     """
     import json
+    from .insight.formats.otlp_files import _open_file
 
     try:
-        with open(path, "rb") as fh:
+        handle = _open_file(Path(path))
+    except LoadError:
+        return None
+
+    try:
+        with handle as fh:
+            if bounded:
+                from .insight.formats.otlp_files import MAX_MEMBER_BYTES
+
+                data_bytes = fh.read(MAX_MEMBER_BYTES + 1)
+                if len(data_bytes) > MAX_MEMBER_BYTES:
+                    raise LoadError("OTLP capture size limit exceeded", code="size_limit", path=path)
+                data = json.loads(data_bytes)
+                return data if isinstance(data, dict) and data.get("type") == TRAJECTORY_TYPE else None
             head = fh.read(4096)
             if TRAJECTORY_TYPE.encode() not in head:
                 return None
             fh.seek(0)
             data = json.load(fh)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None
     return data if isinstance(data, dict) and data.get("type") == TRAJECTORY_TYPE else None
 

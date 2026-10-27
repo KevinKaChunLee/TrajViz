@@ -18,6 +18,8 @@ from .metrics import is_spawn_tool_call, tool_call_duration_ms
 from .palette import AGENT_COLORS, AGENT_CSS_COLORS
 from .parser import _optional_token_count, cache_read_share, spawned_child_session_id
 from .styles import WORKFLOW_CSS
+from .telemetry_quality import field_observed
+from .tool_output import tool_output_text
 from .workflow_role import workflow_role
 
 
@@ -199,7 +201,7 @@ def _render_one_agent_card(a: dict, agent_hex: str) -> str:
         )
 
     _cache_display = (
-        "N/A" if (a["cache_read_tokens"] == 0 and a["total_tokens"] > 0)
+        "N/A" if (a["cache_read_tokens"] == 0 and (a["total_tokens"] or 0) > 0)
         or a["cache_efficiency_pct"] is None
         else f"{a['cache_efficiency_pct']:.1f}%"
     )
@@ -214,6 +216,9 @@ def _render_one_agent_card(a: dict, agent_hex: str) -> str:
         "Output tokens ÷ generation time (step time minus tool and sub-agent "
         f"waits), over {a.get('output_throughput_timed_steps', 0)} of {steps_text} with timing"
     )
+    total_tokens = "N/A" if a["total_tokens"] is None else f"{a['total_tokens']:,}"
+    duration = "N/A" if a["total_duration_s"] is None else f"{a['total_duration_s']:.1f}s"
+    errors = "N/A" if a["error_count"] is None else str(a["error_count"])
     return (
         f"<div class='agent-card' title='{full_id}'"
         f" style='border-left:4px solid {agent_hex};'>"
@@ -223,10 +228,10 @@ def _render_one_agent_card(a: dict, agent_hex: str) -> str:
         f"</div>"
         f"{spawn_html}"
         f"<div class='agent-card-grid'>"
-        f"<div><span class='agent-kpi-val'>{a['total_tokens']:,}</span><span class='agent-kpi-label'>Tokens</span></div>"
-        f"<div><span class='agent-kpi-val'>{a['total_duration_s']:.1f}s</span><span class='agent-kpi-label'>Duration</span></div>"
+        f"<div><span class='agent-kpi-val'>{total_tokens}</span><span class='agent-kpi-label'>Tokens</span></div>"
+        f"<div><span class='agent-kpi-val'>{duration}</span><span class='agent-kpi-label'>Duration</span></div>"
         f"<div><span class='agent-kpi-val'>{a['tool_call_count']}</span><span class='agent-kpi-label'>Tool Calls</span></div>"
-        f"<div><span class='agent-kpi-val'>{a['error_count']}</span><span class='agent-kpi-label'>Errors</span></div>"
+        f"<div><span class='agent-kpi-val'>{errors}</span><span class='agent-kpi-label'>Errors</span></div>"
         f"<div><span class='agent-kpi-val'>{_cache_display}</span><span class='agent-kpi-label'>Cache %</span></div>"
         f"<div title='{gen_rate_title}'><span class='agent-kpi-val'>{gen_rate_text}</span><span class='agent-kpi-label'>Gen tok/s</span></div>"
         f"</div>"
@@ -452,6 +457,18 @@ def _spawn_step_map(steps: list[dict]) -> dict[str, int]:
     return mapping
 
 
+def _model_error_text(step: dict) -> str:
+    """Explicit model-operation failures, without fabricating a tool result."""
+    metadata = step.get("_otel")
+    if not isinstance(metadata, dict) or metadata.get("kind") != "model_request" or metadata.get("success") is not False:
+        return ""
+    details = [str(metadata[key]) for key in ("error_class", "error") if metadata.get(key)]
+    status = metadata.get("status_code")
+    if status is not None:
+        details.append(f"Status {status}")
+    return ": ".join(details) or "The captured model request failed."
+
+
 def render_workflow_html(steps: list[dict], *, expanded: bool = False) -> str:
     """Render vertical card flow as self-contained HTML with scroll container.
 
@@ -480,8 +497,14 @@ def render_workflow_html(steps: list[dict], *, expanded: bool = False) -> str:
     for i, step in enumerate(steps):
         bg, border, label, err_kind = _card_style(step)
         dur = f"{step['duration']}s" if step["duration"] is not None else "\u2014"
-        tok = f"{step['tokens']['total']:,}"
+        tok = f"{step['tokens']['total']:,}" if field_observed(step, "tokens.total") else "n/a"
         preview = _md_to_html_preview(step["text_preview"]) if step["text_preview"] else "\u2014"
+        model_error = _model_error_text(step)
+        error_html = (
+            f"<div class='wf-model-error' style='color:var(--wf-border-system-error);'>"
+            f"Model request failed: {html.escape(model_error[:320])}</div>"
+            if model_error else ""
+        )
 
         part_icons = []
         for p in step["parts"]:
@@ -566,6 +589,7 @@ def render_workflow_html(steps: list[dict], *, expanded: bool = False) -> str:
                 {tc_info}{err_info}
             </div>
             {body}
+            {error_html}
         </div>
         """
         cards_html.append(card)
@@ -663,7 +687,7 @@ def _format_step_header(step: dict) -> str:
 def _format_tool_call_detail(p: dict) -> str:
     """Render a single tool_call part as a styled HTML block."""
     inp = p.get("input", {})
-    out = p.get("output", "")
+    out = tool_output_text(p.get("output", ""))
     inp_str = json.dumps(inp, indent=2, ensure_ascii=False) if isinstance(inp, dict) else str(inp)
     if not isinstance(out, str):
         if isinstance(out, list) and all(isinstance(b, dict) and b.get("type") == "text" for b in out):
@@ -960,24 +984,29 @@ def _format_metrics_tab(step: dict) -> str:
     duration_available = (
         isinstance(duration, (int, float))
         and not isinstance(duration, bool)
-        and duration >= 0
+        and duration >= 0 and field_observed(step, "duration")
     )
     duration_text = f"{duration}s" if duration_available else "n/a"
-    if duration_available and duration > 0:
+    if duration_available and duration > 0 and field_observed(step, "tokens.total"):
         throughput_text = f"{tokens['total'] / duration:,.0f} tok/s"
     else:
         throughput_text = "n/a"
-    _cache_share = cache_read_share(tokens["cache_read"], tokens["total"])
+    _cache_share = (cache_read_share(tokens["cache_read"], tokens["total"])
+                    if field_observed(step, "tokens.cache_read") and field_observed(step, "tokens.total") else None)
     cache_ratio_text = "n/a" if _cache_share is None else f"{_cache_share * 100:.1f}%"
     reasoning = _optional_token_count(tokens, "reasoning")
-    reasoning_text = f"{reasoning:,}" if reasoning is not None else "n/a"
+    reasoning_text = (f"{reasoning:,}" if reasoning is not None and field_observed(step, "tokens.reasoning") else "n/a")
+
+    def token_text(key: str) -> str:
+        return f"{tokens[key]:,}" if field_observed(step, f"tokens.{key}") else "n/a"
+
     rows = [
-        ("Total Tokens", f"{tokens['total']:,}"),
-        ("Input Tokens", f"{tokens['input']:,}"),
-        ("Output Tokens", f"{tokens['output']:,}"),
+        ("Total Tokens", token_text("total")),
+        ("Input Tokens", token_text("input")),
+        ("Output Tokens", token_text("output")),
         ("Reasoning Tokens", reasoning_text),
-        ("Cache Read", f"{tokens['cache_read']:,}"),
-        ("Cache Write", f"{tokens['cache_write']:,}"),
+        ("Cache Read", token_text("cache_read")),
+        ("Cache Write", token_text("cache_write")),
         ("Duration", duration_text),
         ("Throughput", throughput_text),
         ("Cache Ratio", cache_ratio_text),
@@ -1006,6 +1035,8 @@ def _format_raw_tab(step: dict) -> str:
     for k in ("agent", "model_id", "mode", "provider_id"):
         if step.get(k):
             raw_data[k] = step[k]
+    if isinstance(step.get("_otel"), dict):
+        raw_data["_otel"] = step["_otel"]
     raw_str = json.dumps(raw_data, indent=2, ensure_ascii=False, default=str)
     return (
         f"<div class='dp-details-body'>"
@@ -1040,6 +1071,12 @@ def format_step_detail(step: dict) -> str:
     )
     reasoning_no = 0
     content_parts = []
+    if model_error := _model_error_text(step):
+        content_parts.append(
+            "<div class='dp-section' style='border-color:var(--wf-border-system-error);'>"
+            "<div class='dp-section-title'>Model request failed</div>"
+            f"<pre>{html.escape(model_error)}</pre></div>"
+        )
     for p in step["parts"]:
         ptype = p.get("type", "unknown")
         if ptype == "text":
@@ -1200,7 +1237,7 @@ _JS_GOTO_WORKFLOW = (
 
 
 # ---------------------------------------------------------------------------
-# DECAF failure attribution (Attribution tab)
+# attribution backend failure attribution (Attribution tab)
 # ---------------------------------------------------------------------------
 
 _STRENGTH_STYLE = {
@@ -1330,7 +1367,7 @@ def _attr_arbiter_html(arb: dict | None) -> str:
 
 
 def build_attribution_html(data: dict) -> str:
-    """Render the DECAF attribution result: primary banner + arbiter verdict +
+    """Render the failure attribution result: primary banner + arbiter verdict +
     capability scorecard + per-fault evidence chains (attributed and refuted
     candidates separated). ``data`` is a plain dict (an AttributionResult
     serialized) so rendering stays decoupled from ``awe``."""

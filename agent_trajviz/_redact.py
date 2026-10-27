@@ -92,7 +92,14 @@ def redact(text: str) -> tuple[str, int]:
         text = pattern.sub(_whole, text)
     for pattern in (_URL_CREDENTIALS, _AUTH_HEADER):
         text = pattern.sub(_keep_prefix, text)
-    if _SECRET_WORD.search(text):
-        for pattern in (_ASSIGNMENT, _CLI_FLAG):
-            text = pattern.sub(_keep_prefix_if_generated, text)
+    # These separators are necessary syntax, so delimiter-free identifiers
+    # never need the comparatively expensive bounded secret-name match.
+    # In particular, repeated "token.a." is ordinary text, not an assignment.
+    has_assignment = ":" in text or "=" in text
+    has_flag = "--" in text
+    if (has_assignment or has_flag) and _SECRET_WORD.search(text):
+        if has_assignment:
+            text = _ASSIGNMENT.sub(_keep_prefix_if_generated, text)
+        if has_flag:
+            text = _CLI_FLAG.sub(_keep_prefix_if_generated, text)
     return text, count

@@ -717,6 +717,55 @@ class TimelineIdentityTests(unittest.TestCase):
         self.assertIn("plan", labels.values())
         self.assertIn("explore", labels.values())
 
+    def test_tagged_child_prompt_and_modes_have_distinct_workflow_labels(self):
+        from copy import deepcopy
+        from agent_trajviz.insight.rendering import agent_filter_token, workflow_agent_chip_options
+
+        steps = [_opencode_step(0, agent="build", session_id="ses_root")]
+        for index, (role, mode) in enumerate((("user", ""), ("assistant", "explore"),
+                                               ("assistant", "general")), 1):
+            step = _opencode_step(index, agent=mode, session_id="ses_child123456")
+            step.update(role=role, is_sub_agent=True, session_title="Review changes")
+            steps.append(step)
+        original = deepcopy(steps)
+        color_map, labels, agent_id_of = bind_timeline_agents(steps)
+        expected_ids = ["ses_root::build", "ses_child123456", "ses_child123456::explore",
+                        "ses_child123456::general"]
+        self.assertEqual(list(color_map), expected_ids)
+        self.assertEqual([agent_id_of(step) for step in steps], expected_ids)
+        self.assertEqual(labels["ses_root::build"], "build")
+        self.assertEqual(labels["ses_child123456"], "Review changes · prompt (123456)")
+        self.assertEqual(labels["ses_child123456::explore"], "Review changes · explore (123456)")
+        self.assertEqual(labels["ses_child123456::general"], "Review changes · general (123456)")
+        options = workflow_agent_chip_options(steps)
+        self.assertEqual([token for token, _, _ in options], [agent_filter_token(aid) for aid in expected_ids])
+        self.assertEqual([color for _, _, color in options], list(range(len(expected_ids))))
+        self.assertEqual(len({label for _, label, _ in options}), len(options))
+        self.assertEqual(steps, original)
+
+    def test_bare_lane_qualifier_cannot_collide_with_named_mode(self):
+        for role, mode in (("user", "prompt"), ("assistant", "default")):
+            with self.subTest(role=role, mode=mode):
+                steps = [_opencode_step(0, agent="build", session_id="ses_root")]
+                for index, (lane_role, lane_mode) in enumerate(((role, ""), ("assistant", mode)), 1):
+                    step = _opencode_step(index, agent=lane_mode, session_id="ses_child123456")
+                    step.update(role=lane_role, is_sub_agent=True, session_title="Review changes")
+                    steps.append(step)
+                _color_map, labels, _agent_id_of = bind_timeline_agents(steps)
+                self.assertEqual(len(set(labels.values())), len(labels))
+                self.assertEqual(labels["ses_child123456"], f"Review changes · {mode} (no agent) (123456)")
+                self.assertEqual(labels[f"ses_child123456::{mode}"], f"Review changes · {mode} (123456)")
+
+    def test_tagged_children_with_same_title_keep_session_suffixes(self):
+        steps = [_opencode_step(0, agent="build", session_id="ses_root")]
+        for index, sid in enumerate(("ses_child111111", "ses_child222222"), 1):
+            step = _opencode_step(index, agent="general", session_id=sid)
+            step.update(is_sub_agent=True, session_title="Review changes")
+            steps.append(step)
+        _color_map, labels, _agent_id_of = bind_timeline_agents(steps)
+        self.assertEqual(labels["ses_child111111::general"], "Review changes (111111)")
+        self.assertEqual(labels["ses_child222222::general"], "Review changes (222222)")
+
     def test_color_map_keys_match_tool_chart_lookup(self):
         steps = [
             _opencode_step(0, agent="plan", session_id="ses_root", tool="Read"),

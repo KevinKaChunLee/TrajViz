@@ -5,7 +5,9 @@ collection tools) needs only the standard library. Everything else is an extra:
 
 * ``charts`` — plotly and pygments: figures and the static HTML report;
 * ``llm``    — requests: the AI analysis sidebar, the Issues judge, the labeler;
-* ``app``    — gradio plus both of the above: the Insight and Converge dashboards.
+* ``app``    — gradio plus both of the above: the Insight and Converge dashboards;
+* ``zstd``   — zstandard on Python 3.11–3.13: compressed native session logs
+  (Python 3.14+ supplies ``compression.zstd`` in its standard library).
 """
 
 from __future__ import annotations

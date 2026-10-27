@@ -787,25 +787,13 @@ def _is_search_call(tc: dict) -> bool:
 
 
 def _is_fruitless_step(step: dict) -> bool:
-    """Check if a step's search/grep tool calls all returned empty results.
+    """Whether every search call demonstrably succeeded with an empty result.
 
-    Supports two detection methods:
-    1. tool_call output/result is empty or contains no matches
-    2. tool_call status indicates no results
-
-    Known conflation, deliberately left in place: an absent output is read as an
-    empty one, so a search call that never resolved (cursor records
-    ``status: "unknown"`` with no output) or that outright failed
-    (``status: "error"``) counts as fruitless alongside a search that genuinely
-    found nothing. ``parse_steps`` always materialises ``output`` (parser.py
-    defaults it to ``""``), which is why the exposure is small in practice.
-    Tightening it — skip
-    any ``tc`` where ``tool_call_failed(tc)`` or the status is pending/unknown,
-    and return False once no resolved search call remains — would shorten
-    ``fruitless_streaks`` and the wasted-step total the Overview
-    report, so changing this is a re-reporting decision, not a cleanup.
-    Characterised in tests/test_patterns_predicates.py.
+    Missing, failed or unresolved results cannot establish that a search found
+    nothing. They break a streak rather than being counted as wasted work.
     """
+    from .telemetry_quality import tool_field_observed
+
     tool_calls = step.get("tool_calls", [])
     if not tool_calls:
         return False
@@ -816,7 +804,17 @@ def _is_fruitless_step(step: dict) -> bool:
 
     # Method 1: Check individual tool call outputs/results
     for tc in search_calls:
-        output = tc.get("output", tc.get("result", ""))
+        status = str(tc.get("status") or "").lower()
+        if (status not in {"success", "completed", "complete", "done", "ok"}
+                or tool_call_failed(tc)
+                or not tool_field_observed(tc, "tool_outcomes")
+                or not tool_field_observed(tc, "tool_outputs")):
+            return False
+        if "output" not in tc and "result" not in tc:
+            return False
+        output = tc.get("output", tc.get("result"))
+        if output is None:
+            return False
         if isinstance(output, str):
             stripped = output.strip()
             if stripped and stripped not in ("", "No matches found", "No results", "No files found"):
@@ -829,7 +827,10 @@ def _is_fruitless_step(step: dict) -> bool:
             # non-empty results too — mirror the bare-list handling below.
             if isinstance(content, list) and content:
                 return False
-        elif isinstance(output, list) and output:
+        elif isinstance(output, list):
+            if output:
+                return False
+        else:
             return False
 
     return True

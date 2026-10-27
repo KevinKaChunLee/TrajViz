@@ -782,6 +782,10 @@ def build_run_group_scorecard(
             rows.append(build_run_scorecard_row({"_error": message}, path=path,
                                                 label=label or run_id, run_id=run_id))
 
+        if raw.get("_otel"):
+            _error_row("Transcript-based run comparison is unavailable for operation-based OTLP captures.")
+            return
+
         try:
             if steps is None:
                 steps = parse_steps(raw)

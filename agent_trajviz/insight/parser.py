@@ -503,6 +503,8 @@ def complete_steps(steps: Iterable[Any]) -> list[dict]:
 
 def parse_steps(raw: dict) -> list[dict]:
     """Normalize each message in trajectory[] into a step dict."""
+    if raw.get("_otlp_format") and isinstance(raw.get("_otlp_parsed_steps"), list):
+        return complete_steps(raw["_otlp_parsed_steps"])
     # Native Claude timestamps bound observed blocks/tool results. A final
     # response's timestamp alone does not reveal its generation duration.
     if raw.get("_claude_code_format") and "_claude_code_parsed_steps" in raw:
@@ -612,10 +614,23 @@ def parse_steps(raw: dict) -> list[dict]:
             "compaction_reason": info.get("reason", "") if is_compaction_checkpoint else "",
             "_metrics_unavailable_fields": metrics_unavailable_fields,
         })
+        if isinstance(info.get("sourcePath"), str):
+            steps[-1]["source_path"] = info["sourcePath"]
+        source_index = info.get("rawIndex")
+        if isinstance(source_index, int) and not isinstance(source_index, bool) and source_index >= 0:
+            steps[-1]["raw_index"] = source_index
 
     for step in steps:
         _normalize_step(step)
-    _fill_missing_last_step_duration(steps, raw)
+    if raw.get("_pi_format") or raw.get("_dsh_native_v4") or raw.get("_opencode_v2"):
+        for step, message in zip(steps, (m for m in trajectory if isinstance(m, dict)), strict=True):
+            info = message.get("info") or {}
+            if info.get("timing_source") == "model_request":
+                step["timing_source"] = "model_request"
+            if isinstance(info.get("compaction_metadata"), dict):
+                step["compaction_metadata"] = info["compaction_metadata"]
+    else:
+        _fill_missing_last_step_duration(steps, raw)
     _annotate_spawned_subagents(steps, raw)
     return steps
 
@@ -733,6 +748,11 @@ def _fill_missing_last_step_duration(steps: list[dict], raw: dict) -> None:
     if not steps:
         return
     last = steps[-1]
+    # OpenCode's open step-start without a finish is positive evidence that
+    # the response is unfinished. A session/DB write clock is not its end.
+    incomplete = raw.get("_opencode_incomplete_indices")
+    if isinstance(incomplete, list) and last.get("raw_index") in incomplete:
+        return
     if last.get("duration") is not None:
         return
     start_ms = last.get("time_created_ms")

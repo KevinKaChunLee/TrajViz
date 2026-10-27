@@ -890,8 +890,9 @@ def render_overview_issues_html(
     banner: str = "",
     progress: str = "",
     run_summary: str = "",
+    limited_evidence: bool = False,
 ) -> str:
-    """Render a foldable Issues panel (healthy empty state when *issues* is empty).
+    """Render a foldable Issues panel with an evidence-aware empty state.
 
     *progress* is a live status line shown inside the panel while the LLM judge runs.
     *run_summary* is the three-line run story shown between the verdict banner
@@ -914,25 +915,33 @@ def render_overview_issues_html(
         )
 
     if not issues:
+        empty_meta = "证据有限" if limited_evidence else "未检测到问题"
+        empty_detail = (
+            "部分工作流检查对此捕获不可用；现有证据不能证明运行没有问题。"
+            if limited_evidence
+            else "未检测到明显的工作流问题。"
+        )
         return (
             _verdict_banner_html(issues)
             + run_summary
             + "<details class='overview-issues-panel' id='overview-issues'>"
             "<summary class='overview-issues-summary'>"
             "<span>问题</span>"
-            "<span class='overview-issues-summary-meta'>未检测到问题</span>"
+            f"<span class='overview-issues-summary-meta'>{empty_meta}</span>"
             "</summary>"
             "<div class='overview-issues-body'>"
             f"{progress_html}"
             f"{banner_html}"
             "<div style='padding:8px 0 4px;color:var(--ov-muted);text-align:center;font-size:13px;'>"
-            "未检测到明显的工作流问题。"
+            f"{empty_detail}"
             "</div></div></details>"
         )
 
     count = len(issues)
     judged = sum(1 for i in issues if i.judgment is not None)
     count_label = f"{count} 个问题"
+    if limited_evidence:
+        count_label += " · 证据有限"
     if progress:
         count_label += " · 正在 AI 分析…"
     elif judged:
@@ -979,9 +988,14 @@ def build_overview_issues_html(
         ranked = prepare_overview_issues(session)
     else:
         ranked = list(issues)
+    limited = (
+        session.format == "otlp"
+        or bool(getattr(session, "metrics", {}).get("tool_unknown_outcomes"))
+    )
     return render_overview_issues_html(
         ranked,
         banner=banner,
         progress=progress,
         run_summary=build_run_summary_html(session, ai_summary, ai_pending=ai_pending),
+        limited_evidence=limited,
     )

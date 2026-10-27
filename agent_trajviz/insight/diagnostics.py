@@ -15,6 +15,7 @@ import statistics
 
 from .shell_cmd import tool_chart_name
 from .tool_failure import FAILURE_STATUSES, tool_call_error_kind, tool_call_failed
+from .tool_output import tool_output_text
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +389,7 @@ def _error_pattern(tc: dict) -> str:
     if status in FAILURE_STATUSES:
         output = tc.get("output", "")
         if output:
-            return str(output).strip().split("\n")[0][:120]
+            return tool_output_text(output, errors_only=True).strip().split("\n")[0][:120]
         return f"status: {status}"
 
     # Last canonical signal: a failure carried only by error_type. Checked last
@@ -501,6 +502,16 @@ def decompose_hotspot_duration(
             "tool_s": 0, "inference_s": 0, "idle_s": 0,
             "tool_pct": 0, "inference_pct": 0, "idle_pct": 0,
             "timing_incomplete": True, "dominant_tool": None,
+        }
+
+    if step.get("timing_source") == "model_request":
+        # This interval already ends before tool execution. A preceding row
+        # can belong to another agent, so neither its gap nor attached tool
+        # clocks are components of this measured model request.
+        return {
+            "tool_s": 0, "inference_s": round(duration, 2), "idle_s": 0,
+            "tool_pct": 0, "inference_pct": 100.0, "idle_pct": 0,
+            "timing_incomplete": False, "dominant_tool": None,
         }
 
     idle_s = max(0, idle_gap or 0)

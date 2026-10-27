@@ -1,10 +1,72 @@
 """Codex CLI JSONL → internal trajectory."""
 
+import ast
 import json
 import re
 import shlex
 
 from .common import _iso_to_epoch_ms
+from .codex_files import agent_path as _codex_agent_path
+from .codex_files import own_codex_events, parent_thread_id, session_meta
+
+
+def _codex_tool_status(output: object) -> str:
+    """Read classic results and code-mode text blocks without inspecting stdout.
+
+    Recent rollouts wrap tool results in ``input_text`` blocks. A code-mode
+    invocation may report several shell results; any nonzero exit fails that
+    invocation. Structured exits take precedence over incidental error wording.
+    """
+    pending = [(output, 0)]
+    texts: list[str] = []
+    exits: list[int] = []
+    explicit_error = False
+    while pending:
+        value, depth = pending.pop()
+        if depth > 8:
+            continue
+        if isinstance(value, str):
+            texts.append(value)
+            explicit_error |= bool(re.search(
+                r"(?im)^(?:script failed\b|error executing code:|failed to spawn code-mode host\b)",
+                value[:200],
+            ))
+            try:
+                decoded = json.loads(value)
+            except (ValueError, RecursionError):
+                continue
+            if isinstance(decoded, (dict, list)):
+                pending.append((decoded, depth + 1))
+        elif isinstance(value, list):
+            pending.extend((item, depth + 1) for item in value)
+        elif isinstance(value, dict):
+            metadata = value.get("metadata")
+            for candidate in (value.get("exit_code"),
+                              metadata.get("exit_code") if isinstance(metadata, dict) else None):
+                if isinstance(candidate, int) and not isinstance(candidate, bool):
+                    exits.append(candidate)
+            explicit_error |= value.get("isError") is True
+            if value.get("type") in ("input_text", "output_text", "text"):
+                pending.append((value.get("text"), depth + 1))
+            if isinstance(value.get("content"), list):
+                pending.append((value["content"], depth + 1))
+    if explicit_error or any(exits):
+        return "error"
+    if exits:
+        return "success"
+    for text in texts:
+        if re.search(r"(?i)\b(?:error:|traceback \(most recent call last\))", text[:200]):
+            return "error"
+        if any(int(code) != 0 for code in re.findall(r"(?i)exited with code\s+(-?\d+)", text)):
+            return "error"
+    return "success"
+
+
+def _codex_spawn_info(meta: dict) -> dict:
+    source = meta.get("source")
+    subagent = source.get("subagent") if isinstance(source, dict) else None
+    spawned = subagent.get("thread_spawn") if isinstance(subagent, dict) else None
+    return spawned if isinstance(spawned, dict) else {}
 
 
 def _codex_declared_context_window(events: list[dict]) -> int | None:
@@ -32,7 +94,9 @@ def _codex_declared_context_window(events: list[dict]) -> int | None:
     return None
 
 
-def _convert_codex_to_internal(events: list[dict]) -> dict:
+def _convert_codex_to_internal(events: list[dict], *, source_path: str = "",
+                               child_event_lists: dict[str, dict] | None = None,
+                               child_warnings: list[str] | None = None) -> dict:
     """Convert Codex CLI JSONL events into the TrajViz internal format.
 
     Codex emits newline-delimited JSON with event types:
@@ -44,13 +108,20 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
     We group these into "messages" matching the OpenCode internal format:
     each assistant turn = one message with parts (text, reasoning, tool calls).
     """
-    # Extract session metadata
-    session_meta = {}
-    for e in events:
-        if isinstance(e, dict) and e.get("type") == "session_meta":
-            payload = e.get("payload")
-            session_meta = payload if isinstance(payload, dict) else {}
-            break
+    events, history_warnings = own_codex_events(events)
+    # The first owning header is authoritative; inherited histories can contain
+    # another thread's header and must never replace the child's identity.
+    meta = session_meta(events)
+    model = (meta.get("model") if isinstance(meta.get("model"), str) else "") or next((
+        event["payload"]["model"] for event in events
+        if isinstance(event, dict) and event.get("type") == "turn_context"
+        and isinstance(event.get("payload"), dict) and isinstance(event["payload"].get("model"), str)
+    ), "")
+    owner_id = meta.get("id", "")
+    owner_parent = parent_thread_id(meta)
+    agent_path = _codex_agent_path(meta)
+    spawned = _codex_spawn_info(meta)
+    depth = spawned.get("depth", 1 if owner_parent else 0) if isinstance(spawned, dict) else 0
     declared_window = _codex_declared_context_window(events)
 
     # Group events into assistant turns.
@@ -61,6 +132,8 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
     current_role = None
     current_timestamp = None
     current_tokens: dict | None = None
+    current_raw_index: int | None = None
+    current_model = model
     previous_cumulative_usage: dict | None = None
     previous_usage_snapshot: tuple | None = None
 
@@ -74,11 +147,17 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
         return value if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
 
     def _flush_message():
-        nonlocal current_parts, current_role, current_timestamp, current_tokens
+        nonlocal current_parts, current_role, current_timestamp, current_tokens, current_raw_index
         if current_parts and current_role:
             info_block = {
                 "role": current_role,
                 "time": {"created": current_timestamp or 0},
+                "modelID": current_model,
+                "providerID": meta.get("model_provider", "openai"),
+                "sessionID": owner_id, "parentSessionID": owner_parent,
+                "sessionDepth": depth, "isSubAgent": bool(owner_parent),
+                "agent": agent_path if owner_parent else "", "sourcePath": source_path,
+                "rawIndex": current_raw_index if current_raw_index is not None else 0,
             }
             if current_tokens:
                 info_block["tokens"] = current_tokens
@@ -87,11 +166,18 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
         current_role = None
         current_timestamp = None
         current_tokens = None
+        current_raw_index = None
 
-    for event in events:
+    for raw_index, event in enumerate(events):
         if not isinstance(event, dict):
             continue
         etype = event.get("type")
+        if etype == "turn_context" and isinstance(event.get("payload"), dict):
+            candidate_model = event["payload"].get("model")
+            if isinstance(candidate_model, str) and candidate_model:
+                current_model = candidate_model
+        ordinal = event.get("ordinal")
+        event_index = ordinal if isinstance(ordinal, int) and not isinstance(ordinal, bool) else raw_index
         # Codex records timestamps as ISO-8601 strings; the internal contract is
         # epoch milliseconds, so convert here (parse_steps and every timing
         # consumer discard non-numeric timestamps).
@@ -108,6 +194,8 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
                     _flush_message()
 
                 current_role = role
+                if current_raw_index is None:
+                    current_raw_index = event_index
                 if not current_timestamp:
                     current_timestamp = ts
 
@@ -125,6 +213,8 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
                 if has_tool_parts and current_role == "assistant":
                     _flush_message()
                 current_role = current_role or "assistant"
+                if current_raw_index is None:
+                    current_raw_index = event_index
                 if not current_timestamp:
                     current_timestamp = ts
                 summary = payload.get("summary", [])
@@ -137,6 +227,8 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
                 if current_role != "assistant" and current_parts:
                     _flush_message()
                 current_role = "assistant"
+                if current_raw_index is None:
+                    current_raw_index = event_index
                 if not current_timestamp:
                     current_timestamp = ts
 
@@ -180,38 +272,14 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
                 # (role/timestamp reset to None); restore them so the final
                 # flush's role guard does not silently drop this part.
                 current_role = current_role or "assistant"
+                if current_raw_index is None:
+                    current_raw_index = event_index
                 current_timestamp = current_timestamp or ts
                 call_id = payload.get("call_id", "")
                 output = payload.get("output", "")
                 tc = pending_tool_calls.pop(call_id, {})
 
-                # Determine status from output.  Structured metadata
-                # (metadata.exit_code) is authoritative; the substring
-                # heuristic is only a fallback when no exit code exists.
-                status = "success"
-                if isinstance(output, str):
-                    exit_code = None
-                    try:
-                        output_data = json.loads(output)
-                    except json.JSONDecodeError:
-                        output_data = None
-                    if isinstance(output_data, dict):
-                        metadata = output_data.get("metadata")
-                        if isinstance(metadata, dict):
-                            candidate = metadata.get("exit_code")
-                            if isinstance(candidate, int) and not isinstance(candidate, bool):
-                                exit_code = candidate
-                    if exit_code is not None:
-                        status = "error" if exit_code != 0 else "success"
-                    else:
-                        # Anchored fallback so benign text ("Found 0 errors",
-                        # "error-free") does not flag a successful call.
-                        if re.search(r"(?i)\b(?:error:|traceback \(most recent call last\))",
-                                     output[:200]):
-                            status = "error"
-                        # Check exit code reported in the output text
-                        if "exited with code" in output and "code 0" not in output:
-                            status = "error"
+                status = _codex_tool_status(output)
 
                 current_parts.append({
                     "type": "tool_call" if tc else "tool",
@@ -346,7 +414,7 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
 
     first_ts_iso = events[0].get("timestamp") if events and isinstance(events[0], dict) else None
     last_ts_iso = events[-1].get("timestamp") if events and isinstance(events[-1], dict) else None
-    directory = session_meta.get("cwd", "") or ""
+    directory = meta.get("cwd", "") or ""
     start_ms = _iso_to_epoch_ms(first_ts_iso)
     end_ms = _iso_to_epoch_ms(last_ts_iso)
     total_duration = (
@@ -359,29 +427,29 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
 
     # Build metadata
     info = {
-        "id": session_meta.get("id", ""),
+        "id": owner_id,
         "slug": "",
         "projectID": "",
         "directory": directory,
         "title": "",
-        "version": session_meta.get("cli_version", ""),
+        "version": meta.get("cli_version", ""),
         "time": {"created": start_ms or 0, "updated": end_ms or 0},
     }
 
-    return {
+    result = {
         "info": info,
         "messages": messages,
         "metadata": {
-            "session_id": session_meta.get("id", ""),
+            "session_id": owner_id,
             "directory": directory,
             "directory_name": directory.replace("\\", "/").rsplit("/", 1)[-1],
             "agent": "codex",
-            "model": session_meta.get("model", "") or "",
+            "model": model,
             "context_window_limit": declared_window,
             "source": "codex",
-            "model_provider": session_meta.get("model_provider", "openai"),
-            "originator": session_meta.get("originator", "Codex CLI"),
-            "server_version": session_meta.get("cli_version", ""),
+            "model_provider": meta.get("model_provider", "openai"),
+            "originator": meta.get("originator", "Codex CLI"),
+            "server_version": meta.get("cli_version", ""),
             "timestamp_utc": first_ts_iso or "",
         },
         "timing": {
@@ -394,18 +462,97 @@ def _convert_codex_to_internal(events: list[dict]) -> dict:
         "token_usage": {"total_tokens": total_tokens},
         "stats": {},
         "_codex_format": True,
+        "_load_warnings": list(child_warnings or []) + history_warnings,
     }
+    if child_event_lists:
+        _merge_codex_children(result, child_event_lists, owner_id)
+    return result
+
+
+def _merge_codex_children(result: dict, children: dict[str, dict], root_id: str) -> None:
+    """Merge verified child operations once; keep each owning session distinct."""
+    messages = result["messages"]
+    agents = []
+    sessions = [{"id": root_id, "source_path": next((
+        message["info"].get("sourcePath", "") for message in messages
+    ), "")}]
+    for identity, info in sorted(children.items()):
+        child = _convert_codex_to_internal(info["events"], source_path=info.get("source_path", ""))
+        result["_load_warnings"].extend(child.get("_load_warnings", []))
+        meta = session_meta(info["events"])
+        parent = info.get("parent_thread_id") or parent_thread_id(meta)
+        if not child["messages"]:
+            result["_load_warnings"].append(f"Codex child {identity} contained no own operations.")
+            continue
+        label = _codex_agent_path(meta) or identity
+        spawned = _codex_spawn_info(meta)
+        depth = spawned.get("depth") if isinstance(spawned, dict) else None
+        if not isinstance(depth, int) or isinstance(depth, bool):
+            depth = 1
+        for message in child["messages"]:
+            message["info"].update(sessionID=identity, parentSessionID=parent,
+                                   sessionDepth=depth, agent=label, isSubAgent=True)
+        # Retain this thread's own final bound before global interleaving;
+        # the parent's later completion is not the child's duration.
+        final_time = child["messages"][-1]["info"].get("time", {})
+        child_end = _iso_to_epoch_ms(child.get("timing", {}).get("finished_at"))
+        created = final_time.get("created")
+        if isinstance(created, (int, float)) and isinstance(child_end, int) and child_end >= created:
+            final_time.setdefault("completed", child_end)
+        messages.extend(child["messages"])
+        agents.append({"agent_id": identity, "agent_path": label,
+                       "parent_agent_id": "" if parent == root_id else parent,
+                       "session_id": identity, "parent_session_id": parent, "session_depth": depth,
+                       "source_path": info.get("source_path", ""), "model": child["metadata"].get("model", ""),
+                       "spawned_by": ""})
+        sessions.append({"id": identity, "parent_thread_id": parent,
+                         "source_path": info.get("source_path", ""), "sha256": info.get("sha256", ""),
+                         "history_start_ordinal": meta.get("subagent_history_start_ordinal")})
+    # Explicit tool-result identifiers correlate a logical spawn with its child.
+    # Canonical task names are unique only within their verified parent thread.
+    for message in messages:
+        caller = message["info"].get("sessionID")
+        for part in message.get("parts", []):
+            if str(part.get("tool_name", "")).split(".")[-1] != "spawn_agent":
+                continue
+            output = part.get("output")
+            try:
+                output = json.loads(output) if isinstance(output, str) else output
+            except ValueError:
+                continue
+            if not isinstance(output, dict):
+                continue
+            target = output.get("agent_id") or output.get("thread_id") or output.get("task_name")
+            matches = [agent for agent in agents if agent["parent_session_id"] == caller
+                       and target in (agent["agent_id"], agent["agent_path"])]
+            if len(matches) == 1:
+                agent = matches[0]
+                agent["spawned_by"] = part.get("tool_id", "")
+                part.setdefault("state", {}).setdefault("metadata", {}).update(
+                    sessionId=agent["agent_id"], parentSessionId=caller,
+                )
+    messages.sort(key=lambda message: (
+        message["info"].get("time", {}).get("created", 0),
+        message["info"].get("sessionID", ""), message["info"].get("rawIndex", 0),
+    ))
+    result["_codex_sub_agents"] = agents
+    result["_codex_sessions"] = sessions
+    result["metadata"]["sub_agent_count"] = len(agents)
+    result["token_usage"]["total_tokens"] = sum((message["info"].get("tokens") or {}).get("total", 0)
+                                               for message in messages)
+    result["_load_warnings"] = list(dict.fromkeys(result["_load_warnings"]))
 
 def _extract_codex_exec_commands(source: str) -> list[str]:
-    """Extract JSON-quoted ``cmd`` values from a modern custom ``exec`` input."""
+    """Extract literal quoted ``cmd`` values without evaluating code-mode input."""
     if not isinstance(source, str):
         return []
-    pattern = re.compile(r'(?:["\']?cmd["\']?)\s*:\s*("(?:\\.|[^"\\])*")')
+    pattern = re.compile(r"""(?:["']?cmd["']?)\s*:\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')""")
     commands = []
     for match in pattern.finditer(source):
+        literal = match.group(1)
         try:
-            command = json.loads(match.group(1))
-        except json.JSONDecodeError:
+            command = json.loads(literal) if literal.startswith('"') else ast.literal_eval(literal)
+        except (ValueError, SyntaxError, RecursionError):
             continue
         if isinstance(command, str):
             commands.append(command)

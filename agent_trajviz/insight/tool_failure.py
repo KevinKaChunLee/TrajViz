@@ -53,7 +53,10 @@ def step_has_success(step: dict) -> bool:
     ``patterns.detect_failure_patterns`` relies on that so a bare text step
     does not count as recovering from an error cluster.
     """
-    return any(not tool_call_failed(tc) for tc in step.get("tool_calls") or [])
+    from .telemetry_quality import tool_field_observed
+
+    return any(tool_field_observed(tc, "tool_outcomes") and not tool_call_failed(tc)
+               for tc in step.get("tool_calls") or [])
 
 
 def tool_call_error_kind(tc: dict) -> StepErrorKind:

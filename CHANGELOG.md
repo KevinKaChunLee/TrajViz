@@ -27,6 +27,77 @@ change the public API (the names exported from `agent_trajviz`).
   (edit thrash, search waste, same-cause bottlenecks), and preview three leaves
   per group with expand/collapse.
 
+## [0.3.0] - 2026-10-27
+
+### Added
+
+- Read OpenCode 2 typed session exports and collect selected parent/child families
+  from its native session store without modifying the database.
+- Import Cursor Agent CLI stream JSONL, retaining thinking, tool results and
+  execution clocks while deduplicating response flushes and replayed events.
+- Collect Codex native parent/reviewer sessions with an explicit read-only
+  collector, and load portable verified child rollout trees.
+- Read current DeepSeek Harness numbered native generations and compressed v4
+  session trees. Python 3.11–3.13 can install the optional `zstd` extra.
+- Add focused regression fixtures for current coding-agent session formats.
+- Import saved OTLP JSON/JSONL traces from Claude Code, with correlated event
+  logs, explicit directory/ZIP manifests, subagent hierarchy and provenance.
+  Native Claude Code JSONL and its subagent bundle loading remain supported.
+- Discover and select captured sessions with `list_sessions()`,
+  `load(..., session_id=...)`, CLI `--list-sessions` / `--session-id`, and the
+  dashboard session selector. No telemetry SDK dependency or network receiver
+  is needed for importing files.
+- Explain observed, partial and unavailable evidence in the `data_quality`
+  view, JSON view availability, dashboard and reports. Missing observations
+  do not become measured zero values or healthy verdicts.
+- Document a local Collector configuration and capture manifest in the README.
+
+### Changed
+
+- View JSON schemas advance to version 2 for nullable unavailable metrics,
+  unavailable health checks and evidence coverage. Existing normalized
+  trajectory schema-v1 exports remain readable.
+- Identify an imported OTLP run by its source capture, selected session and
+  mapping profile. Raw source hashes and original span/log context are retained.
+  Transcript comparison and failure attribution refuse OTLP captures until
+  their assumptions can be supported by the available evidence.
+
+### Fixed
+
+- Preserve current Codex structured tool failures and DeepSeek v4 result fields.
+  Show readable Codex error diagnostics while retaining original output payloads.
+- Include active and interrupted OpenCode reviewer sessions during collection,
+  respect native parent relationships and keep unfinished response timing unknown.
+  Distinguish child prompt and model-mode lanes in workflow filter labels.
+- Measure post-compaction context from the next live request rather than the
+  compaction request’s billed input; allow unavailable compaction measurements
+  in exported view schemas.
+- Keep missing native clocks and unresolved search outcomes unavailable instead
+  of reporting measured zero durations or fruitless-search verdicts.
+- Use OpenCode 2 model response clocks separately from later tool settlement,
+  preserving running tools, lifecycle failures and compaction status.
+- Harden saved OTLP imports against corrupt compressed members and ambiguous
+  request joins; preserve model errors, token evidence and sub-millisecond tool
+  timing. Keep session selection, missing-data displays and report exports
+  consistent across the API, CLI and dashboard.
+- Skip unnecessary secret-name matching on delimiter-free text, keeping
+  pathological transcript redaction fast on slower macOS runners.
+- Preserve Unicode separators inside Cursor JSON strings, keep reviewer peers
+  at the correct depth, and surface missing outcomes, outputs and clocks.
+  Unknown tool outcomes no longer establish success, recovery or edit precision.
+- Exclude delayed Claude Code interruption markers from conversation duration
+  while retaining an explicit incomplete-transcript warning.
+- Trim inherited Codex child history and retain current model metadata,
+  usage records, source identities and parent/reviewer relationships.
+- Correct Pi and DeepSeek Harness token totals when reasoning is nested in
+  output; use recorded request intervals separately from tool execution time.
+- Select Pi's active history branch and retain compaction evidence.
+- Keep context composition percentages unavailable when an assumed window
+  contradicts the capture, and preserve measured model intervals in diagnostics.
+- Warn when an OpenCode capture ends before its last response finishes.
+- Preserve OpenCode native part timing during collection and include recorded
+  cache/reasoning consumption in raw aggregate token totals.
+
 ## [0.2.0] - 2026-10-15
 
 ### Added
@@ -59,9 +130,9 @@ change the public API (the names exported from `agent_trajviz`).
   leaves a newly allocated scratch directory behind.
 - Create dashboard reports inside Gradio's cache so the download serves the
   session-owned file directly instead of retaining a second cached copy.
-- Support current DECAF APIs while preserving offline attribution, verified
+- Support current attribution backend APIs while preserving offline attribution, verified
   cache provenance, and canonical source identity.
-- Report whether DECAF actually used an available judge verdict when its
+- Report whether attribution backend actually used an available judge verdict when its
   automatic cache mode is enabled.
 
 ## [0.1.0] - 2026-10-12
@@ -133,7 +204,7 @@ First release as the `agent-trajviz` package.
   components; `agent_trajviz.llm` (llm extra) is the AI analysis and
   suggested fixes, on the configured endpoint or any chat function you pass
   (`chat=`), in the reply language you choose (`language=`);
-  `agent_trajviz.attribution` is DECAF attribution.
+  `agent_trajviz.attribution` is failure attribution.
 - `examples/`: the dashboard rebuilt on the public API alone, and a small
   app of your own, both driven end to end in the test suite.
 
@@ -228,6 +299,7 @@ First release as the `agent-trajviz` package.
   passwords, authorization headers and generated-looking values of
   secret-named assignments become `[REDACTED]`.
 
-[Unreleased]: https://github.com/rshu/TrajViz/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/rshu/TrajViz/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/rshu/TrajViz/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rshu/TrajViz/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rshu/TrajViz/releases/tag/v0.1.0

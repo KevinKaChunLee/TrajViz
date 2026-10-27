@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -15,6 +16,24 @@ CHILD_ID = "cccccccc-4444-5555-6666-dddddddddddd"
 
 
 class CursorLoaderTests(unittest.TestCase):
+    def test_public_api_preserves_capture_warnings_and_unknown_outcome_capability(self) -> None:
+        import agent_trajviz as tv
+
+        raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        raw["export_metadata"]["warnings"] = ["Native mirror has partial metadata."]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cursor.json"
+            path.write_text(json.dumps(raw), encoding="utf-8")
+            run = tv.load(path)
+        self.assertIn("Native mirror has partial metadata.", run.warnings)
+        self.assertTrue(any("estimates" in warning for warning in run.warnings))
+        self.assertTrue(any("no recorded outcome" in warning for warning in run.warnings))
+        self.assertFalse(run.raw["_capabilities"]["has_complete_tool_outcomes"])
+        unknown_calls = [call for step in run.steps for call in step["tool_calls"]
+                         if call["status"] == "unknown"]
+        self.assertTrue(unknown_calls)
+        self.assertTrue(all(call["metadata"]["_outcome_observed"] is False for call in unknown_calls))
+
     def test_format_is_detected_before_generic_opencode(self) -> None:
         raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
         self.assertEqual(detect_format(raw), "cursor")

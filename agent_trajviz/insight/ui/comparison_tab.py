@@ -113,8 +113,8 @@ def layout() -> ComparisonRefs:
                     min_width=140,
                 )
                 rg_file_upload = gr.File(
-                    label="Comparison runs (.json / .jsonl / .zip) — select one or more",
-                    file_types=[".json", ".jsonl", ".zip"],
+                    label="Comparison runs (.json / .jsonl / .zstd / .zip) — select one or more",
+                    file_types=[".json", ".jsonl", ".zstd", ".zip"],
                     file_count="multiple",
                     scale=3,
                 )
@@ -144,8 +144,8 @@ def layout() -> ComparisonRefs:
                     min_width=140,
                 )
                 cmp_file_upload = gr.File(
-                    label="Reference Trajectory (.json / .jsonl / .zip)",
-                    file_types=[".json", ".jsonl", ".zip"],
+                    label="Reference Trajectory (.json / .jsonl / .zstd / .zip)",
+                    file_types=[".json", ".jsonl", ".zstd", ".zip"],
                     scale=2,
                 )
                 cmp_anchor_upload = gr.File(

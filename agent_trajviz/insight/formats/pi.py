@@ -1,6 +1,7 @@
 """Pi coding-agent JSONL → internal trajectory."""
 
 import json
+import math
 from typing import Any
 
 from .common import _iso_to_epoch_ms
@@ -38,7 +39,7 @@ def _pi_event_ts_ms(event: dict) -> int | None:
 
 def _pi_int(value: Any) -> int:
     """Coerce a Pi usage field to int; bools and non-numerics become 0."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return 0
     return int(value)
 
@@ -46,8 +47,9 @@ def _pi_int(value: Any) -> int:
 def _pi_extract_usage(usage: Any) -> dict | None:
     """Map Pi usage {input, output, cacheRead, cacheWrite, reasoning, totalTokens}.
 
-    Pi's ``totalTokens`` is often input+output only (reasoning/cache omitted).
-    Prefer the component sum so stacked token charts and the stored total agree.
+    Reasoning is a subset of output in native Pi usage. Older sessions may
+    omit cache counts from ``totalTokens``; include those disjoint components
+    without counting reasoning a second time.
     """
     if not isinstance(usage, dict):
         return None
@@ -56,7 +58,7 @@ def _pi_extract_usage(usage: Any) -> dict | None:
     reasoning = _pi_int(usage.get("reasoning", 0))
     cache_read = _pi_int(usage.get("cacheRead", 0))
     cache_write = _pi_int(usage.get("cacheWrite", 0))
-    component_total = inp + out + reasoning + cache_read + cache_write
+    component_total = inp + out + cache_read + cache_write
     vendor_total = _pi_int(usage.get("totalTokens"))
     total = max(component_total, vendor_total)
     if not any((total, inp, out, reasoning, cache_read, cache_write)):
@@ -100,6 +102,15 @@ def _pi_content_text(content: Any) -> str:
     return "\n".join(chunks)
 
 
+def _pi_message_created_ms(message: dict) -> int | None:
+    value = message.get("timestamp")
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0:
+        return int(value) if value > 10**12 else int(value * 1000)
+    if isinstance(value, str):
+        return _iso_to_epoch_ms(value)
+    return None
+
+
 def _pi_normalize_tool(name: str, arguments: Any) -> tuple[str, dict]:
     raw_name = name or "?"
     canonical = _PI_TOOL_NAMES.get(str(raw_name).lower(), raw_name)
@@ -133,11 +144,14 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
     pending_tools: dict[str, dict] = {}
     current_model = ""
     current_provider = ""
+    title = ""
 
     def _append(role: str, ts: int | None, parts: list, tokens: dict | None = None, extra: dict | None = None) -> None:
         info: dict[str, Any] = {
             "role": role,
             "time": {"created": ts or 0},
+            "sessionID": session.get("id", ""),
+            "path": {"cwd": session.get("cwd", "")},
         }
         if tokens:
             info["tokens"] = tokens
@@ -162,6 +176,31 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
             continue
         if etype in ("thinking_level_change",):
             continue
+        if etype == "session_info":
+            if isinstance(event.get("name"), str):
+                title = event["name"]
+            continue
+        if etype in {"usage", "compaction", "branch_summary"}:
+            tokens = _pi_extract_usage(event.get("usage"))
+            extra = {
+                "id": event.get("id") or "", "parentID": event.get("parentId") or "",
+                "modelID": event.get("model") or current_model,
+                "providerID": event.get("provider") or current_provider,
+                "type": etype,
+            }
+            if etype == "compaction":
+                before = event.get("tokensBefore")
+                if isinstance(before, (int, float)) and not isinstance(before, bool) and math.isfinite(before) and before >= 0:
+                    extra["compaction_metadata"] = {"preTokens": int(before)}
+                _append("compaction", ts, [{"type": "compaction", "summary": event.get("summary") or ""}],
+                        tokens=tokens, extra=extra)
+            elif etype == "branch_summary":
+                _append("assistant", ts, [{"type": "text", "text": event.get("summary") or "", "synthetic": True}],
+                        tokens=tokens, extra=extra)
+            elif tokens:
+                _append("assistant", ts, [{"type": "step_finish", "name": "usage", "reason": event.get("kind") or ""}],
+                        tokens=tokens, extra=extra)
+            continue
         if etype != "message":
             continue
 
@@ -169,6 +208,7 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
         if not isinstance(msg, dict):
             continue
         role = msg.get("role")
+        created = _pi_message_created_ms(msg)
 
         if role == "user":
             parts = []
@@ -176,7 +216,8 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
                 if item.get("type") == "text":
                     parts.append({"type": "text", "text": item.get("text", "")})
             if parts:
-                _append("user", ts, parts, extra={"id": event.get("id") or ""})
+                _append("user", created if created is not None else ts, parts,
+                        extra={"id": event.get("id") or "", "parentID": event.get("parentId") or ""})
 
         elif role == "assistant":
             if msg.get("model"):
@@ -216,6 +257,8 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
                 "id": event.get("id") or "",
                 "modelID": current_model,
                 "providerID": current_provider,
+                "parentID": event.get("parentId") or "",
+                "timing_source": "model_request",
             }
             stop = msg.get("stopReason")
             if stop:
@@ -223,7 +266,12 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
             if parts or tokens or stop == "error":
                 if not parts and stop == "error":
                     parts = [{"type": "text", "text": "[error]"}]
-                _append("assistant", ts, parts, tokens=tokens, extra=extra)
+                _append("assistant", created if created is not None else ts, parts, tokens=tokens, extra=extra)
+                # The outer timestamp is stamped by SessionManager when the
+                # settled message is persisted; nested timestamp starts it.
+                # A later message may be another branch or follow human idle.
+                if created is not None and ts is not None and ts >= created:
+                    messages[-1]["info"]["time"]["completed"] = ts
 
         elif role == "toolResult":
             call_id = msg.get("toolCallId") or ""
@@ -236,6 +284,15 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
                 part["status"] = status
                 if is_error:
                     part["error"] = output
+                duration = msg.get("durationMs")
+                if (isinstance(duration, (int, float)) and not isinstance(duration, bool)
+                        and math.isfinite(duration) and duration >= 0):
+                    end = created if created is not None else ts
+                    state = part.setdefault("state", {})
+                    state["status"], state["input"], state["output"] = status, part["input"], output
+                    state["metadata"] = {"totalDurationMs": duration}
+                    if end is not None:
+                        state["time"] = {"start": end - duration, "end": end}
             else:
                 tool_name, _ = _pi_normalize_tool(msg.get("toolName") or "?", {})
                 _append(
@@ -257,12 +314,6 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
     for part in pending_tools.values():
         if part.get("status") == "pending":
             part["status"] = "error"
-
-    for i in range(len(messages) - 1):
-        cur_t = messages[i]["info"]["time"].get("created")
-        nxt_t = messages[i + 1]["info"]["time"].get("created")
-        if isinstance(cur_t, (int, float)) and isinstance(nxt_t, (int, float)) and nxt_t >= cur_t:
-            messages[i]["info"]["time"]["completed"] = nxt_t
 
     first_ts_iso = None
     last_ts_iso = None
@@ -289,7 +340,7 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
         "slug": "",
         "projectID": "",
         "directory": directory,
-        "title": "",
+        "title": title,
         "version": str(session.get("version", "") or ""),
         "time": {"created": start_ms or 0, "updated": end_ms or 0},
     }
@@ -308,6 +359,7 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
             "originator": "Pi",
             "server_version": str(session.get("version", "") or ""),
             "timestamp_utc": first_ts_iso or "",
+            "title": title,
         },
         "timing": {
             "total_duration": total_duration,
@@ -319,4 +371,7 @@ def _convert_pi_to_internal(events: list[dict]) -> dict:
         "token_usage": {"total_tokens": total_tokens},
         "stats": {},
         "_pi_format": True,
+        # Parent links, context edits, prompt checkpoints and extension data
+        # remain inspectable without rewriting historical branches.
+        "_pi_entries": events,
     }

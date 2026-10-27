@@ -408,3 +408,84 @@ class CursorOccupancyMappingTests(unittest.TestCase):
         self.assertEqual(windows[-1], 1000)
         self.assertLess(windows[1], windows[2])
         self.assertGreater(windows[1], 0)
+
+class CursorJsonlParserTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def test_composer_result_content_does_not_imply_a_completed_tool(self) -> None:
+        import agent_trajviz as tv
+
+        events = [{"role": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Read", "input": {"path": "a.py"}},
+        ]}}]
+        cases = [(None, "unknown", None), ("unknown", "unknown", None),
+                 ("pending", "pending", None), ("running", "running", None),
+                 ("cancelled", "cancelled", 0.0), ("failed", "error", 0.0),
+                 ("completed", "completed", 100.0)]
+        for original_status, expected_status, expected_rate in cases:
+            with self.subTest(status=original_status):
+                former = {"name": "read_file_v2", "rawArgs": {"path": "a.py"},
+                          "result": {"content": "captured content"}}
+                if original_status is not None:
+                    former["status"] = original_status
+                bubble = {"type": 2, "bubbleId": "read", "toolFormerData": former}
+                messages, count, _cap = consolidator.events_to_messages(
+                    events, session_id="composer-outcomes", bubbles=[bubble],
+                )
+                self.assertEqual(count, 1)
+                call = messages[0]["parts"][0]
+                self.assertEqual(call["state"]["status"], expected_status)
+                self.assertIn("captured content", call["state"]["output"])
+                raw = {"info": {"id": "composer-outcomes"}, "messages": messages,
+                       "export_metadata": {"source_format": "cursor_composer", "schema_version": 1}}
+                path = self.root / "composer.json"
+                path.write_text(json.dumps(raw), encoding="utf-8")
+                run = tv.load(path)
+                self.assertEqual(run.metrics["tool_success_rate"], expected_rate)
+                if expected_rate is None:
+                    self.assertIs(run.steps[0]["tool_calls"][0]["metadata"]["_outcome_observed"], False)
+
+    def test_jsonl_unicode_content_does_not_split_native_records(self) -> None:
+        prompt = "Compare line separators: \u0085 \u2028 \u2029 and preserve them."
+        event = {"role": "user", "message": {"content": [{"type": "text", "text": prompt}]}}
+        path = self.root / "unicode.jsonl"
+        path.write_text("\ufeff" + json.dumps(event, ensure_ascii=False) + "\r\n", encoding="utf-8")
+        self.assertEqual(consolidator.parse_jsonl(path), [event])
+        messages, tools, _cap = consolidator.events_to_messages(
+            consolidator.parse_jsonl(path), session_id="unicode-session",
+        )
+        self.assertEqual(messages[0]["parts"][0]["text"], prompt)
+        self.assertEqual(tools, 0)
+
+    def test_jsonl_truncated_tail_tolerance_does_not_hide_corrupt_interior(self) -> None:
+        first = {"role": "assistant", "message": {"content": [{"type": "text", "text": "Complete"}]}}
+        path = self.root / "partial.jsonl"
+        path.write_text(json.dumps(first) + '\n{"role":"assistant"', encoding="utf-8")
+        self.assertEqual(consolidator.parse_jsonl(path), [first])
+        path.write_text(json.dumps(first) + '\n{"role":"assistant"\n{}\n', encoding="utf-8")
+        with self.assertRaises(consolidator.ConsolidationError):
+            consolidator.parse_jsonl(path)
+
+    def test_no_database_lookup_and_sibling_children_keep_the_same_parent(self) -> None:
+        main = self.root / "projects" / "workspace" / "agent-transcripts" / "parent" / "parent.jsonl"
+        _write_jsonl(main, [{"role": "user", "message": {"content": [{"type": "text", "text": "Review"}]}}])
+        for child in ("reviewer-a", "reviewer-b"):
+            _write_jsonl(main.parent / "subagents" / f"{child}.jsonl", [
+                {"role": "assistant", "message": {"content": [{"type": "text", "text": child}]}},
+            ])
+        with patch.object(consolidator, "resolve_state_vscdb", side_effect=AssertionError("IDE lookup forbidden")):
+            exported = consolidator.consolidate_chat(
+                "parent", projects_dir=self.root / "projects", transcript_dir=main.parent,
+                jsonl_path=main, use_database=False,
+            )
+        self.assertEqual([(row["id"], row["parent_id"], row["depth"]) for row in exported["sessions"]], [
+            ("parent", None, 0), ("reviewer-a", "parent", 1), ("reviewer-b", "parent", 1),
+        ])
+        self.assertFalse(any("cycle/diamond" in warning for warning in exported["export_metadata"]["warnings"]))
+
+    def test_database_flags_are_mutually_exclusive(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            consolidator.build_parser().parse_args(["parent", "--db", "state.vscdb", "--no-db"])

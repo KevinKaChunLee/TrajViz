@@ -80,7 +80,9 @@ def build_report_html(
     ch = build_chart_outputs(session, dark=dark)
     dg = build_diagnostics_outputs(session, dark=dark)
     pat_tool = render_tool_sequences_html(session.tool_sequences)
-    pat_fail = render_failure_patterns_html(session.failure_patterns)
+    from .telemetry_quality import supports
+
+    pat_fail = render_failure_patterns_html(session.failure_patterns, available=supports(session.steps, "tool_outcomes"))
     antipattern = build_antipattern_html(session)
     issues_panel = ov["issues_html"]
 
@@ -252,9 +254,10 @@ def report_from_run(run: Any, dest: str | None = None, *, dark: bool = False, in
 
 def report_from_path(
     path: str, dest: str | None = None, *, dark: bool = False, inline_plotly: bool = False,
+    format_hint: str = "", session_id: str | None = None,
 ) -> str:
     """Load *path* and write a report. Raises ``ReportError`` on ingest failure."""
-    result = load_session(path)
+    result = load_session(path, format_hint, session_id=session_id) if format_hint or session_id else load_session(path)
     if isinstance(result, LoadError):
         raise ReportError(result.message)
     return write_report_file(result, dest, dark=dark, inline_plotly=inline_plotly)

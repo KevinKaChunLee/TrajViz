@@ -4,6 +4,7 @@ import math
 from datetime import datetime, UTC
 
 from .common import as_text
+from .opencode_v2 import normalize_opencode_v2
 
 
 def _opencode_ms_to_iso(ms: object) -> str:
@@ -198,6 +199,7 @@ def _convert_opencode_metadata(raw: dict) -> dict:
     Mutates *raw* in place so that compute_metrics() and the session-detail
     renderer can read the standard fields.  Returns the same dict for convenience.
     """
+    normalize_opencode_v2(raw)
     info = raw.get("info", {})
     if not isinstance(info, dict):
         return raw
@@ -219,12 +221,19 @@ def _convert_opencode_metadata(raw: dict) -> dict:
 
     summary = info.get("summary", {}) if isinstance(info.get("summary"), dict) else {}
     model_info = {}
+    # Prefer session model, then the first assistant request model.
+    session_model = info.get("model") if isinstance(info.get("model"), dict) else {}
+    model_info = {"modelID": session_model.get("modelID") or session_model.get("id")}
     # Try to get model from first message's info
     messages = raw.get("messages", [])
     if isinstance(messages, list) and messages:
-        first_msg_info = messages[0].get("info", {}) if isinstance(messages[0], dict) else {}
+        first_msg_info = next((m["info"] for m in messages if isinstance(m, dict)
+                               and isinstance(m.get("info"), dict)
+                               and m["info"].get("role") == "assistant"), {})
         if isinstance(first_msg_info, dict):
-            model_info = first_msg_info.get("model", {}) if isinstance(first_msg_info.get("model"), dict) else {}
+            request_model = first_msg_info.get("model", {})
+            if isinstance(request_model, dict) and request_model.get("modelID"):
+                model_info = request_model
 
     # Consolidated OpenCode/CodeArts exports flatten child-session messages into
     # the main messages array.  Count distinct child session IDs instead of
@@ -299,7 +308,7 @@ def _convert_opencode_metadata(raw: dict) -> dict:
         "generator_version": as_text(info.get("version")),
         "format_version": "",
         "sub_agent_count": sub_agent_count,
-        "event_count": event_count,
+        "event_count": event_count + raw.get("_opencode_v2_control_count", 0),
     }
     raw["timing"] = {
         "total_duration": duration_seconds,
@@ -309,7 +318,7 @@ def _convert_opencode_metadata(raw: dict) -> dict:
     raw["output"] = {
         "patch": "", "patch_length": 0, "patch_lines": 0,
         "has_patch": bool(summary.get("additions") or summary.get("deletions")),
-        "error": None,
+        "error": "\n".join(raw.get("_opencode_v2_errors", [])) or None,
         "additions": summary.get("additions", 0),
         "deletions": summary.get("deletions", 0),
         "files_changed": summary.get("files", 0),
@@ -324,6 +333,8 @@ def _convert_opencode_metadata(raw: dict) -> dict:
     tool_breakdown: dict[str, int] = {}
     total_input = 0
     total_output = 0
+    total_tokens = 0
+    last_assistant_by_session: dict[str, dict] = {}
     for msg in (messages if isinstance(messages, list) else []):
         if not isinstance(msg, dict):
             continue
@@ -333,19 +344,60 @@ def _convert_opencode_metadata(raw: dict) -> dict:
             user_count += 1
         elif role == "assistant":
             asst_count += 1
+            session_id = as_text(msg_info.get("sessionID")) or as_text(info.get("id"))
+            last_assistant_by_session[session_id] = msg
         # Count tokens
         tok = msg_info.get("tokens", {}) if isinstance(msg_info.get("tokens"), dict) else {}
         total_input += _opencode_token_value(tok.get("input"))
         total_output += _opencode_token_value(tok.get("output"))
+        reported_total = tok.get("total")
+        if (isinstance(reported_total, (int, float)) and not isinstance(reported_total, bool)
+                and math.isfinite(reported_total)):
+            # Current exports already include cache and reasoning in total.
+            # Rebuilding it from input+output discarded most cached usage.
+            total_tokens += reported_total
+        else:
+            total_tokens += _opencode_token_value(tok.get("input")) + _opencode_token_value(tok.get("output"))
         # Count tool calls from parts
         for part in (msg.get("parts", []) if isinstance(msg.get("parts"), list) else []):
             if isinstance(part, dict) and part.get("type") == "tool":
+                state = part.get("state")
+                if isinstance(state, dict) and state.get("status") in {"pending", "running", "streaming"}:
+                    metadata = state.get("metadata")
+                    if not isinstance(metadata, dict):
+                        metadata = {}
+                        state["metadata"] = metadata
+                    metadata["_outcome_observed"] = False
                 total_tool_calls += 1
                 tname = as_text(part.get("tool")) or "?"
                 tool_breakdown[tname] = tool_breakdown.get(tname, 0) + 1
 
+    # Consolidated exports interleave multiple sessions.  A finished child must
+    # not conceal a parent whose capture stopped during its final response.
+    for session_id, message in last_assistant_by_session.items():
+        message_info = message["info"]
+        parts = message.get("parts", [])
+        part_types = {
+            part.get("type") for part in parts if isinstance(part, dict)
+            and isinstance(part.get("type"), str)
+        } if isinstance(parts, list) else set()
+        if (not message_info.get("finish")
+                and part_types.intersection({"step-start", "step_start"})
+                and not part_types.intersection({"step-finish", "step_finish"})):
+            indices = raw.setdefault("_opencode_incomplete_indices", [])
+            position = next(index for index, candidate in enumerate(messages) if candidate is message)
+            if isinstance(indices, list) and position not in indices:
+                indices.append(position)
+            warning = (
+                f"OpenCode session {session_id or '(unknown)'}: capture ends before "
+                "the last assistant response finishes; it may be incomplete."
+            )
+            warnings = raw.setdefault("_load_warnings", [])
+            if isinstance(warnings, list) and warning not in warnings:
+                warnings.append(warning)
+
     raw.setdefault("token_usage", {
-        "total_tokens": total_input + total_output,
+        "total_tokens": total_tokens,
         "prompt_tokens": total_input,
         "completion_tokens": total_output,
     })

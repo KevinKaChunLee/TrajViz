@@ -328,7 +328,8 @@ class DshLoaderTests(unittest.TestCase):
         self.assertEqual(first["tokens"]["output"], 20)
         self.assertEqual(first["tokens"]["reasoning"], 5)
         self.assertEqual(first["tokens"]["cache_read"], 10)
-        self.assertEqual(first["tokens"]["total"], 100 + 20 + 5 + 10)
+        # The provider's completion count already includes its reasoning subset.
+        self.assertEqual(first["tokens"]["total"], 100 + 20 + 10)
 
     def test_session_header_uses_model(self):
         steps = parse_steps(self._load())

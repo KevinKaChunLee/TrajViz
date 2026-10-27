@@ -176,7 +176,7 @@ class PiLoaderTests(unittest.TestCase):
 
     def test_token_usage_ingested(self):
         steps = parse_steps(self._load())
-        # Vendor totalTokens is 1815 (input+output); reasoning 49 is extra.
+        # Native Pi reasoning is included in output, not added again.
         assistant = [
             s for s in steps
             if s["role"] == "assistant" and s["tokens"]["input"] == 1728
@@ -184,7 +184,7 @@ class PiLoaderTests(unittest.TestCase):
         self.assertEqual(len(assistant), 1)
         self.assertEqual(assistant[0]["tokens"]["output"], 87)
         self.assertEqual(assistant[0]["tokens"]["reasoning"], 49)
-        self.assertEqual(assistant[0]["tokens"]["total"], 1728 + 87 + 49)
+        self.assertEqual(assistant[0]["tokens"]["total"], 1728 + 87)
 
     def test_token_total_includes_cache(self):
         events = [
@@ -199,7 +199,66 @@ class PiLoaderTests(unittest.TestCase):
         asst = next(s for s in steps if s["role"] == "assistant")
         self.assertEqual(asst["tokens"]["cache_read"], 50)
         self.assertEqual(asst["tokens"]["cache_write"], 10)
-        self.assertEqual(asst["tokens"]["total"], 100 + 20 + 5 + 50 + 10)
+        self.assertEqual(asst["tokens"]["total"], 100 + 20 + 50 + 10)
+
+    def test_model_request_bounds_and_native_tool_duration_are_separate(self):
+        import agent_trajviz as tv
+
+        events = [
+            _session(),
+            {"type": "message", "id": "request", "parentId": None,
+             "timestamp": "2026-08-24T01:33:02.000Z", "message": {
+                 "role": "assistant", "timestamp": 1787535180000,
+                 "content": [{"type": "toolCall", "id": "call", "name": "bash", "arguments": {"command": "pytest"}}],
+                 "usage": {"input": 100, "output": 20, "reasoning": 10, "totalTokens": 120}}},
+            {"type": "message", "id": "result", "parentId": "request",
+             "timestamp": "2026-08-24T01:33:07.000Z", "message": {
+                 "role": "toolResult", "timestamp": 1787535187000, "durationMs": 5000,
+                 "toolCallId": "call", "toolName": "bash", "content": [{"type": "text", "text": "passed"}]}},
+            _msg("user", "2026-08-24T02:00:00.000Z", "next task", timestamp=1787536800000),
+        ]
+        path = _write(self.tmp, "request-timing.jsonl", events)
+        run = tv.load(path)
+        step = run.steps[0]
+        self.assertEqual(step["duration"], 2)
+        self.assertEqual(step["tool_calls"][0]["duration_ms"], 5000)
+        self.assertEqual(run.metrics["tokens"]["total"], 120)
+        self.assertEqual(run.metrics["output_tokens_per_sec"], 10)
+        self.assertIsNone(run.view("steps").data[0]["tool_time_share"])
+        self.assertEqual(run.view("step_durations").data["steps"][0]["duration_s"], 2)
+
+    def test_missing_request_start_is_unknown_not_backfilled_from_later_entries(self):
+        events = [_session(), {"type": "message", "id": "request", "timestamp": "2026-08-24T01:33:02.000Z",
+                              "message": {"role": "assistant", "content": "done"}},
+                  {"type": "session_info", "timestamp": "2026-08-24T01:34:02.000Z", "name": "renamed"}]
+        step = parse_steps(self._load(events))[0]
+        self.assertIsNone(step["duration"])
+        self.assertIsNone(step["time_completed_ms"])
+
+    def test_non_message_usage_compaction_and_branch_provenance_survive(self):
+        events = [_session(),
+                  _msg("assistant", "2026-08-24T01:33:02.000Z", "original", id="answer",
+                       usage={"input": 10, "output": 2, "totalTokens": 12}),
+                  {"type": "usage", "id": "warm", "parentId": "answer", "timestamp": "2026-08-24T01:33:03.000Z",
+                   "kind": "future_kind", "usage": {"input": 0, "output": 0, "cacheRead": 50, "totalTokens": 50}},
+                  {"type": "compaction", "id": "compact", "parentId": "warm", "timestamp": "2026-08-24T01:33:04.000Z",
+                   "summary": "compacted context", "tokensBefore": 50000,
+                   "usage": {"input": 4, "output": 1, "totalTokens": 5}},
+                  {"type": "branch_summary", "id": "branch", "parentId": "answer", "fromId": "compact",
+                   "timestamp": "2026-08-24T01:33:05.000Z", "summary": "other branch",
+                   "usage": {"input": 2, "output": 1, "totalTokens": 3}},
+                  {"type": "context_edit", "id": "context", "parentId": "branch", "targetId": "answer", "replacement": None},
+                  {"type": "session_info", "id": "title", "parentId": "context", "name": "Audit task"}]
+        raw = self._load(events)
+        steps = parse_steps(raw)
+        self.assertEqual(sum(step["tokens"]["total"] for step in steps), 70)
+        self.assertEqual(raw["metadata"]["title"], "Audit task")
+        self.assertEqual(raw["_pi_entries"], events)
+        self.assertEqual(steps[0]["text_preview"], "original")
+        compact = next(step for step in steps if step["role"] == "compaction")
+        self.assertEqual(compact["compaction_metadata"]["preTokens"], 50000)
+        branch = next(step for step in steps if step["id"] == "branch")
+        self.assertEqual(branch["parent_id"], "answer")
 
     def test_string_content_is_one_text_part(self):
         events = [
