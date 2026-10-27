@@ -1,0 +1,3723 @@
+diff --git a/agent_trajviz/insight/analysis.py b/agent_trajviz/insight/analysis.py
+index ae91833..19ae4f5 100644
+--- a/agent_trajviz/insight/analysis.py
++++ b/agent_trajviz/insight/analysis.py
+@@ -43,13 +43,18 @@ from .metrics import (
+ from .patterns import (
+     build_structural_phase_segments,
+     compute_plan_metrics,
++    detect_blind_retries,
+     detect_edit_thrash,
+     detect_failure_patterns,
+     detect_fruitless_streaks,
++    detect_oversized_outputs,
+     detect_phase_anomalies,
+     detect_repeated_searches,
+     detect_tool_selection_antipatterns,
+     detect_tool_sequences,
++    detect_user_repeats,
++    detect_redundant_re_reads,
++    detect_unvalidated_writes,
+     extract_plan_history,
+ )
+ 
+@@ -267,6 +272,26 @@ class Analysis:
+     def repeated_searches(self) -> list:
+         return detect_repeated_searches(self.steps)
+ 
++    @cached_property
++    def oversized_outputs(self) -> list:
++        return detect_oversized_outputs(self.steps)
++
++    @cached_property
++    def blind_retries(self) -> list:
++        return detect_blind_retries(self.steps)
++
++    @cached_property
++    def user_repeats(self) -> list:
++        return detect_user_repeats(self.steps)
++
++    @cached_property
++    def unvalidated_writes(self) -> list:
++        return detect_unvalidated_writes(self.steps)
++
++    @cached_property
++    def redundant_re_reads(self) -> list:
++        return detect_redundant_re_reads(self.steps)
++
+     # -- triage -------------------------------------------------------------
+     @cached_property
+     def issues(self) -> list:
+diff --git a/agent_trajviz/insight/charts/usage.py b/agent_trajviz/insight/charts/usage.py
+index bb927d1..4357911 100644
+--- a/agent_trajviz/insight/charts/usage.py
++++ b/agent_trajviz/insight/charts/usage.py
+@@ -61,7 +61,10 @@ def _add_token_bar_traces(
+ 
+     Pass ``include_empty=True`` to force every trace into the legend (useful when
+     the viewer wants to see which fields are tracked even if they happen to be
+-    zero across the entire trajectory).
++    zero across the entire trajectory). Cache Write is the one exception:
++    OpenAI-style exports (OpenCode, CodeArts) structurally report zero for it,
++    so an all-zero Cache Write never enters the legend — it would only add a
++    dead entry every viewer asks about.
+ 
+     Pass ``cache_write`` to add a 5th stacked trace. For OpenCode this sample
+     always reports zero, but the field is present and worth showing.
+@@ -89,7 +92,10 @@ def _add_token_bar_traces(
+     rc = _subplot_rc(row, col)
+     step_prefix = f"{x_label} " if x_label else ""
+     for name, values, color in traces:
+-        if include_empty or any(v > 0 for v in values):
++        # include_empty forces tracked-but-currently-zero fields into the
++        # legend; Cache Write opts out (see docstring).
++        forced = include_empty and name != "Cache Write"
++        if forced or any(v > 0 for v in values):
+             show = _claim_legend(legend_shown, name) if legend_shown is not None else True
+             bar_kwargs: dict = dict(
+                 x=x_values,
+diff --git a/agent_trajviz/insight/diagnostics.py b/agent_trajviz/insight/diagnostics.py
+index fb85e14..0db54cb 100644
+--- a/agent_trajviz/insight/diagnostics.py
++++ b/agent_trajviz/insight/diagnostics.py
+@@ -738,7 +738,9 @@ def detect_performance_bottlenecks(
+             label = f"{tool_name}: {tool_target}" if tool_target else tool_name
+             short = label if len(label) <= 40 else (label[:37] + "…")
+             title = f"Tool bottleneck: {short} ({tool_s:.1f}s)"
+-            detail = explanation[:200]
++            # Keep the full label (title truncates it) so the UI can show the
++            # whole command/target in the folded detail.
++            detail = f"{label} — {explanation}"[:200]
+             why = (
+                 "Most of this outlier step was spent in a tool — prefer cheaper tools, "
+                 "narrower scopes, or caching results instead of repeating heavy calls."
+diff --git a/agent_trajviz/insight/issue_judge.py b/agent_trajviz/insight/issue_judge.py
+index e79814f..afd5cc0 100644
+--- a/agent_trajviz/insight/issue_judge.py
++++ b/agent_trajviz/insight/issue_judge.py
+@@ -10,7 +10,7 @@ import requests
+ 
+ from .assistant import ChatFn, complete_chat, _first_user_task, _public_http_error
+ from .llm_config import AnalysisLLMConfig, analysis_language, is_chinese, resolve_analysis_config
+-from .presenters.issues import IssueJudgment, OverviewIssue
++from .presenters.issues import IssueJudgment, OverviewIssue, _step_text_parts
+ from .session import LoadedSession
+ 
+ JUDGE_ISSUE_CAP = 8
+@@ -193,6 +193,116 @@ def parse_issue_judgment(raw: str) -> IssueJudgment:
+     )
+ 
+ 
++RUN_SUMMARY_SYSTEM_PROMPT = """You are TrajViz's run summarizer for coding-agent runs.
++
++You receive the first user message, the last assistant reply, and headline
++numbers of one run. Reply with ONLY a single JSON object (no markdown prose
++outside JSON). Schema:
++
++{
++  "task": "string — what the user asked the agent to do",
++  "outcome": "string — how the run ended"
++}
++
++Language:
++- Write the values of "task" and "outcome" in {LANGUAGE}.
++- Keep JSON keys in English.
++
++Rules:
++- "task": 1–2 sentences naming the concrete goal (target files, systems, or
++  behavior the user asked for). Summarize; do not copy the message verbatim.
++- "outcome": 1–2 sentences on what the agent delivered or where it stopped,
++  grounded in the last assistant reply and the numbers.
++- File/path/tool names may stay in their original Latin spelling.
++"""
++
++
++def pack_run_summary_context(session: LoadedSession) -> str:
++    """JSON payload for the run-summary LLM call: first user message, last
++    assistant reply, headline numbers."""
++    steps = session.steps or []
++    first_user = next(
++        (_step_text_parts(s) for s in steps if s.get("role") == "user"), ""
++    )
++    last_assistant = ""
++    for s in reversed(steps):
++        if s.get("role") == "assistant":
++            last_assistant = _step_text_parts(s)
++            if last_assistant:
++                break
++    metrics = session.metrics or {}
++    toks = metrics.get("tokens") or {}
++    payload = {
++        "first_user_message": _clip(first_user, 4000),
++        "last_assistant_reply": _clip(last_assistant, 2000),
++        "numbers": {
++            "steps": len(steps),
++            "tool_calls": metrics.get("tool_call_count") or 0,
++            "total_tokens": toks.get("total") or 0,
++        },
++    }
++    return json.dumps(payload, ensure_ascii=False, indent=2)
++
++
++def parse_run_summary(raw: str) -> tuple[str, str]:
++    """Parse model output into (task, outcome); raise ValueError on bad shape."""
++    text = (raw or "").strip()
++    if not text:
++        raise ValueError("Empty run-summary response")
++
++    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
++    if fence:
++        text = fence.group(1).strip()
++    else:
++        start = text.find("{")
++        end = text.rfind("}")
++        if start < 0 or end <= start:
++            raise ValueError("Run-summary response contained no JSON object")
++        text = text[start : end + 1]
++
++    try:
++        data = json.loads(text)
++    except json.JSONDecodeError as exc:
++        raise ValueError(f"Run-summary JSON parse failed: {exc}") from exc
++
++    if not isinstance(data, dict):
++        raise ValueError("Run-summary JSON must be an object")
++    task = str(data.get("task") or "").strip()
++    outcome = str(data.get("outcome") or "").strip()
++    if not task:
++        raise ValueError("Run-summary JSON requires non-empty task")
++    return task, outcome
++
++
++def judge_run_summary(
++    session: LoadedSession,
++    *,
++    config: AnalysisLLMConfig | None = None,
++    chat_fn: ChatFn | None = None,
++    language: str | None = None,
++    require_config: bool = True,
++) -> tuple[str, str]:
++    """Ask the analysis LLM for a (task, outcome) summary of the whole run.
++
++    ``require_config=False`` skips the endpoint check (a caller-supplied client).
++    """
++    cfg = config or resolve_analysis_config()
++    if require_config and not cfg.ready:
++        missing = ", ".join(cfg.missing) or "ANALYZE_* / LABEL_*"
++        raise ValueError(f"Analysis LLM not configured ({missing})")
++
++    lang = _judge_language(language)
++    user_msg = (
++        "Summarize this TrajViz run. Return ONLY the JSON object. "
++        f"task / outcome must be {lang}.\n\n"
++        f"{pack_run_summary_context(session)}"
++    )
++    fn: ChatFn = chat_fn or complete_chat
++    system = RUN_SUMMARY_SYSTEM_PROMPT.replace("{LANGUAGE}", lang)
++    raw = fn(cfg, system, [{"role": "user", "content": user_msg}])
++    return parse_run_summary(raw)
++
++
+ def judge_issue_fix(
+     session: LoadedSession,
+     issue: OverviewIssue,
+diff --git a/agent_trajviz/insight/issues.py b/agent_trajviz/insight/issues.py
+index 6c8ce6b..56534fd 100644
+--- a/agent_trajviz/insight/issues.py
++++ b/agent_trajviz/insight/issues.py
+@@ -355,6 +355,120 @@ def _from_antipatterns(session: LoadedSession | Analysis) -> list[OverviewIssue]
+             )
+         )
+ 
++    oversized = session.oversized_outputs or []
++    if oversized:
++        shown = oversized[:3]
++        desc = ", ".join(
++            f"step {o['step']} {o['tool']} ≈{int(o['tokens']):,} tokens"
++            + (f" ({int(o['share'])}% of context)" if o.get("share") is not None else "")
++            for o in shown
++        )
++        remaining = len(oversized) - len(shown)
++        if remaining > 0:
++            desc += f", +{remaining} more"
++        out.append(
++            OverviewIssue(
++                kind="antipattern",
++                title=_count_label("Oversized tool outputs", len(oversized)),
++                detail=desc,
++                why=(
++                    "A tool result this large stays in the conversation history, so every "
++                    "later step pays for it again until a compaction drops it. Typical "
++                    "sources: whole-file cat, unbounded find, verbose test output."
++                ),
++                steps=tuple(sorted({int(o["step"]) for o in oversized})),
++                source_id="antipattern:oversized_output",
++            )
++        )
++
++    for i, retry in enumerate(session.blind_retries or []):
++        tool = str(retry.get("tool") or "tool")
++        attempts = int(retry.get("attempts") or 0)
++        failed = int(retry.get("failed") or 0)
++        steps = tuple(int(s) for s in (retry.get("steps") or []) if s is not None)
++        display = str(retry.get("display") or "")
++        short = display if len(display) <= 48 else (display[:45] + "…")
++        out.append(
++            OverviewIssue(
++                kind="antipattern",
++                title=f"Blind retry of failed {tool} call ({attempts}×)",
++                detail=f"{failed} of {attempts} identical attempts failed — {short}",
++                why=(
++                    "A failed call was resubmitted verbatim and failed again — unchanged "
++                    "input in an unchanged environment yields the same result, so the "
++                    "retries only burned tokens and turns."
++                ),
++                steps=steps,
++                source_id=f"antipattern:blind_retry:{i}",
++            )
++        )
++
++    for i, rep in enumerate(session.user_repeats or []):
++        message = str(rep.get("message") or "")
++        count = int(rep.get("count") or 0)
++        steps = tuple(int(s) for s in (rep.get("steps") or []) if s is not None)
++        short = message if len(message) <= 60 else (message[:57] + "…")
++        out.append(
++            OverviewIssue(
++                kind="antipattern",
++                title=f"User repeated a message ({count}×)",
++                detail=short,
++                why=(
++                    "The user sent the exact same message again — the most direct evidence "
++                    "available that the previous response did not satisfy them; no "
++                    "inference required."
++                ),
++                steps=steps,
++                source_id=f"antipattern:user_repeat:{i}",
++            )
++        )
++
++    unvalidated = session.unvalidated_writes or []
++    if unvalidated:
++        u = unvalidated[0]
++        write_steps = tuple(int(s) for s in (u.get("steps") or []) if s is not None)
++        first, last = write_steps[0], write_steps[-1]
++        out.append(
++            OverviewIssue(
++                kind="antipattern",
++                title="Code changes were never validated",
++                detail=(
++                    f"{int(u.get('files') or 0)} code file(s) written in steps "
++                    f"{first}–{last}; no test/build/lint command in the whole run"
++                ),
++                why=(
++                    "Every write succeeded but nothing checked the result — correctness "
++                    "rests on the agent's confidence alone, and regressions it cannot "
++                    "see have no chance of being caught."
++                ),
++                steps=write_steps[:12],
++                source_id="antipattern:unvalidated_writes",
++            )
++        )
++
++    for i, reread in enumerate(session.redundant_re_reads or []):
++        path = str(reread.get("path") or "")
++        count = int(reread.get("count") or 0)
++        steps = tuple(int(s) for s in (reread.get("steps") or []) if s is not None)
++        step_list = ", ".join(str(s) for s in steps)
++        out.append(
++            OverviewIssue(
++                kind="antipattern",
++                title=f"Re-read an unchanged file ({count}×)",
++                detail=(
++                    f"{path} re-read {count}× with no write or compaction in "
++                    f"between (steps {step_list})"
++                ),
++                why=(
++                    "Nothing wrote to the file and no compaction dropped it — the "
++                    "content was already in context, so each re-read spends fresh "
++                    "tokens for nothing."
++                ),
++                steps=steps,
++                source_id=f"antipattern:redundant_reread:{i}",
++            )
++        )
++
+     return out
+ 
+ 
+diff --git a/agent_trajviz/insight/patterns.py b/agent_trajviz/insight/patterns.py
+index 173dce1..70537ff 100644
+--- a/agent_trajviz/insight/patterns.py
++++ b/agent_trajviz/insight/patterns.py
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++import json
+ import re
+ from bisect import bisect_right
+ from collections import Counter
+@@ -12,6 +13,7 @@ from agent_trajviz.insight.shell_cmd import shell_runs_search
+ from agent_trajviz.insight.tool_failure import step_has_success, tool_call_failed
+ from agent_trajviz.tool_vocab import (
+     BASH_TOOL_NAMES,
++    WRITE_PATH_KEYS,
+     WRITE_TOOL_NAMES as _WRITE_TOOL_NAMES,
+     write_target_path,
+ )
+@@ -58,9 +60,29 @@ _VALIDATION_COMMAND_PATTERNS = (
+     "ruff check", "cargo check", "npm run lint", "pnpm lint", "yarn lint",
+     "make lint", "make check", "golangci-lint", "pre-commit run",
+     "tsc --noemit", "git diff --check",
++    # Builds compile the code, so they validate it too. Only unambiguous
++    # spellings are listed: a bare "make" is a substring of "cat Makefile".
++    "npm run build", "pnpm build", "yarn build", "cargo build", "go build",
++    "tsc", "cmake --build", "make -j", "ninja",
+ )
+ 
+ 
++def _smoke_runs_command(command: str) -> bool:
++    """True when a shell command executes a program (``python3 app.py``,
++    ``./build/run``).
++
++    Running the written code is a smoke test — it checks the result even
++    though no test framework is involved. Version probes don't count.
++    """
++    lowered = " ".join(str(command).lower().split())
++    if not lowered:
++        return False
++    first, _, rest = lowered.partition(" ")
++    if first.startswith("python"):
++        return "--version" not in rest and "-vv" not in rest
++    return first.startswith("./")
++
++
+ def _is_plan_tool(tool_name: object) -> bool:
+     """Return True when a tool name is a plan/TODO tool, in any export's casing."""
+     return str(tool_name or "").lower() in _PLAN_TOOL_NAMES
+@@ -1007,3 +1029,331 @@ def detect_repeated_searches(steps: list[dict]) -> list[dict]:
+ 
+     out.sort(key=lambda r: (-r["count"], r["steps"][0], r["signature"]))
+     return out
++
++
++# ---------------------------------------------------------------------------
++# Oversized single tool outputs
++# ---------------------------------------------------------------------------
++
++# A tool result stays in the conversation history, so one oversized output is
++# paid for again on every later step until a compaction drops it. Absolute
++# floor: any single output this big is noise whatever the window size.
++# Relative rule: smaller outputs still hurt when they fill a chunk of the
++# window the agent actually has.
++_OVERSIZED_ABS_TOKENS = 5000
++_OVERSIZED_REL_TOKENS = 2000
++_OVERSIZED_REL_SHARE = 0.15
++_OVERSIZED_MAX_REPORTED = 5
++
++
++def detect_oversized_outputs(steps: list[dict]) -> list[dict]:
++    """Find single tool outputs big enough to tax every later step.
++
++    Flags one output when it estimates to ≥5k tokens, or ≥2k tokens while
++    covering ≥15% of the next step's context occupancy (input + cache read —
++    the prompt the output lands in).
++    Typical sources: whole-file ``cat``, unbounded ``find``, verbose test runs.
++
++    Returns
++    -------
++    list[dict]
++        ``{"step", "tool", "tokens", "share" (int % or None), "title"}``,
++        largest first, capped at ``_OVERSIZED_MAX_REPORTED`` entries.
++    """
++    from .token_explain import _est_tokens
++
++    # Occupancy per step index: the context a step's prompt occupied. A tool
++    # output lands in the *next* prompt, so shares are computed against the
++    # next step that reports tokens, not the step that produced the output.
++    occupancy_by_index: dict[int, int] = {}
++    for s in steps[:_MAX_STEPS]:
++        tokens = s.get("tokens") or {}
++        occupancy = int(tokens.get("input") or 0) + int(tokens.get("cache_read") or 0)
++        if occupancy > 0:
++            occupancy_by_index[int(s.get("index", 0))] = occupancy
++    ordered_indices = sorted(occupancy_by_index)
++
++    def _next_occupancy(index: int) -> int | None:
++        pos = bisect_right(ordered_indices, index)
++        if pos >= len(ordered_indices):
++            return None
++        return occupancy_by_index[ordered_indices[pos]]
++
++    out: list[dict] = []
++    for s in steps[:_MAX_STEPS]:
++        idx = int(s.get("index", 0))
++        for tc in s.get("tool_calls") or []:
++            output = as_text(tc.get("output"))
++            if not output or output == "(no output)":
++                continue
++            est = _est_tokens(output)
++            nxt = _next_occupancy(idx)
++            share = round(est / nxt * 100) if nxt else None
++            big_absolute = est >= _OVERSIZED_ABS_TOKENS
++            big_relative = (
++                est >= _OVERSIZED_REL_TOKENS
++                and share is not None
++                and share >= _OVERSIZED_REL_SHARE * 100
++            )
++            if not (big_absolute or big_relative):
++                continue
++            out.append({
++                "step": idx,
++                "tool": str(tc.get("tool_name") or "tool"),
++                "tokens": est,
++                "share": share,
++                "title": str(tc.get("title") or tc.get("tool_name") or "")[:80],
++            })
++
++    out.sort(key=lambda r: (-r["tokens"], r["step"]))
++    return out[:_OVERSIZED_MAX_REPORTED]
++
++
++# ---------------------------------------------------------------------------
++# Blind retries (identical call repeated after a failure)
++# ---------------------------------------------------------------------------
++
++
++def _retry_input_key(tc: dict) -> str:
++    """Comparison key for "the same call": tool name plus normalized input."""
++    inp = tc.get("input")
++    if isinstance(inp, (dict, list)):
++        body = json.dumps(inp, sort_keys=True, default=str, ensure_ascii=False)
++    else:
++        body = as_text(inp)
++    return f"{as_text(tc.get('tool_name'))}:{body}"
++
++
++def detect_blind_retries(steps: list[dict]) -> list[dict]:
++    """Find a failed call retried verbatim — and failing again.
++
++    Only consecutive identical calls count (same tool, same input, nothing in
++    between): that is the agent resubmitting the exact call. A retry that
++    *succeeds* is exempt — transient errors (timeouts, races) deserve one
++    verbatim shot. What is flagged is the wasted pattern: unchanged input in
++    an unchanged environment fails the same way twice.
++
++    Returns
++    -------
++    list[dict]
++        ``{"tool", "attempts", "failed", "steps": [int], "display"}``,
++        one entry per qualifying run.
++    """
++    # Flatten calls in execution order: steps in order, calls within a step.
++    flat: list[tuple[int, dict]] = []
++    for s in steps[:_MAX_STEPS]:
++        idx = int(s.get("index", 0))
++        for tc in s.get("tool_calls") or []:
++            flat.append((idx, tc))
++
++    out: list[dict] = []
++    i = 0
++    while i < len(flat):
++        key = _retry_input_key(flat[i][1])
++        j = i + 1
++        while j < len(flat) and _retry_input_key(flat[j][1]) == key:
++            j += 1
++        run = flat[i:j]
++        if len(run) >= 2:
++            failures = [k for k, (_idx, tc) in enumerate(run) if tool_call_failed(tc)]
++            # First attempt failed and at least one verbatim retry failed too.
++            if failures and failures[0] == 0 and len(failures) >= 2:
++                display = str(
++                    run[0][1].get("title") or run[0][1].get("input") or key
++                )[:80]
++                out.append({
++                    "tool": as_text(run[0][1].get("tool_name")) or "tool",
++                    "attempts": len(run),
++                    "failed": len(failures),
++                    "steps": sorted({idx for idx, _tc in run}),
++                    "display": display,
++                })
++        i = j
++
++    out.sort(key=lambda r: (-r["attempts"], r["steps"][0]))
++    return out
++
++
++# ---------------------------------------------------------------------------
++# User repeated messages
++# ---------------------------------------------------------------------------
++
++
++def _user_typed_text(step: dict) -> str:
++    """The text a human actually typed.
++
++    Frameworks inject synthetic user messages (e.g. OpenCode's
++    "Continue if you have next steps..." after compaction). Those parts are
++    marked ``synthetic`` and must not count as the user speaking.
++    """
++    text_parts = [
++        p for p in (step.get("parts") or [])
++        if isinstance(p, dict) and p.get("type") == "text"
++    ]
++    if text_parts:
++        for p in text_parts:
++            if not p.get("synthetic"):
++                return as_text(p.get("text"))
++        return ""  # synthetic-only message: the framework, not the user
++    return as_text(step.get("text_preview"))
++
++
++def detect_user_repeats(steps: list[dict]) -> list[dict]:
++    """Find user messages sent verbatim two or more times.
++
++    The exact same text re-sent is the most direct evidence available that the
++    previous attempt did not satisfy the user — no inference required. Only
++    whitespace is normalized (line wraps and indentation should not hide a
++    repeat); anything else — "继续" vs "请继续" — is a different message and
++    stays out, keeping the rule explainable in one sentence. Synthetic
++    (framework-injected) messages never count as the user speaking.
++
++    Returns
++    -------
++    list[dict]
++        ``{"message", "count", "steps": [int]}``, most repeated first.
++    """
++    by_message: dict[str, list[int]] = {}
++    for s in steps[:_MAX_STEPS]:
++        if s.get("role") != "user":
++            continue
++        text = re.sub(r"\s+", " ", _user_typed_text(s)).strip()
++        if not text:
++            continue
++        by_message.setdefault(text, []).append(int(s.get("index", 0)))
++
++    out = [
++        {"message": text, "count": len(idxs), "steps": sorted(idxs)}
++        for text, idxs in by_message.items()
++        if len(idxs) >= 2
++    ]
++    out.sort(key=lambda r: (-r["count"], r["steps"][0]))
++    return out
++
++
++# ---------------------------------------------------------------------------
++# Code changes without any validation
++# ---------------------------------------------------------------------------
++
++# Only writes to code files count: a session that edits docs or config has
++# nothing a test run would catch, so flagging it would be noise.
++_CODE_EXTENSIONS = frozenset((
++    ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
++    ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh",
++    ".java", ".go", ".rs", ".rb", ".php", ".cs", ".swift",
++    ".kt", ".kts", ".scala", ".sh", ".bash", ".vue", ".svelte",
++    ".m", ".mm", ".sql",
++))
++
++
++def detect_unvalidated_writes(steps: list[dict]) -> list[dict]:
++    """Code files written by write tools while nothing checked the result.
++
++    Flags a session whose write tools successfully changed code files but in
++    which no shell command ran a test/build/lint (the
++    ``_VALIDATION_COMMAND_PATTERNS`` whitelist) or executed the program
++    itself (``python3 app.py`` — a smoke run checks the result too). Writes
++    through shell redirection (``sed -i``, ``echo >``) are not counted — the
++    rule stays "write tools touched code, nothing checked the result".
++
++    Returns
++    -------
++    list[dict]
++        ``{"files", "steps": [int]}`` — one entry, or empty when the run is
++        clean (no code writes, or validation ran at least once).
++    """
++    write_steps: list[int] = []
++    paths: set[str] = set()
++    validated = False
++    for s in steps[:_MAX_STEPS]:
++        idx = int(s.get("index", 0))
++        for tc in s.get("tool_calls") or []:
++            name = as_text(tc.get("tool_name"))
++            inp = tc.get("input")
++            if name in _WRITE_TOOL_NAMES:
++                if tool_call_failed(tc):
++                    continue
++                path = write_target_path(inp if isinstance(inp, dict) else {})
++                if path and path.lower().endswith(tuple(_CODE_EXTENSIONS)):
++                    write_steps.append(idx)
++                    paths.add(path)
++            elif isinstance(inp, dict):
++                command = as_text(inp.get("command"))
++                if _is_validation_command(command) or _smoke_runs_command(command):
++                    validated = True
++
++    if not write_steps or validated:
++        return []
++    return [{"files": len(paths), "steps": sorted(set(write_steps))}]
++
++
++# ---------------------------------------------------------------------------
++# Redundant re-reads (same file, same range, nothing changed in between)
++# ---------------------------------------------------------------------------
++
++# WebFetch is excluded: a URL's content can change behind the agent's back,
++# so re-fetching is never provably redundant.
++_FILE_READ_TOOLS = {"Read", "read"}
++
++
++def detect_redundant_re_reads(steps: list[dict]) -> list[dict]:
++    """The same file read again while nothing could have changed it.
++
++    A re-read is redundant only when, since the previous read of the *same
++    path with the same parameters* (offset/limit — a different range is
++    different content) *in the same conversation*, no successful write
++    touched the file and no compaction dropped it from context. Sub-agents
++    hold separate contexts, so their reads are judged independently. Those
++    events are exactly the cases where re-reading is justified, which keeps
++    this card the honest opposite of the post-compaction thin-read signal.
++
++    Returns
++    -------
++    list[dict]
++        ``{"path", "count", "steps": [int]}`` per path, most redundant first.
++    """
++    # (conversation, path, params-json) -> step of the last still-valid read.
++    last_valid: dict[tuple[str, str, str], int] = {}
++    rows: dict[str, dict] = {}
++    for s in steps[:_MAX_STEPS]:
++        conv = as_text(s.get("session_id"))
++        if s.get("is_compaction_checkpoint") or any(
++            isinstance(p, dict) and p.get("type") == "compaction"
++            for p in (s.get("parts") or [])
++        ):
++            for sig in [k for k in last_valid if k[0] == conv]:
++                del last_valid[sig]
++            continue
++        idx = int(s.get("index", 0))
++        for tc in s.get("tool_calls") or []:
++            name = as_text(tc.get("tool_name"))
++            inp = tc.get("input")
++            inp = inp if isinstance(inp, dict) else {}
++            if name in _WRITE_TOOL_NAMES:
++                if tool_call_failed(tc):
++                    continue
++                path = write_target_path(inp)
++                if path:
++                    for sig in [k for k in last_valid if k[:2] == (conv, path)]:
++                        del last_valid[sig]
++            elif name in _FILE_READ_TOOLS:
++                path = write_target_path(inp)
++                if not path:
++                    continue
++                params = json.dumps(
++                    {k: v for k, v in inp.items() if k not in WRITE_PATH_KEYS},
++                    sort_keys=True,
++                    default=str,
++                )
++                sig = (conv, path, params)
++                if sig in last_valid:
++                    row = rows.setdefault(
++                        path, {"path": path, "count": 0, "steps": []}
++                    )
++                    row["count"] += 1
++                    row["steps"].append(idx)
++                last_valid[sig] = idx
++
++    out = list(rows.values())
++    out.sort(key=lambda r: (-r["count"], r["steps"][0]))
++    return out
+diff --git a/agent_trajviz/insight/presenters/issues.py b/agent_trajviz/insight/presenters/issues.py
+index 8f2acb6..6a85545 100644
+--- a/agent_trajviz/insight/presenters/issues.py
++++ b/agent_trajviz/insight/presenters/issues.py
+@@ -12,6 +12,7 @@ import re
+ from dataclasses import asdict, dataclass
+ from typing import cast, get_args
+ 
++from ..context_usage import _explicit_compaction_events
+ from ..issues import (  # noqa: F401  (re-exported: UI and judge import them here)
+     Confidence,
+     IssueJudgment,
+@@ -23,6 +24,7 @@ from ..issues import (  # noqa: F401  (re-exported: UI and judge import them her
+ )
+ from ..rendering import _step_link_chips
+ from ..session import LoadedSession
++from ..tool_failure import tool_call_failed
+ 
+ _ISSUE_KINDS = frozenset(get_args(IssueKind))
+ _CONFIDENCES = frozenset(get_args(Confidence))
+@@ -43,6 +45,60 @@ _ISSUE_KIND_LABELS_ZH: dict[IssueKind, str] = {
+ 
+ _CONFIDENCE_ZH: dict[Confidence, str] = {"high": "高", "medium": "中", "low": "低"}
+ 
++#: What the reader should do about each issue type, keyed by source_id prefix
++#: (first match wins). Falls back to a per-kind action.
++_ISSUE_ACTION_ZH: tuple[tuple[str, str], ...] = (
++    ("antipattern:compaction_thin_read", "人工复核压缩后那次写修改过的文件，确认内容与文件真实状态一致。"),
++    ("antipattern:compaction_premature", "检查压缩摘要是否保留了关键信息；频繁出现时考虑调大上下文窗口。"),
++    ("antipattern:compaction_grew", "这次压缩可以忽略；频繁出现时检查摘要是否写得过长。"),
++    ("antipattern:fruitless", "更换搜索关键词或路径，先确认目标位置存在。"),
++    ("antipattern:repeated_search", "修正查询词或路径，避免重复空搜。"),
++    ("antipattern:bash_read", "改用 Read 工具读文件（带行号、更省上下文）。"),
++    ("antipattern:edit_thrash", "写入前先 Read 目标文件，确认路径与内容匹配。"),
++    ("antipattern:stalled_plan", "检查未完成的待办是否需要收尾或显式关闭。"),
++    ("antipattern:plan_resets", "确认计划重置是有意为之；否则让智能体就地修订计划。"),
++    ("antipattern:tool_errors", "排查环境问题：路径、权限、依赖是否就绪。"),
++    ("antipattern:oversized_output", "让智能体改用带条数限制的读取：Read 指定行区间、head/tail、grep -c，测试命令关闭详细输出。"),
++    ("antipattern:blind_retry", "失败后先读错误信息，修改命令或环境（路径/权限/依赖）再重试；偶发超时类错误重试一次属正常。"),
++    ("antipattern:user_repeat", "查看第一次发送该消息后智能体的响应，确认它为何没有满足需求。"),
++    ("antipattern:unvalidated_writes", "让智能体在改动后运行测试或构建（pytest、make、npm run build 等），至少验证一次。"),
++    ("antipattern:redundant_reread", "让智能体依赖已读内容；确需重读时，先确认文件已变更（写入后或压缩后重读是合理的）。"),
++    ("fail:system:", "排查运行环境配置（路径、权限）。"),
++    ("cascade:", "从第一个失败步骤入手排查根因，避免反复重试放大问题。"),
++    ("bottleneck:", "点步骤链接查看该步的耗时构成，针对性优化。"),
++)
++
++_ISSUE_ACTION_FALLBACK_ZH: dict[IssueKind, str] = {
++    "error": "点步骤链接查看失败详情，排查输入与环境。",
++    "risk": "点步骤链接复核相关步骤的输出。",
++    "antipattern": "点步骤链接查看相关步骤。",
++    "bottleneck": "点步骤链接查看该步骤的耗时构成。",
++}
++
++#: Real impact line for tool-failure cards; the recovery path moves to the
++#: action line (it is "what to do", not "what it costs").
++_FAIL_IMPACT_ZH = "工具调用失败会浪费轮次和 token；连续失败可能拖慢甚至卡住任务。"
++
++
++def _issue_action_zh(issue: OverviewIssue) -> str:
++    """The plain-language "what to do" line for an issue card."""
++    sid = issue.source_id or ""
++    why = issue.why or ""
++    if why.startswith("Typical recovery: "):
++        chain = why[len("Typical recovery: ") :]
++        tools = [t.strip() for t in chain.split("→")]
++        if len(tools) == 1:
++            did = f"调用 {tools[0]}"
++        else:
++            did = "依次调用 " + " → ".join(tools)
++        return f"失败后智能体{did}，自行恢复了；这类失败通常无需人工干预。"
++    if why == "No recovery path found after this error cluster.":
++        return "该错误之后智能体未自行恢复——建议人工排查该步骤的输入与环境。"
++    for prefix, action in _ISSUE_ACTION_ZH:
++        if sid.startswith(prefix):
++            return action
++    return _ISSUE_ACTION_FALLBACK_ZH.get(issue.kind, "")
++
+ 
+ def _with_count(label_zh: str, title_en: str) -> str:
+     """Keep the English ``(N×)`` suffix from ``issues._count_label`` titles."""
+@@ -63,19 +119,16 @@ def _localize_fruitless_detail(detail: str) -> str:
+ def _localize_bottleneck_title(title: str) -> str:
+     m = re.match(r"Idle/queue bottleneck before #(\d+) \((\d+(?:\.\d+)?)s gap\)$", title)
+     if m:
+-        return f"空闲/排队瓶颈，发生在 #{m.group(1)}（{m.group(2)}秒空隙）"
+-    m = re.match(r"Tool bottleneck: (.+) \((\d+(?:\.\d+)?)s\)$", title)
+-    if m:
+-        return f"工具瓶颈：{m.group(1)}（{m.group(2)}秒）"
++        return f"空闲/排队瓶颈：第 {m.group(1)} 步前空等 {m.group(2)} 秒"
+     m = re.match(r"Context/cache bottleneck at #(\d+) \((\d+(?:\.\d+)?)s\)$", title)
+     if m:
+-        return f"上下文/缓存瓶颈，发生在 #{m.group(1)}（{m.group(2)}秒）"
++        return f"上下文/缓存瓶颈：第 {m.group(1)} 步耗时 {m.group(2)} 秒"
+     m = re.match(r"Inference bottleneck at #(\d+) \((\d+(?:\.\d+)?)s\)$", title)
+     if m:
+-        return f"推理瓶颈，发生在 #{m.group(1)}（{m.group(2)}秒）"
++        return f"推理瓶颈：第 {m.group(1)} 步耗时 {m.group(2)} 秒"
+     m = re.match(r"Performance bottleneck at #(\d+)$", title)
+     if m:
+-        return f"性能瓶颈，发生在 #{m.group(1)}"
++        return f"性能瓶颈：第 {m.group(1)} 步耗时异常"
+     return title
+ 
+ 
+@@ -95,7 +148,7 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
+         elif detail.endswith("well below the window limit"):
+             detail = "压缩时窗口占用：远低于窗口上限"
+         return (
+-            _with_count("过早压缩上下文", title),
++            _with_count("上下文被过早压缩", title),
+             detail,
+             "上下文窗口在远未写满时就被压缩——通常是智能体主动触发的 compress/compact，"
+             "而非运行环境强制回收。过早压缩会丢失上下文；请检查摘要是否保留了关键信息。",
+@@ -105,33 +158,42 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
+         detail_zh = re.sub(r"step (\d+):", r"第\1步：", detail)
+         detail_zh = re.sub(r", \+(\d+) more$", r"，另有 \1 次", detail_zh)
+         return (
+-            _with_count("压缩后上下文反而变大", title),
++            _with_count("压缩未起效：上下文不降反增", title),
+             detail_zh,
+             "压缩结束后窗口占用不小于压缩前——摘要本身比腾出的消息更占 token，"
+-            "这次压缩等于白做。",
++            "这次压缩没有腾出有效空间。",
+         )
+ 
+     if sid.startswith("antipattern:compaction_thin_read"):
+-        step_m = re.search(r"#(\d+)", title)
+-        if step_m:
+-            title = f"压缩后的写操作可能基于摘要而非新鲜读取（第 {step_m.group(1)} 步压缩之后）"
+-        dropped = re.search(r"compaction dropped (\S+) tokens", detail)
+-        span = re.search(
+-            r"steps (\d+) and (\d+) span it: ~(\S+) tokens of file reads before vs ~(\S+) after \((\d+)% less\)",
+-            detail,
++        m = re.match(
++            r"Post-compaction write may rest on summarized context \(#(\d+)\)$",
++            title,
+         )
+-        zh = []
+-        if dropped:
+-            zh.append(f"压缩丢弃约 {dropped.group(1)} token")
+-        if span:
+-            zh.append(
+-                f"第 {span.group(1)}、{span.group(2)} 步两次连续写之间发生压缩："
+-                f"压缩前读取 ≈{span.group(3)} token，压缩后仅 ≈{span.group(4)} token"
+-                f"（少 {span.group(5)}%）"
++        if m:
++            title = f"压缩后凭摘要改代码（第 {m.group(1)} 步压缩之后）"
++        segs = [s.strip() for s in detail.split(";") if s.strip()]
++        zh: list[str] = []
++        for seg in segs:
++            m = re.match(r"compaction dropped (\S+) tokens$", seg)
++            if m:
++                zh.append(f"压缩丢弃约 {m.group(1)} token")
++                continue
++            m = re.match(
++                r"consecutive writes at steps (\d+) and (\d+) span it: "
++                r"~(\S+) tokens of file reads before vs ~(\S+) after \((\d+)% less\)$",
++                seg,
+             )
++            if m:
++                zh.append(
++                    f"第 {m.group(1)}、{m.group(2)} 步两次连续写之间发生压缩："
++                    f"压缩前读取 ≈{m.group(3)} token，压缩后仅 ≈{m.group(4)} token"
++                    f"（少 {m.group(5)}%）"
++                )
++                continue
++            zh.append(seg)
+         return (
+             title,
+-            "；".join(zh) or detail,
++            "；".join(zh),
+             "两次连续写之间发生压缩，且压缩后的文件读取量比压缩前少 20% 以上："
+             "第二次写所依据的信息大部分只剩压缩摘要，而非上下文中的新鲜读取，"
+             "写出的内容可能偏离文件真实状态。写操作需要读多少因任务而异，"
+@@ -140,7 +202,7 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
+ 
+     if sid.startswith("antipattern:fruitless"):
+         return (
+-            _with_count("无效搜索连续空转", title),
++            _with_count("连续多次搜索无结果", title),
+             _localize_fruitless_detail(detail),
+             "连续三次及以上搜索均无匹配；持续空转通常说明搜错了位置或关键词。",
+         )
+@@ -184,16 +246,91 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
+     if sid.startswith("antipattern:repeated_search:"):
+         m = re.match(r"Repeated empty search \((\d+)×\)$", title)
+         if m:
+-            title = f"重复的空结果搜索（{m.group(1)}×）"
++            title = f"同一搜索多次返回空结果（{m.group(1)}×）"
+         return (
+             title,
+             detail,
+             "同一搜索多次返回空结果（不一定连续）——查询词或路径很可能不对。",
+         )
+ 
++    if sid.startswith("antipattern:redundant_reread:"):
++        detail_zh = re.sub(
++            r"(\S+) re-read (\d+)× with no write or compaction in between "
++            r"\(steps ([\d, ]+)\)",
++            lambda m: (
++                f"{m.group(1)} 重复读取 {m.group(2)} 次——两次读取之间既没有写入"
++                f"也没有压缩（第 {m.group(3).replace(', ', '、')} 步）"
++            ),
++            detail,
++        )
++        return (
++            _with_count("重复读取未变更的文件", title),
++            detail_zh,
++            "文件既没有被修改，也没有因压缩丢失——内容本来就在上下文里，"
++            "重复读取只是白花 token。",
++        )
++
++    if sid.startswith("antipattern:unvalidated_writes"):
++        detail_zh = re.sub(
++            r"(\d+) code file\(s\) written in steps (\d+)–(\d+); "
++            r"no test/build/lint command in the whole run",
++            r"改了 \1 个代码文件（第 \2–\3 步）；整个运行没有任何测试/构建/检查命令",
++            detail,
++        )
++        return (
++            "改了代码但全程未验证",
++            detail_zh,
++            "所有改动都成功了，但没有任何命令检查过结果——正确性全凭智能体自信，"
++            "它自己看不到的回归没有任何机会被发现。",
++        )
++
++    if sid.startswith("antipattern:user_repeat:"):
++        return (
++            _with_count("用户重复发送同一消息", title),
++            detail,
++            "用户把一字不差的同一条消息又发了一遍——这是“上一次没有满足需求”"
++            "最直接的证据，不需要任何推测。",
++        )
++
++    if sid.startswith("antipattern:blind_retry:"):
++        m = re.match(r"Blind retry of failed (\S+) call \((\d+)×\)$", title)
++        if m:
++            title = f"失败后原样重试 {m.group(1)}（{m.group(2)}×）"
++        detail = re.sub(
++            r"(\d+) of (\d+) identical attempts failed — ",
++            r"\2 次完全相同的调用中 \1 次失败 — ",
++            detail,
++        )
++        return (
++            title,
++            detail,
++            "失败的调用未做任何修改就被原样重发，且再次失败——同样的输入在同样的"
++            "环境下只会得到同样的结果，重试只是白烧 token 和轮次。",
++        )
++
++    if sid.startswith("antipattern:oversized_output"):
++        detail_zh = re.sub(
++            r"step (\d+) (\S+) ≈([\d,]+) tokens \((\d+)% of context\)",
++            r"第\1步 \2 ≈\3 token（占上下文 \4%）",
++            detail,
++        )
++        detail_zh = re.sub(
++            r"step (\d+) (\S+) ≈([\d,]+) tokens",
++            r"第\1步 \2 ≈\3 token",
++            detail_zh,
++        )
++        detail_zh = re.sub(r", \+(\d+) more$", r"，另 \1 次", detail_zh)
++        detail_zh = detail_zh.replace(", ", "，")
++        return (
++            _with_count("单条工具输出过大", title),
++            detail_zh,
++            "这条工具输出会一直留在对话历史里：在被压缩掉之前，后面每一步都要把它"
++            "整条重新计入上下文。大输出通常来自整文件 cat、全量 find 或详细模式测试。",
++        )
++
+     if sid.startswith("antipattern:tool_errors"):
+         return (
+-            _with_count("工具错误", title),
++            _with_count("环境类工具错误", title),
+             "根据工具输出检测到（平台错误、权限、文件缺失等）",
+             "失败的工具调用既费 token 又费轮次，且往往是环境问题而非智能体策略错误。",
+         )
+@@ -216,7 +353,18 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
+         return title, detail, why
+ 
+     if sid.startswith("fail:"):
+-        return title, detail, _localize_recovery_why(why)
++        # Plain title for the scan; the tool name and exit code live in the
++        # folded tech detail, one click away.
++        m = re.search(r" \((\d+)×\)$", title)
++        plain = title[: m.start()] if m else title
++        detail_zh = plain
++        if detail:
++            detail_zh += f"；示例错误：{detail}"
++        return (
++            _with_count("工具调用失败", title),
++            detail_zh,
++            _FAIL_IMPACT_ZH,
++        )
+ 
+     if sid.startswith("cascade:"):
+         return (
+@@ -226,8 +374,15 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
+         )
+ 
+     if sid.startswith("bottleneck:"):
+-        title = _localize_bottleneck_title(title)
+-        detail = re.sub(r"^Step (\d+):", r"第\1步：", detail)
++        m = re.match(r"Tool bottleneck: (.+) \((\d+(?:\.\d+)?)s\)$", title)
++        if m:
++            # Plain title: tool name + duration; the full command/target is in
++            # the detail (folded away by the card).
++            tool = m.group(1).split(": ", 1)[0]
++            title = f"工具瓶颈：{tool} 调用耗时 {m.group(2)} 秒"
++        else:
++            title = _localize_bottleneck_title(title)
++        detail = re.sub(r"Step (\d+):", r"第\1步：", detail)
+         detail = detail.replace(" executing tools", " 在执行工具")
+         if why.startswith("Large pre-step idle"):
+             why = "步骤前有很长空闲，通常是排队或限流——应降低并行压力或调整等待策略，而不是改提示词。"
+@@ -242,15 +397,11 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
+         return title, detail, why
+ 
+     # Synthetic cards in tests (and recovery why without a fail: source id).
+-    return title, detail, _localize_recovery_why(why)
+-
+-
+-def _localize_recovery_why(why: str) -> str:
+-    if why.startswith("Typical recovery: "):
+-        return "常见恢复路径：" + why[len("Typical recovery: ") :]
+-    if why == "No recovery path found after this error cluster.":
+-        return "该错误簇之后未找到恢复路径。"
+-    return why
++    if why.startswith("Typical recovery: ") or (
++        why == "No recovery path found after this error cluster."
++    ):
++        return title, detail, _FAIL_IMPACT_ZH
++    return title, detail, why
+ 
+ 
+ def overview_issues_payload(issues: list[OverviewIssue]) -> list[dict]:
+@@ -327,48 +478,70 @@ def issue_analysis_question_from_payload(rows: list, number: int) -> str | None:
+ 
+ 
+ def _issue_card(issue: OverviewIssue, number: int) -> str:
+-    """Compact scan row: number + kind badge + title + step chips + optional LLM fix."""
++    """Scan row: number + kind badge + plain title, then visible impact and
++    action lines; the technical detail folds away below.
++
++    The action slot holds exactly one suggestion: the LLM judgment when it
++    exists (with fix location and confidence), otherwise the rule-based
++    playbook. When the LLM owns the slot, the playbook folds away under
++    技术细节 as 常规做法.
++    """
+     title_raw, detail_raw, why_raw = _localize_issue_text(issue)
++    action_raw = _issue_action_zh(issue)
+     title = html.escape(title_raw)
+-    detail = html.escape(detail_raw)
+     border = ISSUE_KIND_COLORS[issue.kind]
+     steps_html = _step_link_chips(list(issue.steps), label="第{n}步", more="另有 {extra} 步")
+ 
+-    judgment_html = ""
+-    if issue.judgment is not None:
+-        j = issue.judgment
++    judgment = issue.judgment
++    why_html = ""
++    if why_raw:
++        why_html = (
++            "<div class='overview-issue-why'>"
++            "<span class='overview-issue-label'>影响</span>"
++            f"{html.escape(why_raw)}</div>"
++        )
++    action_html = ""
++    if judgment is not None:
+         also_html = ""
+-        if j.also:
++        if judgment.also:
+             also_html = (
+-                f"<div style='font-size:11px;color:var(--ov-muted);margin-top:6px;"
+-                f"line-height:1.35;'>补充：{html.escape(j.also)}</div>"
++                f"<div class='overview-issue-also'>补充：{html.escape(judgment.also)}</div>"
+             )
+-        judgment_html = (
+-            "<div style='margin-top:8px;font-size:12px;line-height:1.4;'>"
+-            "<span style='font-size:10px;font-weight:600;letter-spacing:0.04em;"
+-            "color:var(--ov-muted);'>修改位置</span>"
+-            f"<div style='font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"
+-            f"font-size:12px;color:var(--ov-text);margin-top:2px;'>"
+-            f"{html.escape(j.where)}</div></div>"
+-            "<div style='margin-top:8px;padding:8px 10px;background:var(--ov-bg);"
+-            "border-radius:4px;'>"
+-            "<div style='font-size:10px;font-weight:600;letter-spacing:0.04em;"
+-            "color:var(--ov-muted);margin-bottom:4px;'>"
+-            f"修复建议 <span style='font-weight:500;letter-spacing:0;"
+-            f"color:var(--ov-muted);'>（置信度：{_CONFIDENCE_ZH[j.confidence]}）</span></div>"
+-            f"<div style='font-size:13px;line-height:1.4;color:var(--ov-text);'>"
+-            f"{html.escape(j.fix)}</div>"
+-            f"{also_html}</div>"
+-        )
+-
+-    detail_html = (
+-        f"<span class='overview-issue-detail'>{detail}</span>" if detail_raw else ""
+-    )
+-    info_html = ""
+-    if why_raw:
+-        info_html = (
+-            f"<span class='overview-issue-info' title='{html.escape(why_raw)}' "
+-            f"aria-hidden='true'>ⓘ</span>"
++        action_html = (
++            "<div class='overview-issue-action'>"
++            "<span class='overview-issue-label'>建议</span>"
++            f"<span class='overview-issue-label overview-issue-label-ai'>"
++            f"AI · 置信度：{_CONFIDENCE_ZH[judgment.confidence]}</span>"
++            f"<div class='overview-issue-fix'>{html.escape(judgment.fix)}</div>"
++            "<div class='overview-issue-where'>"
++            "<span class='overview-issue-where-label'>修改位置</span>"
++            f"<span class='overview-issue-where-value'>{html.escape(judgment.where)}</span>"
++            f"</div>{also_html}</div>"
++        )
++    elif action_raw:
++        action_html = (
++            "<div class='overview-issue-action'>"
++            "<span class='overview-issue-label'>建议</span>"
++            f"{html.escape(action_raw)}</div>"
++        )
++
++    tech_parts: list[str] = []
++    if detail_raw:
++        tech_parts.append(
++            f"<div class='overview-issue-detail'>{html.escape(detail_raw)}</div>"
++        )
++    if judgment is not None and action_raw:
++        tech_parts.append(
++            "<div class='overview-issue-detail'>"
++            "<span class='overview-issue-label'>常规做法</span>"
++            f"{html.escape(action_raw)}</div>"
++        )
++    tech_html = ""
++    if tech_parts:
++        tech_html = (
++            "<details class='overview-issue-tech'>"
++            "<summary>技术细节</summary>"
++            f"{''.join(tech_parts)}</details>"
+         )
+     analyze_html = (
+         f"<button type='button' class='overview-issue-analyze' "
+@@ -384,11 +557,11 @@ def _issue_card(issue: OverviewIssue, number: int) -> str:
+         f"<span class='overview-issue-kind' style='color:{border};'>"
+         f"{_ISSUE_KIND_LABELS_ZH[issue.kind]}</span>"
+         f"<span class='overview-issue-title'>{title}</span>"
+-        f"{info_html}"
+-        f"{detail_html}"
+         f"</div>"
++        f"{why_html}"
++        f"{action_html}"
+         f"{steps_html}"
+-        f"{judgment_html}"
++        f"{tech_html}"
+         f"{analyze_html}"
+         f"</div>"
+     )
+@@ -520,15 +693,213 @@ def _issue_cards_html(issues: list[OverviewIssue]) -> str:
+     return "".join(_issue_group_html(view) for view in group_issue_families(issues))
+ 
+ 
++def _fmt_k(n: float) -> str:
++    """Compact token counts for summary lines: 940 / 12.3k / 1.2M."""
++    n = int(n)
++    if abs(n) < 1000:
++        return f"{n:,}"
++    if abs(n) < 1_000_000:
++        v = n / 1000
++        return f"{v:.1f}k".replace(".0k", "k")
++    return f"{n / 1_000_000:.2f}M"
++
++
++def _fmt_wall(seconds: float) -> str:
++    """Wall-clock duration: 45s / 5m 40s / 2h 05m."""
++    total = int(round(seconds))
++    if total < 60:
++        return f"{total}s"
++    minutes, secs = divmod(total, 60)
++    if minutes < 60:
++        return f"{minutes}m {secs}s" if secs else f"{minutes}m"
++    hours, minutes = divmod(minutes, 60)
++    return f"{hours}h {minutes:02d}m" if minutes else f"{hours}h"
++
++
++def _step_text_parts(step: dict) -> str:
++    """Visible text of a step: its `text` parts joined, whitespace collapsed."""
++    chunks = []
++    for p in step.get("parts") or []:
++        if isinstance(p, dict) and p.get("type") == "text":
++            t = str(p.get("text") or "").strip()
++            if t:
++                chunks.append(t)
++    return " ".join(chunks)
++
++
++def _run_numbers_zh(steps: list[dict], metrics: dict) -> list[str]:
++    """The headline numbers of a run, as display-ready strings.
++
++    Tool names come from the export, so they are escaped here and the list is
++    joined WITHOUT a second escape.
++    """
++    nums = [f"{len(steps)} 步"]
++    wall = metrics.get("wall_clock")
++    if isinstance(wall, (int, float)) and wall > 0:
++        nums.append(_fmt_wall(wall))
++    toks = metrics.get("tokens") or {}
++    total_tokens = toks.get("total") or 0
++    if total_tokens:
++        nums.append(f"{_fmt_k(total_tokens)} token")
++    cache_read = toks.get("cache_read") or 0
++    fresh = toks.get("input") or 0
++    if cache_read + fresh > 0:
++        pct = round(cache_read / (cache_read + fresh) * 100)
++        nums.append(f"缓存命中 {pct}%")
++    tool_n = metrics.get("tool_call_count") or 0
++    if tool_n:
++        breakdown = metrics.get("tool_breakdown") or {}
++        if breakdown:
++            top_name, top_n = max(breakdown.items(), key=lambda kv: kv[1])
++            nums.append(f"工具 {tool_n} 次（{html.escape(str(top_name))} 最多，{top_n} 次）")
++        else:
++            nums.append(f"工具 {tool_n} 次")
++    compactions = _explicit_compaction_events(steps)
++    if compactions:
++        nums.append(f"压缩 {len(compactions)} 次")
++    sub_agents = len(metrics.get("agent_breakdown") or {})
++    if sub_agents:
++        nums.append(f"{sub_agents + 1} 个 agent")
++    return nums
++
++
++def _run_pending_value_html() -> str:
++    """Spinner placeholder shown while the LLM run summary is being generated.
++
++    Same SMIL spinner as the Issues panel progress line (survives Gradio HTML
++    swaps and prefers-reduced-motion).
++    """
++    return (
++        "<span class='overview-issues-progress' role='status' aria-live='polite' "
++        "style='margin:0;display:inline-flex;'>"
++        "<svg class='overview-issues-progress-spinner' width='14' height='14' "
++        "viewBox='0 0 24 24' aria-hidden='true' "
++        "style='flex-shrink:0;display:block'>"
++        "<circle cx='12' cy='12' r='10' fill='none' "
++        "stroke='currentColor' stroke-opacity='0.25' stroke-width='3'/>"
++        "<path d='M12 2a10 10 0 0 1 10 10' fill='none' stroke='currentColor' "
++        "stroke-width='3' stroke-linecap='round'>"
++        "<animateTransform attributeName='transform' type='rotate' "
++        "from='0 12 12' to='360 12 12' dur='0.7s' repeatCount='indefinite'/>"
++        "</path></svg>"
++        "<span>正在等待 AI 总结任务与结局…</span>"
++        "</span>"
++    )
++
++
++def build_run_summary_html(
++    session: LoadedSession,
++    ai_summary: tuple[str, str] | None = None,
++    *,
++    ai_pending: bool = False,
++) -> str:
++    """Story of the run shown under the verdict banner.
++
++    任务/结局 come from the LLM (*ai_summary*, shown with an AI badge — see
++    ``issue_judge.judge_run_summary``); while it is being generated
++    (*ai_pending*) a spinner placeholder is shown instead. Without AI the two
++    rows are omitted entirely — only the 数字 row (local metrics) remains.
++    """
++    steps = session.steps
++    if not steps:
++        return ""
++
++    # Ending note: the last assistant step that ran tools ended with every
++    # call failed — the run likely stopped on broken ground.
++    note = ""
++    for s in reversed(steps):
++        calls = s.get("tool_calls") or []
++        if s.get("role") == "assistant" and calls:
++            if all(tool_call_failed(c) for c in calls if isinstance(c, dict)):
++                note = "该步工具调用全部失败"
++            break
++
++    def _row(label: str, value: str) -> str:
++        return (
++            f"<div class='ov-run-row'>"
++            f"<span class='ov-run-label'>{label}</span>"
++            f"<span class='ov-run-value'>{value}</span></div>"
++        )
++
++    rows = []
++    if ai_summary is not None:
++        ai_task, ai_outcome = ai_summary
++        if ai_task:
++            task = (
++                "<span class='overview-issue-label overview-issue-label-ai'>AI</span>"
++                f"{html.escape(ai_task)}"
++            )
++        else:
++            task = "<span class='ov-run-muted'>（AI 未总结任务）</span>"
++        outcome_parts = []
++        if ai_outcome:
++            outcome_parts.append(
++                "<span class='overview-issue-label overview-issue-label-ai'>AI</span>"
++                f"{html.escape(ai_outcome)}"
++            )
++        else:
++            outcome_parts.append("<span class='ov-run-muted'>（AI 未总结结局）</span>")
++        if note:
++            outcome_parts.append(
++                f"<span class='ov-run-note'>⚠ {html.escape(note)}</span>"
++            )
++        rows.append(_row("任务", task))
++        rows.append(_row("结局", " ".join(outcome_parts)))
++    elif ai_pending:
++        rows.append(_row("任务与结局", _run_pending_value_html()))
++    rows.append(_row("数字", " · ".join(_run_numbers_zh(steps, getattr(session, "metrics", None) or {}))))
++    return "<div class='ov-run-summary'>" + "".join(rows) + "</div>"
++
++
++def _verdict_banner_html(issues: list[OverviewIssue]) -> str:
++    """One-glance health verdict above the Issues panel: overall status plus
++    the single most important issue in plain language."""
++    if not issues:
++        return (
++            "<div class='ov-verdict' style='border-left-color:var(--ov-success);'>"
++            "<div class='ov-verdict-head' style='color:var(--ov-success);'>"
++            "✅ 未检测到明显问题</div>"
++            "<div class='ov-verdict-text'>本次运行的工作流健康；"
++            "可在下方各分区查看执行细节。</div></div>"
++        )
++    errors = sum(1 for i in issues if i.kind == "error")
++    risks = sum(1 for i in issues if i.kind == "risk")
++    others = len(issues) - errors - risks
++    top = issues[0]
++    top_title, _, _top_detail = _localize_issue_text(top)
++    top_action = _issue_action_zh(top)
++    if errors or risks:
++        color = "var(--ov-bad)" if errors else "var(--ov-risk)"
++        parts = []
++        if errors:
++            parts.append(f"{errors} 个错误")
++        if risks:
++            parts.append(f"{risks} 个质量风险")
++        head = "❗ 需要关注：" + "、".join(parts)
++        text = f"最要紧的一项：「{top_title}」。{top_action}"
++    else:
++        color = "var(--ov-warn)"
++        head = f"⚠ 运行完成，有 {others} 个可优化项（不影响结果正确性）"
++        text = f"最主要的一项：「{top_title}」。{top_action}"
++    return (
++        f"<div class='ov-verdict' style='border-left-color:{color};'>"
++        f"<div class='ov-verdict-head' style='color:{color};'>{head}</div>"
++        f"<div class='ov-verdict-text'>{html.escape(text)}</div></div>"
++    )
++
++
+ def render_overview_issues_html(
+     issues: list[OverviewIssue],
+     *,
+     banner: str = "",
+     progress: str = "",
++    run_summary: str = "",
+ ) -> str:
+     """Render a foldable Issues panel (healthy empty state when *issues* is empty).
+ 
+     *progress* is a live status line shown inside the panel while the LLM judge runs.
++    *run_summary* is the three-line run story shown between the verdict banner
++    and the panel (see :func:`build_run_summary_html`).
+     """
+     banner_html = ""
+     if banner:
+@@ -559,7 +930,9 @@ def render_overview_issues_html(
+ 
+     if not issues:
+         return (
+-            "<details class='overview-issues-panel' id='overview-issues'>"
++            _verdict_banner_html(issues)
++            + run_summary
++            + "<details class='overview-issues-panel' id='overview-issues'>"
+             "<summary class='overview-issues-summary'>"
+             "<span>问题</span>"
+             "<span class='overview-issues-summary-meta'>未检测到问题</span>"
+@@ -576,7 +949,7 @@ def render_overview_issues_html(
+     judged = sum(1 for i in issues if i.judgment is not None)
+     count_label = f"{count} 个问题"
+     if progress:
+-        count_label += " · 正在生成修复建议…"
++        count_label += " · 正在 AI 分析…"
+     elif judged:
+         count_label += f" · 已为 {judged} 个问题生成修复建议"
+ 
+@@ -587,11 +960,13 @@ def render_overview_issues_html(
+     )
+     hint = (
+         f"<div class='overview-issues-hint'>{lead} · 点击步骤可跳转到 Workflow"
+-        " · 「AI 深入分析」打开右侧分析面板继续追问"
+-        " · 鼠标悬停 ⓘ 查看说明</div>"
++        " · 技术细节默认折叠，点击展开"
++        " · 「AI 深入分析」打开右侧分析面板继续追问</div>"
+     )
+     return (
+-        "<details class='overview-issues-panel' id='overview-issues' open>"
++        _verdict_banner_html(issues)
++        + run_summary
++        + "<details class='overview-issues-panel' id='overview-issues' open>"
+         "<summary class='overview-issues-summary'>"
+         "<span>问题</span>"
+         f"<span class='overview-issues-summary-meta'>{html.escape(count_label)}</span>"
+@@ -611,10 +986,17 @@ def build_overview_issues_html(
+     issues: list[OverviewIssue] | None = None,
+     banner: str = "",
+     progress: str = "",
++    ai_summary: tuple[str, str] | None = None,
++    ai_pending: bool = False,
+ ) -> str:
+     """Collect (deduped + ranked) and render Overview Issues for *session*."""
+     if issues is None:
+         ranked = prepare_overview_issues(session)
+     else:
+         ranked = list(issues)
+-    return render_overview_issues_html(ranked, banner=banner, progress=progress)
++    return render_overview_issues_html(
++        ranked,
++        banner=banner,
++        progress=progress,
++        run_summary=build_run_summary_html(session, ai_summary, ai_pending=ai_pending),
++    )
+diff --git a/agent_trajviz/insight/presenters/overview.py b/agent_trajviz/insight/presenters/overview.py
+index acd7e41..cad1b83 100644
+--- a/agent_trajviz/insight/presenters/overview.py
++++ b/agent_trajviz/insight/presenters/overview.py
+@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
+ import plotly.graph_objects as go
+ 
+ from ..formats.common import as_text
+-from ..context_usage import PRESSURE_ALL_AGENTS
++from ..context_usage import PRESSURE_ALL_AGENTS, _explicit_compaction_events
+ from ..formatting import (
+     format_banner_html,
+     format_behavioral_md,
+@@ -32,6 +32,7 @@ from ..charts import build_execution_gantt_chart
+ from .issues import (
+     ISSUE_KIND_COLORS,
+     OverviewIssue,
++    _fmt_k,
+     build_overview_issues_html,
+     overview_issues_payload,
+     prepare_overview_issues,
+@@ -392,7 +393,60 @@ def build_summary_outputs(session: LoadedSession) -> dict:
+     }
+ 
+ 
+-def build_overview_outputs(session: LoadedSession) -> dict:
++def build_token_summary_html(session: LoadedSession) -> str:
++    """One-line takeaway above the Token Usage chart: cache hit rate, tokens
++    dropped by compaction, the biggest step, and the peak context — the
++    numbers that used to need a bar click to see.
++
++    Every value is generated (counts, percentages); no export text enters, so
++    the line needs no escaping.
++    """
++    steps = session.steps
++    if not steps:
++        return ""
++    cache_read = fresh = peak = 0
++    max_total = 0
++    max_idx = None
++    for i, s in enumerate(steps):
++        tokens = s.get("tokens") or {}
++        cr = tokens.get("cache_read") or 0
++        inp = tokens.get("input") or 0
++        if cr or inp:
++            cache_read += cr
++            fresh += inp
++            peak = max(peak, cr + inp)
++        total = tokens.get("total") or 0
++        if total > max_total:
++            max_total = total
++            max_idx = i
++
++    parts = []
++    if cache_read + fresh > 0:
++        pct = round(cache_read / (cache_read + fresh) * 100)
++        parts.append(f"缓存命中 {pct}%（命中 {_fmt_k(cache_read)} / 新算 {_fmt_k(fresh)}）")
++    compactions = _explicit_compaction_events(steps)
++    if compactions:
++        dropped = sum(int(e.get("dropped") or 0) for e in compactions)
++        if dropped > 0:
++            parts.append(f"压缩丢弃 {_fmt_k(dropped)} token（{len(compactions)} 次）")
++        else:
++            parts.append(f"压缩 {len(compactions)} 次")
++    if max_idx is not None and max_total > 0:
++        parts.append(f"最大单步 {_fmt_k(max_total)}（第 {max_idx} 步）")
++    if peak > 0:
++        parts.append(f"上下文峰值 {_fmt_k(peak)}")
++    if not parts:
++        return ""
++    return (
++        "<div class='token-summary-line'>"
++        + "<span class='token-summary-sep'> · </span>".join(
++            f"<span>{p}</span>" for p in parts
++        )
++        + "</div>"
++    )
++
++
++def build_overview_outputs(session: LoadedSession, *, ai_pending: bool = False) -> dict:
+     """Compute overview-related outputs: banner, KPI, metadata, and metrics markdown."""
+     steps = session.steps
+     raw = session.raw
+@@ -412,7 +466,7 @@ def build_overview_outputs(session: LoadedSession) -> dict:
+         agent_summaries=session.agent_summaries,
+         tokens_estimated=tokens_are_estimates(session.raw),
+     )
+-    issues_html = build_overview_issues_html(session, issues=ranked_issues)
++    issues_html = build_overview_issues_html(session, issues=ranked_issues, ai_pending=ai_pending)
+     issues_payload = overview_issues_payload(ranked_issues)
+     metrics_text = format_performance_md(metrics, wfmt)
+ 
+diff --git a/agent_trajviz/insight/session.py b/agent_trajviz/insight/session.py
+index e1528ec..ac4a715 100644
+--- a/agent_trajviz/insight/session.py
++++ b/agent_trajviz/insight/session.py
+@@ -74,6 +74,21 @@ class LoadedSession:
+     tool_selection: list
+     edit_thrash: list
+     repeated_searches: list
++    #: Single tool outputs big enough to tax every later step
++    #: (see detect_oversized_outputs).
++    oversized_outputs: list
++    #: A failed tool call retried verbatim and failing again
++    #: (see detect_blind_retries).
++    blind_retries: list
++    #: User messages sent verbatim two or more times
++    #: (see detect_user_repeats).
++    user_repeats: list
++    #: Code files written while no validation command ran at all
++    #: (see detect_unvalidated_writes).
++    unvalidated_writes: list
++    #: Same file re-read with no write or compaction in between
++    #: (see detect_redundant_re_reads).
++    redundant_re_reads: list
+     # Computed on every load but read by no presenter, chart, report or UI
+     # module — only by the two tests that construct a LoadedSession by keyword.
+     # Kept rather than deleted: the field has no default, so dropping it is a
+@@ -190,6 +205,11 @@ def session_from_run(run: Trajectory, path: str | None = None) -> LoadedSession:
+         tool_selection=a.tool_selection,
+         edit_thrash=a.edit_thrash,
+         repeated_searches=a.repeated_searches,
++        oversized_outputs=a.oversized_outputs,
++        blind_retries=a.blind_retries,
++        user_repeats=a.user_repeats,
++        unvalidated_writes=a.unvalidated_writes,
++        redundant_re_reads=a.redundant_re_reads,
+         phase_regressions=a.phase_regressions,
+         premature_compactions=a.premature_compactions,
+         compaction_aftermath=a.compaction_aftermath,
+diff --git a/agent_trajviz/insight/styles.py b/agent_trajviz/insight/styles.py
+index 183d0a6..6fb67f9 100644
+--- a/agent_trajviz/insight/styles.py
++++ b/agent_trajviz/insight/styles.py
+@@ -1227,11 +1227,144 @@ html.tv-theme-dark {
+     font-size: 12px;
+     color: var(--ov-muted);
+ }
+-.overview-issue-info {
+-    align-self: center;
++.overview-issue-why,
++.overview-issue-action {
++    margin-top: 5px;
++    font-size: 12.5px;
++    line-height: 1.5;
++    color: var(--ov-text);
++}
++.overview-issue-action {
++    color: var(--ov-muted);
++}
++.overview-issue-label {
++    display: inline-block;
++    margin-right: 6px;
++    padding: 0 5px;
++    border-radius: 4px;
++    background: var(--ov-table-header-bg);
++    font-size: 10px;
++    font-weight: 700;
++    color: var(--ov-muted);
++    vertical-align: 1px;
++    white-space: nowrap;
++}
++.overview-issue-label-ai {
++    background: var(--ov-card);
++    color: var(--ov-accent);
++}
++.overview-issue-fix {
++    margin-top: 4px;
++    color: var(--ov-text);
++    line-height: 1.45;
++}
++.overview-issue-where {
++    margin-top: 4px;
++    font-size: 11.5px;
++    color: var(--ov-muted);
++}
++.overview-issue-where-label {
++    display: inline-block;
++    margin-right: 6px;
++    vertical-align: 1px;
++    font-size: 10px;
++    font-weight: 700;
++    color: var(--ov-muted);
++    white-space: nowrap;
++}
++.overview-issue-where-value {
++    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
++    color: var(--ov-text);
++}
++.overview-issue-also {
++    margin-top: 4px;
++    font-size: 11px;
++    line-height: 1.35;
++    color: var(--ov-muted);
++}
++.overview-issue-tech {
++    margin-top: 6px;
++}
++.overview-issue-tech summary {
++    cursor: pointer;
++    font-size: 11px;
++    color: var(--ov-muted);
++    user-select: none;
++}
++.overview-issue-tech .overview-issue-detail {
++    display: block;
++    margin-top: 4px;
++    line-height: 1.45;
++}
++.ov-verdict {
++    padding: 10px 14px;
++    background: var(--ov-card);
++    border-left: 4px solid var(--ov-border);
++    border-radius: 4px;
++    margin: 0 0 10px;
++}
++.ov-verdict-head {
++    font-size: 15px;
++    font-weight: 700;
++    line-height: 1.4;
++}
++.ov-verdict-text {
++    margin-top: 4px;
++    font-size: 13px;
++    line-height: 1.55;
++    color: var(--ov-text);
++}
++.ov-run-summary {
++    padding: 10px 14px;
++    background: var(--ov-card);
++    border-left: 4px solid var(--ov-border);
++    border-radius: 4px;
++    margin: 0 0 10px;
++}
++.ov-run-row {
++    display: flex;
++    gap: 10px;
++    font-size: 13px;
++    line-height: 1.55;
++}
++.ov-run-row + .ov-run-row {
++    margin-top: 6px;
++}
++.ov-run-label {
++    flex: 0 0 40px;
++    font-weight: 700;
+     font-size: 12px;
+     color: var(--ov-muted);
+-    cursor: help;
++    padding-top: 1px;
++}
++.ov-run-value {
++    flex: 1;
++    min-width: 0;
++    color: var(--ov-text);
++    word-break: break-word;
++}
++.ov-run-muted {
++    color: var(--ov-muted);
++}
++.ov-run-note {
++    color: var(--ov-bad);
++    font-weight: 650;
++    white-space: nowrap;
++}
++.token-summary-wrap {
++    min-height: 0;
++}
++.token-summary-line {
++    font-size: 12.5px;
++    line-height: 1.6;
++    color: var(--ov-text);
++    padding: 0 2px 8px;
++}
++.token-summary-line span {
++    white-space: nowrap;
++}
++.token-summary-sep {
++    color: var(--ov-muted);
+ }
+ .overview-issue-analyze {
+     display: inline-flex;
+diff --git a/agent_trajviz/insight/ui/load.py b/agent_trajviz/insight/ui/load.py
+index 62f5ad2..e3d293b 100644
+--- a/agent_trajviz/insight/ui/load.py
++++ b/agent_trajviz/insight/ui/load.py
+@@ -14,7 +14,7 @@ from ..assistant import build_analysis_brief_from_session
+ from ...plugins import format_label
+ from ..session import LoadError, LoadedSession, load_session
+ from . import overview_tab, patterns_tab, raw_tab, upload, workflow_tab
+-from .shared import SharedState
++from .shared import SharedState, record_latest_run
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -220,11 +220,20 @@ def pack_load_outputs(result: LoadedSession | LoadError, dark: bool = False) ->
+     return packed
+ 
+ 
+-def do_load(upload_obj, dark=False, selected_format="", *, slots: dict[str, Any] | None = None):
++def do_load(
++    upload_obj,
++    dark=False,
++    selected_format="",
++    *,
++    slots: dict[str, Any] | None = None,
++    request: gr.Request | None = None,
++):
+     """Load wrapper: surface unexpected failures as a visible banner.
+ 
+     When *slots* is provided (the live dashboard), return a Gradio component
+     dict. Tests call ``pack_load_outputs`` / ``empty_load_outputs`` directly.
++    Every load — success, error, or the cleared upload — records what the
++    browser session now displays so superseded post-load streams stop themselves.
+     """
+     try:
+         file_path = resolve_upload_path(upload_obj)
+@@ -236,6 +245,7 @@ def do_load(upload_obj, dark=False, selected_format="", *, slots: dict[str, Any]
+             banner=(f"<p style='color:#dc2626;'>Error loading trajectory: {html.escape(str(exc))}</p>"),
+             detail="*Failed to load — see console for details.*",
+         )
++    record_latest_run(getattr(request, "session_hash", None), packed.get("state_run"))
+     if slots is None:
+         return packed
+     return {slots[key]: packed[key] for key in slots}
+@@ -260,8 +270,8 @@ def bind_load(*, file_upload, load_btn, format_selector, state_dark, slots: dict
+             f"Load slot keys mismatch vs packer: missing={sorted(expected - got)} extra={sorted(got - expected)}"
+         )
+ 
+-    def _do_load(upload_obj, dark=False, selected_format=""):
+-        return do_load(upload_obj, dark, selected_format, slots=slots)
++    def _do_load(upload_obj, dark=False, selected_format="", request: gr.Request | None = None):
++        return do_load(upload_obj, dark, selected_format, slots=slots, request=request)
+ 
+     outputs = list(slots.values())
+     _load_ev = load_btn.click(
+diff --git a/agent_trajviz/insight/ui/overview_tab.py b/agent_trajviz/insight/ui/overview_tab.py
+index aa8d4b6..a285d2f 100644
+--- a/agent_trajviz/insight/ui/overview_tab.py
++++ b/agent_trajviz/insight/ui/overview_tab.py
+@@ -30,6 +30,7 @@ from ..presenters.overview import (
+     build_chart_outputs,
+     build_diagnostics_outputs,
+     build_overview_outputs,
++    build_token_summary_html,
+     empty_plotly_fig,
+     render_section_guide,
+ )
+@@ -37,7 +38,7 @@ from ..token_explain import build_token_step_panel_html
+ from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
+ from ..llm_config import resolve_analysis_config
+ from ..session import LoadedSession, session_from_run
+-from .shared import SharedState, safe_callback
++from .shared import SharedState, is_latest_run, safe_callback
+ from .upload import UploadRefs
+ 
+ 
+@@ -57,6 +58,7 @@ class OverviewRefs:
+     suggest_fixes_btn: gr.Button
+     metrics_md: gr.Markdown
+     token_chart: gr.Plot
++    token_summary_html: gr.HTML
+     token_step_html: gr.HTML
+     duration_chart: gr.Plot
+     gantt_chart: gr.Plot
+@@ -153,6 +155,10 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
+             with gr.Column(scale=1, min_width=0, elem_classes=["overview-section-content"]):
+                 with gr.Column(visible=True) as performance_section:
+                     gr.HTML(render_section_guide("performance_section"))
++                    token_summary_html = gr.HTML(
++                        "",
++                        elem_classes=["token-summary-wrap"],
++                    )
+                     with gr.Row(equal_height=True):
+                         token_chart = gr.Plot(
+                             show_label=False,
+@@ -300,6 +306,7 @@ def layout(overview_kpi_html: gr.HTML) -> OverviewRefs:
+         suggest_fixes_btn=suggest_fixes_btn,
+         metrics_md=metrics_md,
+         token_chart=token_chart,
++        token_summary_html=token_summary_html,
+         token_step_html=token_step_html,
+         duration_chart=duration_chart,
+         gantt_chart=gantt_chart,
+@@ -343,6 +350,7 @@ def load_slots(refs: OverviewRefs) -> dict:
+         "issues_html": refs.issues_html,
+         "metrics_md": refs.metrics_md,
+         "token_chart": refs.token_chart,
++        "token_summary_html": refs.token_summary_html,
+         "token_step_html": refs.token_step_html,
+         "duration_chart": refs.duration_chart,
+         "gantt_chart": refs.gantt_chart,
+@@ -381,6 +389,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
+             "state_overview_issues": [],
+             "metrics_md": "",
+             "token_chart": fig,
++            "token_summary_html": "",
+             "token_step_html": build_token_step_panel_html([]),
+             "duration_chart": fig,
+             "gantt_chart": fig,
+@@ -414,7 +423,10 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
+             "per_message_md": "",
+         }
+ 
+-    ov = build_overview_outputs(session)
++    # With AI configured the 任务/结局 rows start as a spinner placeholder
++    # (on_suggest_fixes fills them in right after load); without AI they are
++    # omitted entirely.
++    ov = build_overview_outputs(session, ai_pending=resolve_analysis_config().ready)
+     ch = build_chart_outputs(session, dark=dark)
+     dg = build_diagnostics_outputs(session, dark=dark)
+     return {
+@@ -424,6 +436,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
+         "state_overview_issues": ov["issues_payload"],
+         "metrics_md": ov["metrics_text"],
+         "token_chart": ch["tok_fig"],
++        "token_summary_html": build_token_summary_html(session),
+         "token_step_html": build_token_step_panel_html(session.steps),
+         "duration_chart": ch["dur_fig"],
+         "gantt_chart": ch["gantt_fig"],
+@@ -478,6 +491,109 @@ def _snapshot_dropdown_update(
+     )
+ 
+ 
++def on_suggest_fixes(run, request: gr.Request | None = None):
++    """Run the LLM run summary + Issues judge after load (or on button click); stream progress into the panel.
++
++    The stream paints the Issues panel across many yields while the run it
++    started with may already have been replaced (upload row cleared, another
++    trajectory loaded). Every resume checks ``shared.is_latest_run`` and stops
++    itself instead of overwriting the new trace's panel with the old one's
++    content.
++    """
++    from ..presenters.issues import render_overview_issues_html
++    from ..issue_judge import judge_run_summary, _judge_error_text
++
++    session_key = getattr(request, "session_hash", None)
++
++    def _superseded() -> bool:
++        return not is_latest_run(session_key, run)
++
++    if run is None or not run.steps:
++        yield render_overview_issues_html([]), []
++        return
++
++    cfg = resolve_analysis_config()
++    session = session_from_run(run, "")
++    ranked = prepare_overview_issues(session)
++    payload = overview_issues_payload(ranked)
++
++    if not cfg.ready:
++        missing = ", ".join(cfg.missing)
++        banner = f"Configure {missing} in .env to auto-suggest fixes"
++        yield build_overview_issues_html(session, issues=ranked, banner=banner), payload
++        return
++
++    # AI run summary first — one call, before issue judging. While it runs
++    # the 任务/结局 rows show a spinner placeholder.
++    ai_summary = None
++    summary_error = ""
++    yield build_overview_issues_html(
++        session, issues=ranked, progress="正在总结任务与结局…", ai_pending=True,
++    ), gr.skip()
++    if _superseded():
++        return
++    try:
++        ai_summary = judge_run_summary(session, config=cfg)
++    except Exception as exc:  # noqa: BLE001 — rows stay hidden; banner explains
++        summary_error = _judge_error_text(exc)
++
++    if not ranked:
++        if _superseded():
++            return
++        banner = f"Run summary failed: {summary_error[:160]}" if summary_error else ""
++        yield build_overview_issues_html(
++            session, issues=ranked, ai_summary=ai_summary, banner=banner,
++        ), payload
++        return
++
++    judged = ranked
++    errors: list[str] = []
++    for progress in iter_judge_overview_issues(
++        session, ranked, config=cfg, limit=JUDGE_ISSUE_CAP,
++    ):
++        if _superseded():
++            return
++        judged = progress.issues
++        errors = progress.errors
++        if not progress.finished:
++            short = progress.current_title
++            if len(short) > 48:
++                short = short[:45] + "…"
++            progress_line = (
++                f"Suggesting fixes {progress.current}/{progress.total} — {short}"
++            )
++            # Stream HTML only; refresh State once when judgments are final.
++            yield build_overview_issues_html(
++                session, issues=judged, progress=progress_line,
++                ai_summary=ai_summary,
++            ), gr.skip()
++            continue
++
++        if _superseded():
++            return
++        ok = sum(1 for i in judged if i.judgment is not None)
++        if errors and ok == 0:
++            banner = f"Judge failed ({len(errors)}). First: {errors[0][:160]}"
++            yield build_overview_issues_html(
++                session, issues=ranked, banner=banner, ai_summary=ai_summary,
++            ), payload
++            return
++
++        banner = ""
++        if summary_error:
++            banner = f"Run summary failed: {summary_error[:160]}"
++        elif errors:
++            banner = (
++                f"{len(errors)} issue(s) could not be judged"
++                f" ({ok}/{min(len(ranked), JUDGE_ISSUE_CAP)} ok)."
++            )
++        elif len(ranked) > JUDGE_ISSUE_CAP:
++            banner = f"Judged {ok}/{JUDGE_ISSUE_CAP} (capped)."
++        yield build_overview_issues_html(
++            session, issues=judged, banner=banner, ai_summary=ai_summary,
++        ), overview_issues_payload(judged)
++
++
+ def bind(
+     refs: OverviewRefs,
+     shared: SharedState,
+@@ -515,69 +631,6 @@ def bind(
+         outputs=[refs.gantt_chart],
+     )
+ 
+-    def on_suggest_fixes(run):
+-        """Run the LLM Issues judge after load (or on button click); stream progress into the panel."""
+-        from ..presenters.issues import render_overview_issues_html
+-
+-        if run is None or not run.steps:
+-            yield render_overview_issues_html([]), []
+-            return
+-
+-        cfg = resolve_analysis_config()
+-        session = session_from_run(run, "")
+-        ranked = prepare_overview_issues(session)
+-        payload = overview_issues_payload(ranked)
+-
+-        if not cfg.ready:
+-            missing = ", ".join(cfg.missing)
+-            banner = f"Configure {missing} in .env to auto-suggest fixes"
+-            yield build_overview_issues_html(session, issues=ranked, banner=banner), payload
+-            return
+-
+-        if not ranked:
+-            yield build_overview_issues_html(session, issues=ranked), payload
+-            return
+-
+-        judged = ranked
+-        errors: list[str] = []
+-        for progress in iter_judge_overview_issues(
+-            session, ranked, config=cfg, limit=JUDGE_ISSUE_CAP,
+-        ):
+-            judged = progress.issues
+-            errors = progress.errors
+-            if not progress.finished:
+-                short = progress.current_title
+-                if len(short) > 48:
+-                    short = short[:45] + "…"
+-                progress_line = (
+-                    f"Suggesting fixes {progress.current}/{progress.total} — {short}"
+-                )
+-                # Stream HTML only; refresh State once when judgments are final.
+-                yield build_overview_issues_html(
+-                    session, issues=judged, progress=progress_line,
+-                ), gr.skip()
+-                continue
+-
+-            ok = sum(1 for i in judged if i.judgment is not None)
+-            if errors and ok == 0:
+-                banner = f"Judge failed ({len(errors)}). First: {errors[0][:160]}"
+-                yield build_overview_issues_html(
+-                    session, issues=ranked, banner=banner,
+-                ), payload
+-                return
+-
+-            banner = ""
+-            if errors:
+-                banner = (
+-                    f"{len(errors)} issue(s) could not be judged"
+-                    f" ({ok}/{min(len(ranked), JUDGE_ISSUE_CAP)} ok)."
+-                )
+-            elif len(ranked) > JUDGE_ISSUE_CAP:
+-                banner = f"Judged {ok}/{JUDGE_ISSUE_CAP} (capped)."
+-            yield build_overview_issues_html(
+-                session, issues=judged, banner=banner,
+-            ), overview_issues_payload(judged)
+-
+     judge_event = dict(
+         fn=on_suggest_fixes,
+         inputs=[shared.state_run],
+diff --git a/agent_trajviz/insight/ui/shared.py b/agent_trajviz/insight/ui/shared.py
+index 628c500..d4487da 100644
+--- a/agent_trajviz/insight/ui/shared.py
++++ b/agent_trajviz/insight/ui/shared.py
+@@ -6,6 +6,7 @@ import functools
+ import logging
+ from collections.abc import Callable
+ from dataclasses import dataclass
++from threading import Lock
+ 
+ import gradio as gr
+ 
+@@ -39,6 +40,39 @@ def format_choices() -> list[tuple[str, str]]:
+     return [("Auto-detect", ""), *((label, key) for key, label in FORMATS.items())]
+ 
+ 
++# The run each browser session last loaded (``None`` after a clear), keyed by
++# Gradio session hash. Post-load streams that paint the UI across many yields
++# (the LLM Issues judge) check this to stop themselves once a newer load
++# replaced the trajectory they were analyzing — otherwise the replaced stream
++# keeps overwriting the new trace's panels with the old one's content.
++_latest_run_by_session: dict[str | None, object] = {}
++_latest_run_lock = Lock()
++
++
++def record_latest_run(session_hash: str | None, run: object) -> None:
++    """Note *run* as the trajectory *session_hash* currently displays."""
++    with _latest_run_lock:
++        _latest_run_by_session[session_hash] = run
++
++
++def is_latest_run(session_hash: str | None, run: object) -> bool:
++    """True while *run* is still what *session_hash* last loaded.
++
++    With no record (direct/library callers, tests) everything counts as
++    current; a recorded ``None`` (cleared upload) supersedes every run.
++    """
++    with _latest_run_lock:
++        if session_hash not in _latest_run_by_session:
++            return True
++        return _latest_run_by_session[session_hash] is run
++
++
++def drop_latest_run(session_hash: str | None) -> None:
++    """Forget *session_hash* on browser unload."""
++    with _latest_run_lock:
++        _latest_run_by_session.pop(session_hash, None)
++
++
+ def safe_callback(label: str) -> Callable:
+     """Turn an unexpected callback failure into a visible toast, not a silent 500.
+ 
+diff --git a/agent_trajviz/insight/ui/upload.py b/agent_trajviz/insight/ui/upload.py
+index f38c928..effb21b 100644
+--- a/agent_trajviz/insight/ui/upload.py
++++ b/agent_trajviz/insight/ui/upload.py
+@@ -16,7 +16,7 @@ import gradio as gr
+ from ..presenters.overview import load_warnings_html
+ from ..report import ReportError, write_report_file
+ from ..session import LoadedSession
+-from .shared import SharedState, format_choices
++from .shared import SharedState, drop_latest_run, format_choices
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -135,10 +135,11 @@ def _remove_temp_export_dir(directory: str | None) -> None:
+ 
+ 
+ def cleanup_session_export(request: gr.Request) -> None:
+-    """Release only the departing browser session's temporary report."""
++    """Release only the departing browser session's temporary report and load record."""
+     session = getattr(request, "session_hash", None)
+     if session is None:
+         return
++    drop_latest_run(session)
+     with _temp_export_lock:
+         _remove_temp_export_dir(_last_temp_export_dirs.pop(session, None))
+ 
+diff --git a/tests/test_blind_retries.py b/tests/test_blind_retries.py
+new file mode 100644
+index 0000000..21b8d71
+--- /dev/null
++++ b/tests/test_blind_retries.py
+@@ -0,0 +1,158 @@
++"""Blind retries: a failed call resubmitted verbatim and failing again.
++
++Only consecutive identical calls count (same tool, same input, nothing in
++between). A retry that succeeds is exempt — transient errors deserve one
++verbatim shot. Flagged is the wasted pattern: unchanged input in an unchanged
++environment fails the same way twice.
++"""
++
++import unittest
++from types import SimpleNamespace
++
++from agent_trajviz.insight.patterns import detect_blind_retries
++from agent_trajviz.insight.issues import prepare_overview_issues
++from agent_trajviz.insight.presenters.issues import build_overview_issues_html
++
++
++def _step(index, calls=None):
++    return {"index": index, "role": "assistant", "tool_calls": calls or [], "tokens": {}}
++
++
++def _call(tool="bash", command="ls /tmp", status="completed", title=None):
++    return {
++        "tool_name": tool,
++        "status": status,
++        "input": {"command": command},
++        "title": title or command,
++        "output": "ok",
++    }
++
++
++def _failed(tool="bash", command="ls /tmp", title=None):
++    return _call(tool=tool, command=command, status="error", title=title)
++
++
++def _session(**kwargs):
++    base = dict(
++        steps=[],
++        failure_patterns=[],
++        failure_chains=[],
++        fruitless_streaks=[],
++        tool_selection=[],
++        plan_metrics={},
++        plan_history=[],
++        edit_thrash=[],
++        repeated_searches=[],
++        oversized_outputs=[],
++        blind_retries=[],
++        user_repeats=[],
++        unvalidated_writes=[],
++        redundant_re_reads=[],
++        phase_regressions=[],
++        performance_bottlenecks=[],
++        premature_compactions=[],
++        compaction_aftermath=[],
++        file_interactions=[],
++        format="",
++    )
++    base.update(kwargs)
++    return SimpleNamespace(**base)
++
++
++class DetectBlindRetriesTests(unittest.TestCase):
++    def test_failed_then_identical_failed_retry_is_flagged(self):
++        steps = [
++            _step(0, [_failed(command="cat missing.txt")]),
++            _step(1, [_failed(command="cat missing.txt")]),
++        ]
++        retries = detect_blind_retries(steps)
++        self.assertEqual(len(retries), 1)
++        self.assertEqual(retries[0]["tool"], "bash")
++        self.assertEqual(retries[0]["attempts"], 2)
++        self.assertEqual(retries[0]["failed"], 2)
++        self.assertEqual(retries[0]["steps"], [0, 1])
++
++    def test_retry_that_succeeds_is_exempt(self):
++        # Transient error: fail once, verbatim retry succeeds — not flagged.
++        steps = [
++            _step(0, [_failed(command="curl api")]),
++            _step(1, [_call(command="curl api")]),
++        ]
++        self.assertEqual(detect_blind_retries(steps), [])
++
++    def test_changed_input_is_not_a_blind_retry(self):
++        steps = [
++            _step(0, [_failed(command="grep foo src/")]),
++            _step(1, [_failed(command="grep foo src/ --include=*.py")]),
++        ]
++        self.assertEqual(detect_blind_retries(steps), [])
++
++    def test_other_call_in_between_breaks_the_run(self):
++        steps = [
++            _step(0, [_failed(command="cat a")]),
++            _step(1, [_call(tool="read", command="b")]),
++            _step(2, [_failed(command="cat a")]),
++        ]
++        self.assertEqual(detect_blind_retries(steps), [])
++
++    def test_three_in_a_row_across_steps_counts_one_run(self):
++        steps = [
++            _step(0, [_failed(command="make")]),
++            _step(1, [_failed(command="make"), _failed(command="make")]),
++        ]
++        retries = detect_blind_retries(steps)
++        self.assertEqual(len(retries), 1)
++        self.assertEqual(retries[0]["attempts"], 3)
++        self.assertEqual(retries[0]["steps"], [0, 1])
++
++    def test_success_first_then_failures_is_not_flagged(self):
++        # The run must *start* with the failure; a later hiccup after success
++        # is a different story (the environment changed under the agent).
++        steps = [
++            _step(0, [_call(command="make")]),
++            _step(1, [_failed(command="make")]),
++        ]
++        self.assertEqual(detect_blind_retries(steps), [])
++
++    def test_dict_inputs_are_compared_key_order_independent(self):
++        steps = [
++            _step(0, [{"tool_name": "edit", "status": "error",
++                       "input": {"filePath": "a.py", "old_string": "x"}}]),
++            _step(1, [{"tool_name": "edit", "status": "error",
++                       "input": {"old_string": "x", "filePath": "a.py"}}]),
++        ]
++        retries = detect_blind_retries(steps)
++        self.assertEqual(len(retries), 1)
++        self.assertEqual(retries[0]["tool"], "edit")
++
++
++class BlindRetryCardTests(unittest.TestCase):
++    def _retries(self):
++        return [{
++            "tool": "bash", "attempts": 3, "failed": 3,
++            "steps": [4, 5], "display": "pytest tests/",
++        }]
++
++    def test_card_is_built_from_the_detector_output(self):
++        issues = prepare_overview_issues(_session(blind_retries=self._retries()))
++        card = [i for i in issues if i.source_id == "antipattern:blind_retry:0"]
++        self.assertEqual(len(card), 1)
++        self.assertEqual(card[0].kind, "antipattern")
++        self.assertEqual(card[0].title, "Blind retry of failed bash call (3×)")
++        self.assertIn("3 of 3 identical attempts failed — pytest tests/", card[0].detail)
++        self.assertEqual(card[0].steps, (4, 5))
++
++    def test_no_card_when_nothing_was_flagged(self):
++        issues = prepare_overview_issues(_session())
++        self.assertFalse([i for i in issues if "blind_retry" in i.source_id])
++
++    def test_card_is_localized_to_chinese(self):
++        html = build_overview_issues_html(_session(blind_retries=self._retries()))
++        self.assertIn("失败后原样重试 bash（3×）", html)
++        self.assertIn("3 次完全相同的调用中 3 次失败 — pytest tests/", html)
++        self.assertIn("同样的输入在同样的环境下只会得到同样的结果", html)
++        self.assertIn("失败后先读错误信息", html)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_charts_execution.py b/tests/test_charts_execution.py
+index ae0a876..f5fb30d 100644
+--- a/tests/test_charts_execution.py
++++ b/tests/test_charts_execution.py
+@@ -243,7 +243,7 @@ class TokenChartTests(unittest.TestCase):
+         legend = [t.name for t in fig.data if t.showlegend is not False]
+         self.assertEqual(
+             legend,
+-            ["Cache Read", "Fresh Input", "Reasoning", "Output", "Cache Write"],
++            ["Cache Read", "Fresh Input", "Reasoning", "Output"],
+         )
+ 
+     def test_multi_agent_panel_stack_equals_that_agents_step_totals(self):
+diff --git a/tests/test_codearts.py b/tests/test_codearts.py
+index 762061a..2d7ff48 100644
+--- a/tests/test_codearts.py
++++ b/tests/test_codearts.py
+@@ -58,7 +58,7 @@ class CodeArtsTests(unittest.TestCase):
+ 
+         self.assertEqual(preview, "actual user request")
+ 
+-    def test_codearts_keeps_all_five_token_legend_items(self):
++    def test_codearts_drops_the_structurally_zero_cache_write_legend_item(self):
+         from agent_trajviz.insight.charts import build_token_chart
+         from agent_trajviz.insight.loaders import load_trajectory
+         from agent_trajviz.insight.parser import parse_steps
+@@ -68,9 +68,11 @@ class CodeArtsTests(unittest.TestCase):
+ 
+         # Root + explore subagent → one panel each; legend still lists each
+         # series once (second panel suppresses duplicate legend entries).
++        # Cache Write is structurally zero in CodeArts exports, so it never
++        # enters the legend even though include_empty is set for this format.
+         self.assertEqual(
+             [trace.name for trace in figure.data if trace.showlegend is not False],
+-            ["Cache Read", "Fresh Input", "Reasoning", "Output", "Cache Write"],
++            ["Cache Read", "Fresh Input", "Reasoning", "Output"],
+         )
+         # Root assistant is Workflow step 1 on the first panel
+         # (50 fresh + 20 cache + 20 output + 10 reasoning).
+diff --git a/tests/test_compaction_aftermath.py b/tests/test_compaction_aftermath.py
+index bfe776c..0e821b0 100644
+--- a/tests/test_compaction_aftermath.py
++++ b/tests/test_compaction_aftermath.py
+@@ -288,7 +288,7 @@ class AftermathIssueCardTests(unittest.TestCase):
+     def test_card_localizes_to_chinese(self):
+         cards, _ = self._cards()
+         title, detail, why = _localize_issue_text(cards[0])
+-        self.assertIn("压缩后的写操作可能基于摘要而非新鲜读取", title)
++        self.assertIn("压缩后凭摘要改代码（第 2 步压缩之后）", title)
+         self.assertIn("第 2 步压缩之后", title)
+         self.assertIn("第 1、3 步两次连续写之间发生压缩", detail)
+         self.assertIn("压缩前读取 ≈", detail)
+diff --git a/tests/test_diagnostics_predicates.py b/tests/test_diagnostics_predicates.py
+index e538392..a79ba1c 100644
+--- a/tests/test_diagnostics_predicates.py
++++ b/tests/test_diagnostics_predicates.py
+@@ -132,6 +132,11 @@ class SessionFieldAccessTests(unittest.TestCase):
+             plan_history=[],
+             edit_thrash=[],
+             repeated_searches=[],
++            oversized_outputs=[],
++            blind_retries=[],
++            user_repeats=[],
++            unvalidated_writes=[],
++            redundant_re_reads=[],
+             phase_regressions=[],
+             performance_bottlenecks=[],
+             premature_compactions=[],
+@@ -144,7 +149,7 @@ class SessionFieldAccessTests(unittest.TestCase):
+ 
+     def test_missing_session_field_fails_loudly(self):
+         base = self._stub().__dict__
+-        for name in ("edit_thrash", "repeated_searches", "premature_compactions"):
++        for name in ("edit_thrash", "repeated_searches", "oversized_outputs", "blind_retries", "user_repeats", "unvalidated_writes", "redundant_re_reads", "premature_compactions"):
+             with self.subTest(field=name):
+                 stub = SimpleNamespace(**{k: v for k, v in base.items() if k != name})
+                 with self.assertRaises(AttributeError):
+diff --git a/tests/test_issue_judge.py b/tests/test_issue_judge.py
+index c0a2136..7485282 100644
+--- a/tests/test_issue_judge.py
++++ b/tests/test_issue_judge.py
+@@ -8,9 +8,11 @@ from types import SimpleNamespace
+ from agent_trajviz.insight.issue_judge import (
+     judge_issue_fix,
+     judge_overview_issues,
++    judge_run_summary,
+     iter_judge_overview_issues,
+     pack_issue_judge_context,
+     parse_issue_judgment,
++    parse_run_summary,
+ )
+ from agent_trajviz.insight.llm_config import AnalysisLLMConfig
+ from agent_trajviz.insight.presenters.issues import (
+@@ -45,6 +47,11 @@ def _session(**kwargs):
+         plan_history=[],
+         edit_thrash=[],
+         repeated_searches=[],
++        oversized_outputs=[],
++        blind_retries=[],
++        user_repeats=[],
++        unvalidated_writes=[],
++        redundant_re_reads=[],
+         premature_compactions=[],
+         compaction_aftermath=[],
+         phase_regressions=[],
+@@ -187,11 +194,15 @@ class JudgeMockTests(unittest.TestCase):
+         self.assertEqual(errors, [])
+         self.assertIsNotNone(judged[0].judgment)
+         html = render_overview_issues_html(judged)
++        # Option A: the LLM judgment owns the single action slot.
+         self.assertIn("修改位置", html)
+-        self.assertIn("修复建议", html)
+-        self.assertNotIn("Show fix", html)
+         self.assertIn("CLAUDE.md", html)
+         self.assertIn("空搜索超过 N 次后停止", html)
++        self.assertIn("AI · 置信度：中", html)
++        self.assertIn(">建议<", html)
++        # The rule-based playbook folds away under 技术细节 as 常规做法.
++        self.assertIn("常规做法", html)
++        self.assertIn("更换搜索关键词或路径", html)
+         self.assertIn("已为 1 个问题生成修复建议", html)
+ 
+     def test_iter_judge_yields_before_each_and_finished(self):
+@@ -245,5 +256,71 @@ class JudgeMockTests(unittest.TestCase):
+         self.assertNotIn(">Fix", html)
+ 
+ 
++class RunSummaryJudgeTests(unittest.TestCase):
++    """The one-shot (task, outcome) LLM summary of the whole run."""
++
++    def _session(self):
++        return _session(
++            steps=[
++                {
++                    "index": 0,
++                    "role": "user",
++                    "parts": [{"type": "text", "text": "把 SO_LOAD_PATH 改成新路径"}],
++                    "tool_calls": [],
++                },
++                {
++                    "index": 1,
++                    "role": "assistant",
++                    "parts": [{"type": "text", "text": "已改完 11 个文件"}],
++                    "tool_calls": [],
++                },
++            ],
++            metrics={"tool_call_count": 12, "tokens": {"total": 40000}},
++        )
++
++    def test_parse_raw_and_fenced_json(self):
++        self.assertEqual(
++            parse_run_summary('{"task":"改路径","outcome":"完成"}'),
++            ("改路径", "完成"),
++        )
++        task, outcome = parse_run_summary(
++            '```json\n{"task": "改路径", "outcome": "完成"}\n```'
++        )
++        self.assertEqual((task, outcome), ("改路径", "完成"))
++
++    def test_parse_rejects_missing_task(self):
++        with self.assertRaises(ValueError):
++            parse_run_summary('{"task":"","outcome":"完成"}')
++        with self.assertRaises(ValueError):
++            parse_run_summary("no json here")
++
++    def test_judge_run_summary_sends_context_and_language(self):
++        seen = {}
++
++        def chat_fn(config, system, messages):
++            seen["system"] = system
++            seen["user"] = messages[0]["content"]
++            return '{"task":"把加载路径迁移到新目录","outcome":"11 个文件全部改完"}'
++
++        task, outcome = judge_run_summary(
++            self._session(), config=_cfg(), chat_fn=chat_fn, language="zh",
++        )
++        self.assertEqual(task, "把加载路径迁移到新目录")
++        self.assertEqual(outcome, "11 个文件全部改完")
++        self.assertIn("run summarizer", seen["system"])
++        self.assertIn("把 SO_LOAD_PATH 改成新路径", seen["user"])
++        self.assertIn("已改完 11 个文件", seen["user"])
++        self.assertIn('"steps": 2', seen["user"])
++        self.assertIn("Simplified Chinese (Mandarin)", seen["user"])
++
++    def test_judge_run_summary_requires_config(self):
++        empty = AnalysisLLMConfig(
++            base_url="", api_key="", model="", provider="openai",
++            temperature=0.0, max_tokens=512, timeout=30, source="analyze",
++        )
++        with self.assertRaises(ValueError):
++            judge_run_summary(self._session(), config=empty, require_config=True)
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_oversized_outputs.py b/tests/test_oversized_outputs.py
+new file mode 100644
+index 0000000..52fd62d
+--- /dev/null
++++ b/tests/test_oversized_outputs.py
+@@ -0,0 +1,150 @@
++"""Oversized single tool outputs: detection, issue card, and localization.
++
++A tool result stays in the conversation history, so one oversized output is
++paid for again on every later step until a compaction drops it. The detector
++flags an output when it estimates to ≥5k tokens, or ≥2k tokens while covering
++≥15% of that step's context occupancy.
++"""
++
++import unittest
++from types import SimpleNamespace
++
++from agent_trajviz.insight.patterns import detect_oversized_outputs
++from agent_trajviz.insight.issues import prepare_overview_issues
++from agent_trajviz.insight.presenters.issues import build_overview_issues_html
++
++
++def _step(index, calls=None, *, input_tokens=0, cache_read=0):
++    return {
++        "index": index,
++        "role": "assistant",
++        "tool_calls": calls or [],
++        "tokens": {
++            "total": 0,
++            "input": input_tokens,
++            "output": 0,
++            "reasoning": 0,
++            "cache_read": cache_read,
++            "cache_write": 0,
++        },
++    }
++
++
++def _call(tool="bash", output="", title="cmd"):
++    return {"tool_name": tool, "status": "success", "output": output, "title": title}
++
++
++def _session(**kwargs):
++    base = dict(
++        steps=[],
++        failure_patterns=[],
++        failure_chains=[],
++        fruitless_streaks=[],
++        tool_selection=[],
++        plan_metrics={},
++        plan_history=[],
++        edit_thrash=[],
++        repeated_searches=[],
++        oversized_outputs=[],
++        blind_retries=[],
++        user_repeats=[],
++        unvalidated_writes=[],
++        redundant_re_reads=[],
++        phase_regressions=[],
++        performance_bottlenecks=[],
++        premature_compactions=[],
++        compaction_aftermath=[],
++        file_interactions=[],
++        format="",
++    )
++    base.update(kwargs)
++    return SimpleNamespace(**base)
++
++
++class DetectOversizedOutputsTests(unittest.TestCase):
++    def test_absolute_threshold_flags_huge_output(self):
++        # 15,000 ASCII chars ≈ 6,000 tokens — over the 5k absolute floor.
++        steps = [_step(0, [_call(output="x" * 15_000)], input_tokens=50_000)]
++        flagged = detect_oversized_outputs(steps)
++        self.assertEqual(len(flagged), 1)
++        self.assertEqual(flagged[0]["step"], 0)
++        self.assertEqual(flagged[0]["tool"], "bash")
++        self.assertGreaterEqual(flagged[0]["tokens"], 5_000)
++
++    def test_relative_threshold_flags_output_filling_the_window(self):
++        # 6,000 chars ≈ 2,400 tokens landing in a next-step context of 15k ≈ 16%.
++        steps = [
++            _step(4, [_call(tool="read", output="y" * 6_000)]),
++            _step(5, input_tokens=15_000),
++        ]
++        flagged = detect_oversized_outputs(steps)
++        self.assertEqual(len(flagged), 1)
++        self.assertEqual(flagged[0]["share"], 16)
++
++    def test_moderate_output_in_a_large_context_is_not_flagged(self):
++        # Same 2,400 tokens but the next context is 50k → ~5%, below the bar.
++        steps = [
++            _step(4, [_call(output="y" * 6_000)]),
++            _step(5, input_tokens=50_000),
++        ]
++        self.assertEqual(detect_oversized_outputs(steps), [])
++
++    def test_small_outputs_are_never_flagged(self):
++        steps = [_step(0, [_call(output="ok")], input_tokens=100)]
++        self.assertEqual(detect_oversized_outputs(steps), [])
++
++    def test_no_token_data_falls_back_to_the_absolute_threshold_only(self):
++        # Occupancy unknown → share is None; only the 5k floor can fire.
++        small = detect_oversized_outputs([_step(0, [_call(output="z" * 6_000)])])
++        self.assertEqual(small, [])
++        big = detect_oversized_outputs([_step(0, [_call(output="z" * 15_000)])])
++        self.assertEqual(len(big), 1)
++        self.assertIsNone(big[0]["share"])
++
++    def test_no_output_placeholder_is_skipped(self):
++        steps = [_step(0, [_call(output="(no output)")], input_tokens=100)]
++        self.assertEqual(detect_oversized_outputs(steps), [])
++
++    def test_results_are_capped_and_sorted_largest_first(self):
++        calls = [_call(output="a" * (2 + i) * 7_500) for i in range(7)]
++        steps = [_step(i, [c]) for i, c in enumerate(calls)]
++        flagged = detect_oversized_outputs(steps)
++        self.assertEqual(len(flagged), 5)
++        self.assertEqual(
++            [f["tokens"] for f in flagged],
++            sorted([f["tokens"] for f in flagged], reverse=True),
++        )
++
++
++class OversizedOutputCardTests(unittest.TestCase):
++    def _oversized(self):
++        return [
++            {"step": 3, "tool": "bash", "tokens": 8203, "share": 26, "title": "cat big.log"},
++            {"step": 9, "tool": "read", "tokens": 5120, "share": None, "title": "read huge.py"},
++        ]
++
++    def test_card_is_built_from_the_detector_output(self):
++        issues = prepare_overview_issues(_session(oversized_outputs=self._oversized()))
++        card = [i for i in issues if i.source_id == "antipattern:oversized_output"]
++        self.assertEqual(len(card), 1)
++        self.assertEqual(card[0].kind, "antipattern")
++        self.assertEqual(card[0].title, "Oversized tool outputs (2×)")
++        self.assertIn("step 3 bash ≈8,203 tokens (26% of context)", card[0].detail)
++        self.assertIn("step 9 read ≈5,120 tokens", card[0].detail)
++        self.assertEqual(card[0].steps, (3, 9))
++
++    def test_no_card_when_nothing_was_flagged(self):
++        issues = prepare_overview_issues(_session())
++        self.assertFalse([i for i in issues if i.source_id == "antipattern:oversized_output"])
++
++    def test_card_is_localized_to_chinese(self):
++        html = build_overview_issues_html(_session(oversized_outputs=self._oversized()))
++        self.assertIn("单条工具输出过大 (2×)", html)
++        self.assertIn("第3步 bash ≈8,203 token（占上下文 26%）", html)
++        self.assertIn("第9步 read ≈5,120 token", html)
++        self.assertIn("一直留在对话历史里", html)
++        self.assertIn("带条数限制的读取", html)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_overview_issues.py b/tests/test_overview_issues.py
+index ad2b3ea..e3e9839 100644
+--- a/tests/test_overview_issues.py
++++ b/tests/test_overview_issues.py
+@@ -8,6 +8,7 @@ from agent_trajviz.insight.presenters.issues import (
+     IssueJudgment,
+     OverviewIssue,
+     build_overview_issues_html,
++    build_run_summary_html,
+     collect_overview_issues,
+     group_issue_families,
+     issue_analysis_question_from_payload,
+@@ -16,6 +17,7 @@ from agent_trajviz.insight.presenters.issues import (
+     rank_issues,
+     render_overview_issues_html,
+ )
++from agent_trajviz.insight.presenters.overview import build_token_summary_html
+ 
+ 
+ def _session(**kwargs):
+@@ -29,6 +31,11 @@ def _session(**kwargs):
+         plan_history=[],
+         edit_thrash=[],
+         repeated_searches=[],
++        oversized_outputs=[],
++        blind_retries=[],
++        user_repeats=[],
++        unvalidated_writes=[],
++        redundant_re_reads=[],
+         phase_regressions=[],
+         performance_bottlenecks=[],
+         premature_compactions=[],
+@@ -174,7 +181,7 @@ class OverviewIssuesTests(unittest.TestCase):
+         self.assertIn("animateTransform", html)
+         self.assertIn("currentColor", html)
+         self.assertIn("Suggesting fixes 1/3", html)
+-        self.assertIn("正在生成修复建议…", html)
++        self.assertIn("正在 AI 分析…", html)
+         self.assertNotIn("修改位置", html)
+ 
+     def test_step_chips_without_fix_or_change(self):
+@@ -191,8 +198,13 @@ class OverviewIssuesTests(unittest.TestCase):
+         self.assertIn("tvGotoWorkflowStep(7)", html)
+         self.assertIn(">第3步<", html)
+         self.assertIn(">第7步<", html)
+-        self.assertIn("overview-issue-info", html)
+-        self.assertIn("title='常见恢复路径：Read'", html)
++        self.assertIn("overview-issue-why", html)
++        self.assertIn("overview-issue-action", html)
++        self.assertIn("overview-issue-tech", html)
++        self.assertIn(">影响<", html)
++        self.assertIn(">建议<", html)
++        self.assertIn(">技术细节<", html)
++        self.assertIn("失败后智能体调用 Read，自行恢复了", html)
+         self.assertIn("overview-issue-analyze", html)
+         self.assertIn("AI 深入分析", html)
+         self.assertIn("tvAnalyzeIssue", html)
+@@ -322,8 +334,8 @@ class OverviewIssuesTests(unittest.TestCase):
+         self.assertIn("23–33%", premature.detail)
+         self.assertIn("128k", premature.detail)
+         html = render_overview_issues_html(rank_issues(issues))
+-        self.assertIn("过早压缩上下文", html)
+-        self.assertIn("压缩后上下文反而变大", html)
++        self.assertIn("上下文被过早压缩", html)
++        self.assertIn("压缩未起效：上下文不降反增", html)
+         self.assertIn("压缩时窗口占用：假定 128k token 窗口的", html)
+         # Visible chrome is Chinese; the AI ask prompt is rebuilt server-side.
+         self.assertNotIn("overview-issue-title'>Premature compactions", html)
+@@ -528,5 +540,242 @@ class OverviewIssuesTests(unittest.TestCase):
+             )
+ 
+ 
++class RunSummaryTests(unittest.TestCase):
++    """The three-line run story under the verdict banner."""
++
++    @staticmethod
++    def _step(role, text="", *, tokens=None, tool_calls=None):
++        return {
++            "index": 0,
++            "role": role,
++            "agent": "",
++            "is_sub_agent": False,
++            "session_id": "s1",
++            "tokens": tokens or {},
++            "parts": [{"type": "text", "text": text}] if text else [],
++            "tool_calls": tool_calls or [],
++            "model_id": "m",
++        }
++
++    def _session(self, steps, metrics=None):
++        session = _session()
++        session.steps = steps
++        if metrics is not None:
++            session.metrics = metrics
++        return session
++
++    def test_ai_rows_and_numbers_rows(self):
++        session = self._session(
++            [
++                self._step("user", "修复登录页在 Safari 下崩溃的问题"),
++                self._step(
++                    "assistant",
++                    "已修复：给 flex 容器补了 min-width，回归测试全绿。",
++                    tokens={"total": 12345, "input": 1000, "cache_read": 9000},
++                ),
++            ],
++            metrics={
++                "wall_clock": 125,
++                "tokens": {"total": 12345, "input": 1000, "cache_read": 9000},
++                "tool_call_count": 7,
++                "tool_breakdown": {"bash": 5, "read": 2},
++            },
++        )
++        html = build_run_summary_html(
++            session, ai_summary=("修复登录页崩溃", "已修复，测试全绿")
++        )
++        self.assertIn("ov-run-summary", html)
++        self.assertIn("ov-run-label'>任务", html)
++        self.assertIn("修复登录页崩溃", html)
++        self.assertIn("ov-run-label'>结局", html)
++        self.assertIn("已修复，测试全绿", html)
++        self.assertIn("ov-run-label'>数字", html)
++        self.assertIn("2 步", html)
++        self.assertIn("2m 5s", html)
++        self.assertIn("12.3k token", html)
++        self.assertIn("缓存命中 90%", html)
++        self.assertIn("工具 7 次（bash 最多，5 次）", html)
++
++    def test_default_mode_hides_task_and_outcome_rows(self):
++        # Without AI the 任务/结局 rows are omitted — only 数字 remains.
++        session = self._session(
++            [
++                self._step("user", "修复登录页在 Safari 下崩溃的问题"),
++                self._step("assistant", "已修复：回归测试全绿。"),
++            ],
++        )
++        html = build_run_summary_html(session)
++        self.assertIn("ov-run-summary", html)
++        self.assertIn("ov-run-label'>数字", html)
++        self.assertIn("2 步", html)
++        self.assertNotIn("ov-run-label'>任务", html)
++        self.assertNotIn("ov-run-label'>结局", html)
++        self.assertNotIn("修复登录页在 Safari 下崩溃的问题", html)
++        self.assertNotIn("已修复：回归测试全绿", html)
++
++    def test_summary_sits_between_banner_and_panel(self):
++        session = self._session(
++            [self._step("user", "hi"), self._step("assistant", "done")],
++        )
++        html = build_overview_issues_html(session)
++        self.assertLess(html.index("ov-verdict"), html.index("ov-run-summary"))
++        self.assertLess(html.index("ov-run-summary"), html.index("overview-issues-panel"))
++
++    def test_raw_user_text_is_never_rendered(self):
++        # Raw first/last messages are not a display path any more — the rows
++        # are AI-only, so untrusted user text never reaches the summary.
++        session = self._session(
++            [self._step("user", "<img src=x onerror=alert(1)>")],
++        )
++        for html in (
++            build_run_summary_html(session),
++            build_run_summary_html(session, ai_pending=True),
++        ):
++            self.assertNotIn("<img src=x", html)
++            self.assertNotIn("onerror", html)
++
++    def test_all_failed_ending_is_flagged(self):
++        session = self._session(
++            [
++                self._step("user", "跑一下部署"),
++                self._step(
++                    "assistant",
++                    "尝试部署",
++                    tool_calls=[
++                        {"tool_name": "bash", "status": "error"},
++                        {"tool_name": "bash", "status": "error"},
++                    ],
++                ),
++            ],
++        )
++        html = build_run_summary_html(session, ai_summary=("部署", "尝试部署"))
++        self.assertIn("ov-run-note", html)
++        self.assertIn("该步工具调用全部失败", html)
++
++    def test_recovered_ending_is_not_flagged(self):
++        session = self._session(
++            [
++                self._step("user", "跑一下部署"),
++                self._step(
++                    "assistant",
++                    "部署完成",
++                    tool_calls=[
++                        {"tool_name": "bash", "status": "error"},
++                        {"tool_name": "bash", "status": "completed"},
++                    ],
++                ),
++            ],
++        )
++        html = build_run_summary_html(session, ai_summary=("部署", "部署完成"))
++        self.assertNotIn("ov-run-note", html)
++
++    def test_no_steps_means_no_summary(self):
++        self.assertEqual(build_run_summary_html(_session()), "")
++        self.assertNotIn("ov-run-summary", build_overview_issues_html(_session()))
++
++    def test_pending_mode_shows_spinner_placeholder(self):
++        session = self._session(
++            [self._step("user", "很长的原始任务描述"), self._step("assistant", "完成")],
++        )
++        html = build_run_summary_html(session, ai_pending=True)
++        self.assertIn("ov-run-label'>任务与结局", html)
++        self.assertIn("正在等待 AI 总结任务与结局…", html)
++        self.assertIn("overview-issues-progress-spinner", html)
++        self.assertIn("animateTransform", html)
++        self.assertIn("ov-run-label'>数字", html)
++        self.assertNotIn("很长的原始任务描述", html)
++        self.assertNotIn("ov-run-label'>任务</span>", html)
++
++    def test_ai_summary_replaces_raw_text_with_badge(self):
++        session = self._session(
++            [
++                self._step("user", "很长的原始任务描述，不应该出现在 AI 总结模式下"),
++                self._step("assistant", "很长的原始结局描述"),
++            ],
++        )
++        html = build_run_summary_html(session, ai_summary=("AI 总结的任务", "AI 总结的结局"))
++        self.assertIn("overview-issue-label-ai", html)
++        self.assertIn("AI 总结的任务", html)
++        self.assertIn("AI 总结的结局", html)
++        self.assertNotIn("不应该出现在 AI 总结模式下", html)
++        self.assertNotIn("很长的原始结局描述", html)
++
++    def test_ai_summary_escapes_model_text(self):
++        session = self._session([self._step("user", "hi")])
++        html = build_run_summary_html(
++            session, ai_summary=("<img src=x onerror=alert(1)>", "ok")
++        )
++        self.assertNotIn("<img src=x", html)
++        self.assertIn("&lt;img src=x onerror=", html)
++
++    def test_partial_ai_summary_shows_placeholder_per_row(self):
++        session = self._session(
++            [self._step("user", "原始任务"), self._step("assistant", "原始结局")],
++        )
++        html = build_run_summary_html(session, ai_summary=("", "AI 结局"))
++        self.assertIn("（AI 未总结任务）", html)
++        self.assertIn("AI 结局", html)
++        self.assertNotIn("原始任务", html)
++        self.assertNotIn("原始结局", html)
++
++    def test_build_overview_issues_html_passes_ai_state_through(self):
++        session = self._session(
++            [self._step("user", "hi"), self._step("assistant", "done")],
++        )
++        html = build_overview_issues_html(session, ai_summary=("任务A", "结局B"))
++        self.assertIn("任务A", html)
++        self.assertIn("结局B", html)
++        html = build_overview_issues_html(session, ai_pending=True)
++        self.assertIn("正在等待 AI 总结任务与结局…", html)
++
++
++class TokenSummaryLineTests(unittest.TestCase):
++    """The always-visible takeaway line above the Token Usage chart."""
++
++    @staticmethod
++    def _step(role, *, tokens=None, parts=None):
++        return {
++            "index": 0,
++            "role": role,
++            "agent": "",
++            "is_sub_agent": False,
++            "session_id": "s1",
++            "tokens": tokens or {},
++            "parts": parts or [],
++            "tool_calls": [],
++            "model_id": "m",
++        }
++
++    def _session(self, steps):
++        session = _session()
++        session.steps = steps
++        return session
++
++    def test_cache_hit_max_step_and_peak(self):
++        html = build_token_summary_html(self._session([
++            self._step("user"),
++            self._step("assistant", tokens={"total": 8000, "input": 500, "cache_read": 7000}),
++            self._step("assistant", tokens={"total": 20000, "input": 300, "cache_read": 19000}),
++        ]))
++        self.assertIn("缓存命中 97%（命中 26k / 新算 800）", html)
++        self.assertIn("最大单步 20k（第 2 步）", html)
++        self.assertIn("上下文峰值 19.3k", html)
++        self.assertNotIn("压缩", html)
++
++    def test_compaction_drop_is_summarised(self):
++        html = build_token_summary_html(self._session([
++            self._step("assistant", tokens={"total": 10000, "input": 10000}),
++            self._step("user", parts=[{"type": "compaction", "summary": "s"}]),
++            self._step("assistant", tokens={"total": 4000, "input": 4000}),
++        ]))
++        self.assertIn("压缩丢弃 6k token（1 次）", html)
++
++    def test_empty_session_renders_nothing(self):
++        self.assertEqual(build_token_summary_html(self._session([])), "")
++        session = _session()
++        session.steps = [{"role": "user", "parts": [], "tool_calls": [], "tokens": {}}]
++        self.assertEqual(build_token_summary_html(session), "")
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_redundant_re_reads.py b/tests/test_redundant_re_reads.py
+new file mode 100644
+index 0000000..b2a2b6e
+--- /dev/null
++++ b/tests/test_redundant_re_reads.py
+@@ -0,0 +1,194 @@
++"""Redundant re-reads: the same file read again with the same parameters while
++no successful write touched it and no compaction dropped it from context.
++
++Those two events are exactly the cases where re-reading is justified, which
++keeps this the honest opposite of the post-compaction thin-read signal.
++"""
++
++import unittest
++from types import SimpleNamespace
++
++from agent_trajviz.insight.patterns import detect_redundant_re_reads
++from agent_trajviz.insight.issues import prepare_overview_issues
++from agent_trajviz.insight.presenters.issues import build_overview_issues_html
++
++
++def _step(index, calls=None, **extra):
++    step = {"index": index, "role": "assistant", "tool_calls": calls or [], "tokens": {}}
++    step.update(extra)
++    return step
++
++
++def _read(path="src/app.py", offset=None, limit=None, status="completed"):
++    inp = {"filePath": path}
++    if offset is not None:
++        inp["offset"] = offset
++    if limit is not None:
++        inp["limit"] = limit
++    return {"tool_name": "read", "status": status, "input": inp, "output": "..."}
++
++
++def _write(path="src/app.py", status="completed"):
++    return {
++        "tool_name": "edit",
++        "status": status,
++        "input": {"filePath": path, "old_string": "x", "new_string": "y"},
++        "output": "ok",
++    }
++
++
++def _session(**kwargs):
++    base = dict(
++        steps=[],
++        failure_patterns=[],
++        failure_chains=[],
++        fruitless_streaks=[],
++        tool_selection=[],
++        plan_metrics={},
++        plan_history=[],
++        edit_thrash=[],
++        repeated_searches=[],
++        oversized_outputs=[],
++        blind_retries=[],
++        user_repeats=[],
++        unvalidated_writes=[],
++        redundant_re_reads=[],
++        phase_regressions=[],
++        performance_bottlenecks=[],
++        premature_compactions=[],
++        compaction_aftermath=[],
++        file_interactions=[],
++        format="",
++    )
++    base.update(kwargs)
++    return SimpleNamespace(**base)
++
++
++class DetectRedundantReReadsTests(unittest.TestCase):
++    def test_same_file_same_range_read_twice_is_flagged(self):
++        steps = [
++            _step(1, [_read()]),
++            _step(4, [_read()]),
++            _step(7, [_read()]),
++        ]
++        hits = detect_redundant_re_reads(steps)
++        self.assertEqual(len(hits), 1)
++        self.assertEqual(hits[0]["path"], "src/app.py")
++        self.assertEqual(hits[0]["count"], 2)
++        self.assertEqual(hits[0]["steps"], [4, 7])
++
++    def test_different_ranges_are_different_content(self):
++        steps = [
++            _step(1, [_read(offset=1, limit=50)]),
++            _step(4, [_read(offset=51, limit=50)]),
++        ]
++        self.assertEqual(detect_redundant_re_reads(steps), [])
++
++    def test_write_in_between_justifies_the_re_read(self):
++        steps = [
++            _step(1, [_read()]),
++            _step(3, [_write()]),
++            _step(5, [_read()]),
++        ]
++        self.assertEqual(detect_redundant_re_reads(steps), [])
++
++    def test_failed_write_does_not_justify_the_re_read(self):
++        steps = [
++            _step(1, [_read()]),
++            _step(3, [_write(status="error")]),
++            _step(5, [_read()]),
++        ]
++        hits = detect_redundant_re_reads(steps)
++        self.assertEqual(len(hits), 1)
++
++    def test_compaction_part_step_justifies_the_re_read(self):
++        # OpenCode compaction arrives as a user message with a compaction part
++        # (message_type stays "user") — it must count as a checkpoint too.
++        steps = [
++            _step(1, [_read()]),
++            {
++                "index": 3,
++                "role": "user",
++                "tool_calls": [],
++                "tokens": {},
++                "parts": [{"type": "compaction", "summary": "...", "reason": "auto"}],
++            },
++            _step(5, [_read()]),
++        ]
++        self.assertEqual(detect_redundant_re_reads(steps), [])
++
++    def test_compaction_in_between_justifies_the_re_read(self):
++        steps = [
++            _step(1, [_read()]),
++            _step(3, [], is_compaction_checkpoint=True),
++            _step(5, [_read()]),
++        ]
++        self.assertEqual(detect_redundant_re_reads(steps), [])
++
++    def test_write_to_a_different_file_does_not_justify_it(self):
++        steps = [
++            _step(1, [_read("src/app.py")]),
++            _step(3, [_write("src/other.py")]),
++            _step(5, [_read("src/app.py")]),
++        ]
++        hits = detect_redundant_re_reads(steps)
++        self.assertEqual(len(hits), 1)
++
++    def test_subagent_reads_are_judged_independently(self):
++        # A sub-agent holds its own context: reading a file the parent already
++        # read is not redundant for the sub-agent's conversation.
++        steps = [
++            _step(1, [_read()], session_id="root"),
++            _step(7, [_read()], session_id="sub"),
++        ]
++        self.assertEqual(detect_redundant_re_reads(steps), [])
++
++    def test_single_read_is_never_flagged(self):
++        steps = [_step(1, [_read()])]
++        self.assertEqual(detect_redundant_re_reads(steps), [])
++
++    def test_paths_are_reported_separately_most_redundant_first(self):
++        steps = [
++            _step(1, [_read("a.py")]),
++            _step(2, [_read("b.py")]),
++            _step(3, [_read("a.py")]),
++            _step(4, [_read("b.py")]),
++            _step(5, [_read("b.py")]),
++        ]
++        hits = detect_redundant_re_reads(steps)
++        self.assertEqual([h["path"] for h in hits], ["b.py", "a.py"])
++        self.assertEqual([h["count"] for h in hits], [2, 1])
++
++
++class RedundantReReadCardTests(unittest.TestCase):
++    def _hits(self):
++        return [{"path": "src/app.py", "count": 2, "steps": [4, 7]}]
++
++    def test_card_is_built_from_the_detector_output(self):
++        issues = prepare_overview_issues(_session(redundant_re_reads=self._hits()))
++        card = [i for i in issues if i.source_id == "antipattern:redundant_reread:0"]
++        self.assertEqual(len(card), 1)
++        self.assertEqual(card[0].kind, "antipattern")
++        self.assertEqual(card[0].title, "Re-read an unchanged file (2×)")
++        self.assertIn(
++            "src/app.py re-read 2× with no write or compaction in between "
++            "(steps 4, 7)",
++            card[0].detail,
++        )
++        self.assertEqual(card[0].steps, (4, 7))
++
++    def test_no_card_when_nothing_was_flagged(self):
++        issues = prepare_overview_issues(_session())
++        self.assertFalse([i for i in issues if "redundant_reread" in i.source_id])
++
++    def test_card_is_localized_to_chinese(self):
++        html = build_overview_issues_html(_session(redundant_re_reads=self._hits()))
++        self.assertIn("重复读取未变更的文件 (2×)", html)
++        self.assertIn("src/app.py 重复读取 2 次", html)
++        self.assertIn("（第 4、7 步）", html)
++        self.assertIn("内容本来就在上下文里", html)
++        self.assertIn("让智能体依赖已读内容", html)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_render_injection.py b/tests/test_render_injection.py
+index fda3946..f634311 100644
+--- a/tests/test_render_injection.py
++++ b/tests/test_render_injection.py
+@@ -196,6 +196,7 @@ EXEMPT_SLOTS = {
+     "state_raw": "gr.State",
+     "state_analysis_brief": "gr.State (LLM prompt text)",
+     "state_run": "gr.State (the loaded Trajectory)",
++    "state_overview_issues": "gr.State (OverviewIssue objects; escaped when build_overview_issues_html renders them)",
+     # gr.Code renders into a CodeMirror text node.
+     "raw_json": "gr.Code",
+     # gr.Markdown defaults to sanitize_html=True (DOMPurify runs client-side).
+diff --git a/tests/test_replica_app.py b/tests/test_replica_app.py
+index 0ecc00c..e179ee9 100644
+--- a/tests/test_replica_app.py
++++ b/tests/test_replica_app.py
+@@ -12,6 +12,7 @@ from __future__ import annotations
+ import ast
+ import importlib.util
+ import json
++import os
+ import socket
+ import sys
+ import tempfile
+@@ -142,8 +143,18 @@ class LiveReplicaTests(unittest.TestCase):
+         self.assertIn("<html", Path(path["path"] if isinstance(path, dict) else path).read_text()[:2000].lower())
+ 
+     def test_llm_features_without_configuration_answer_with_a_message(self):
+-        self._load()
+-        history, _ = self.client.predict("What is slow?", [], api_name="/ask")
++        # Hermetic: a developer's .env (loaded into this process by app
++        # startup) must not leak in. load_env_files only fills unset
++        # variables, so empty strings win and resolve sees them as missing.
++        keys = [k for k in os.environ if k.startswith(("ANALYZE_", "LABEL_"))]
++        saved = {k: os.environ[k] for k in keys}
++        try:
++            for k in keys:
++                os.environ[k] = ""
++            self._load()
++            history, _ = self.client.predict("What is slow?", [], api_name="/ask")
++        finally:
++            os.environ.update(saved)
+         content = history[-1]["content"]  # Gradio 6 sends message content as parts
+         text = content if isinstance(content, str) else " ".join(part.get("text", "") for part in content)
+         self.assertEqual(history[-1]["role"], "assistant")
+diff --git a/tests/test_session.py b/tests/test_session.py
+index 1340bad..d64f784 100644
+--- a/tests/test_session.py
++++ b/tests/test_session.py
+@@ -105,6 +105,7 @@ class LoadSessionTests(unittest.TestCase):
+             state_dark=object(),
+             state_analysis_brief=object(),
+             state_run=object(),
++            state_overview_issues=object(),
+         )
+         with self.assertRaises(ValueError) as missing:
+             merge_load_slots(main_tabs=object(), shared=shared, refs={})
+diff --git a/tests/test_stale_stream_supersede.py b/tests/test_stale_stream_supersede.py
+new file mode 100644
+index 0000000..2b6ab22
+--- /dev/null
++++ b/tests/test_stale_stream_supersede.py
+@@ -0,0 +1,142 @@
++"""A replaced load must stop the still-streaming LLM Issues judge.
++
++Loading a trajectory auto-starts the judge, which paints the Issues panel
++across many yields (one LLM call per issue). If the user clears the upload or
++loads another trajectory while that stream is running, the old stream would
++keep overwriting the new trace's panel with the old one's content. Every load
++records the run its browser session displays (``shared.record_latest_run``);
++the judge checks ``shared.is_latest_run`` on each resume and stops itself.
++"""
++
++from __future__ import annotations
++
++import os
++import unittest
++from pathlib import Path
++from types import SimpleNamespace
++
++import agent_trajviz as tv
++from agent_trajviz.insight.ui.load import do_load
++from agent_trajviz.insight.ui.overview_tab import on_suggest_fixes
++from agent_trajviz.insight.ui.shared import (
++    drop_latest_run,
++    is_latest_run,
++    record_latest_run,
++)
++
++REPO = Path(__file__).resolve().parent.parent
++REF = REPO / "tests" / "fixtures" / "native_claude_code"
++DJANGO, ASTROPY = REF / "django__django-11477.jsonl", REF / "astropy__astropy-13033.jsonl"
++
++_ANALYZE_ENV = ("ANALYZE_BASE_URL", "ANALYZE_API_KEY", "ANALYZE_MODEL", "ANALYZE_PROVIDER")
++
++
++class LatestRunRegistryTests(unittest.TestCase):
++    def tearDown(self):
++        drop_latest_run("s1")
++        drop_latest_run(None)
++
++    def test_no_record_means_current(self):
++        self.assertTrue(is_latest_run("never-loaded", object()))
++
++    def test_recorded_run_is_current_until_replaced(self):
++        run_a, run_b = object(), object()
++        record_latest_run("s1", run_a)
++        self.assertTrue(is_latest_run("s1", run_a))
++        self.assertFalse(is_latest_run("s1", run_b))
++        record_latest_run("s1", run_b)
++        self.assertFalse(is_latest_run("s1", run_a))
++        self.assertTrue(is_latest_run("s1", run_b))
++
++    def test_cleared_upload_supersedes_every_run(self):
++        run = object()
++        record_latest_run("s1", run)
++        record_latest_run("s1", None)
++        self.assertFalse(is_latest_run("s1", run))
++
++    def test_sessions_are_independent(self):
++        run_a = object()
++        record_latest_run("s1", run_a)
++        record_latest_run("s2", object())
++        self.assertTrue(is_latest_run("s1", run_a))
++
++
++class DoLoadRecordsTests(unittest.TestCase):
++    def tearDown(self):
++        drop_latest_run("s1")
++
++    def test_each_load_replaces_the_sessions_latest_run(self):
++        request = SimpleNamespace(session_hash="s1")
++        run_a = do_load(str(DJANGO), request=request)["state_run"]
++        self.assertTrue(is_latest_run("s1", run_a))
++        run_b = do_load(str(ASTROPY), request=request)["state_run"]
++        self.assertFalse(is_latest_run("s1", run_a))
++        self.assertTrue(is_latest_run("s1", run_b))
++
++    def test_failed_load_records_none(self):
++        request = SimpleNamespace(session_hash="s1")
++        do_load(str(DJANGO), request=request)
++        do_load("/no/such/file.json", request=request)
++        self.assertFalse(is_latest_run("s1", do_load(str(DJANGO), request=None)["state_run"]))
++
++
++class SupersededJudgeStreamTests(unittest.TestCase):
++    """Drive ``on_suggest_fixes`` directly: the first yield happens before any
++    LLM call, so superseding right after it must end the stream there."""
++
++    def setUp(self):
++        self._saved = {k: os.environ.get(k) for k in _ANALYZE_ENV}
++        # A ready-looking config pointed at a dead port: reaching it at all
++        # after the supersede would mean the guard failed.
++        os.environ.update(
++            ANALYZE_BASE_URL="http://127.0.0.1:9",
++            ANALYZE_API_KEY="k",
++            ANALYZE_MODEL="m",
++            ANALYZE_PROVIDER="openai",
++        )
++
++    def tearDown(self):
++        for key, value in self._saved.items():
++            if value is None:
++                os.environ.pop(key, None)
++            else:
++                os.environ[key] = value
++        drop_latest_run("s1")
++
++    def test_stream_stops_once_another_run_is_loaded(self):
++        run = tv.load(DJANGO)
++        request = SimpleNamespace(session_hash="s1")
++        record_latest_run("s1", run)
++        stream = on_suggest_fixes(run, request=request)
++        html_out, _ = next(stream)
++        self.assertIn("正在等待 AI 总结任务与结局…", html_out)
++        # The user clears the upload and loads another trajectory.
++        record_latest_run("s1", tv.load(ASTROPY))
++        with self.assertRaises(StopIteration):
++            next(stream)
++
++    def test_stream_stops_once_the_upload_is_cleared(self):
++        run = tv.load(DJANGO)
++        request = SimpleNamespace(session_hash="s1")
++        record_latest_run("s1", run)
++        stream = on_suggest_fixes(run, request=request)
++        next(stream)
++        record_latest_run("s1", None)
++        with self.assertRaises(StopIteration):
++            next(stream)
++
++    def test_stream_continues_while_its_run_is_still_current(self):
++        run = tv.load(DJANGO)
++        request = SimpleNamespace(session_hash="s1")
++        record_latest_run("s1", run)
++        stream = on_suggest_fixes(run, request=request)
++        next(stream)  # pending spinner
++        # Not superseded: the stream keeps going — the summary call fails fast
++        # against the dead endpoint and the per-issue judging still yields —
++        # instead of stopping silently right after the first yield.
++        yields = sum(1 for _ in stream)
++        self.assertGreaterEqual(yields, 1)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_ui_resets.py b/tests/test_ui_resets.py
+index 243e727..1e5eb07 100644
+--- a/tests/test_ui_resets.py
++++ b/tests/test_ui_resets.py
+@@ -201,6 +201,7 @@ class OverviewSectionMappingTests(unittest.TestCase):
+                 state_raw=gr.State({}),
+                 state_analysis_brief=gr.State(""),
+                 state_run=gr.State(None),
++                state_overview_issues=gr.State([]),
+             )
+         return refs, shared_state, upload_refs
+ 
+diff --git a/tests/test_unvalidated_writes.py b/tests/test_unvalidated_writes.py
+new file mode 100644
+index 0000000..1ae58d9
+--- /dev/null
++++ b/tests/test_unvalidated_writes.py
+@@ -0,0 +1,156 @@
++"""Code changes without any validation: write tools touched code files but no
++test/build/lint command ran in the whole session.
++
++Only writes to code files count (docs/config have nothing a test run would
++catch); writes through shell redirection are not counted, keeping the rule
++explainable in one sentence.
++"""
++
++import unittest
++from types import SimpleNamespace
++
++from agent_trajviz.insight.patterns import detect_unvalidated_writes
++from agent_trajviz.insight.issues import prepare_overview_issues
++from agent_trajviz.insight.presenters.issues import build_overview_issues_html
++
++
++def _step(index, calls=None):
++    return {"index": index, "role": "assistant", "tool_calls": calls or [], "tokens": {}}
++
++
++def _write(path="src/app.py", status="completed"):
++    return {
++        "tool_name": "edit",
++        "status": status,
++        "input": {"filePath": path, "old_string": "x", "new_string": "y"},
++        "output": "ok",
++    }
++
++
++def _bash(command, status="completed"):
++    return {
++        "tool_name": "bash",
++        "status": status,
++        "input": {"command": command},
++        "output": "ok",
++    }
++
++
++def _session(**kwargs):
++    base = dict(
++        steps=[],
++        failure_patterns=[],
++        failure_chains=[],
++        fruitless_streaks=[],
++        tool_selection=[],
++        plan_metrics={},
++        plan_history=[],
++        edit_thrash=[],
++        repeated_searches=[],
++        oversized_outputs=[],
++        blind_retries=[],
++        user_repeats=[],
++        unvalidated_writes=[],
++        redundant_re_reads=[],
++        phase_regressions=[],
++        performance_bottlenecks=[],
++        premature_compactions=[],
++        compaction_aftermath=[],
++        file_interactions=[],
++        format="",
++    )
++    base.update(kwargs)
++    return SimpleNamespace(**base)
++
++
++class DetectUnvalidatedWritesTests(unittest.TestCase):
++    def test_code_writes_without_validation_are_flagged(self):
++        steps = [
++            _step(2, [_write("src/app.py")]),
++            _step(5, [_write("src/lib/util.py")]),
++        ]
++        hits = detect_unvalidated_writes(steps)
++        self.assertEqual(len(hits), 1)
++        self.assertEqual(hits[0]["files"], 2)
++        self.assertEqual(hits[0]["steps"], [2, 5])
++
++    def test_a_single_validation_command_clears_the_flag(self):
++        steps = [
++            _step(2, [_write("src/app.py")]),
++            _step(4, [_bash("pytest -q tests/")]),
++        ]
++        self.assertEqual(detect_unvalidated_writes(steps), [])
++
++    def test_build_and_lint_commands_also_count_as_validation(self):
++        for cmd in ("make -j8", "npm run build", "ruff check src/"):
++            steps = [_step(1, [_write("src/app.py")]), _step(3, [_bash(cmd)])]
++            self.assertEqual(detect_unvalidated_writes(steps), [], cmd)
++
++    def test_doc_and_config_writes_are_ignored(self):
++        steps = [
++            _step(1, [_write("README.md")]),
++            _step(2, [_write("config/settings.json")]),
++        ]
++        self.assertEqual(detect_unvalidated_writes(steps), [])
++
++    def test_failed_writes_do_not_count(self):
++        steps = [_step(1, [_write("src/app.py", status="error")])]
++        self.assertEqual(detect_unvalidated_writes(steps), [])
++
++    def test_running_the_written_program_clears_the_flag(self):
++        # python3 app.py is a smoke run — it checks the result.
++        steps = [
++            _step(1, [_write("bisect_demo.py")]),
++            _step(3, [_bash("python3 bisect_demo.py")]),
++        ]
++        self.assertEqual(detect_unvalidated_writes(steps), [])
++
++    def test_version_probes_are_not_smoke_runs(self):
++        steps = [
++            _step(1, [_write("src/app.py")]),
++            _step(3, [_bash("python3 --version")]),
++        ]
++        self.assertEqual(len(detect_unvalidated_writes(steps)), 1)
++
++    def test_read_only_sessions_are_not_flagged(self):
++        steps = [_step(1, [{"tool_name": "read", "status": "completed",
++                            "input": {"filePath": "src/app.py"}, "output": "..."}])]
++        self.assertEqual(detect_unvalidated_writes(steps), [])
++
++    def test_same_file_written_twice_counts_one_file(self):
++        steps = [_step(1, [_write("src/app.py")]), _step(3, [_write("src/app.py")])]
++        hits = detect_unvalidated_writes(steps)
++        self.assertEqual(hits[0]["files"], 1)
++        self.assertEqual(hits[0]["steps"], [1, 3])
++
++
++class UnvalidatedWritesCardTests(unittest.TestCase):
++    def _hits(self):
++        return [{"files": 3, "steps": [2, 5, 9]}]
++
++    def test_card_is_built_from_the_detector_output(self):
++        issues = prepare_overview_issues(_session(unvalidated_writes=self._hits()))
++        card = [i for i in issues if i.source_id == "antipattern:unvalidated_writes"]
++        self.assertEqual(len(card), 1)
++        self.assertEqual(card[0].kind, "antipattern")
++        self.assertEqual(card[0].title, "Code changes were never validated")
++        self.assertIn("3 code file(s) written in steps 2–9", card[0].detail)
++        self.assertEqual(card[0].steps, (2, 5, 9))
++
++    def test_no_card_when_nothing_was_flagged(self):
++        issues = prepare_overview_issues(_session())
++        self.assertFalse(
++            [i for i in issues if "unvalidated_writes" in i.source_id]
++        )
++
++    def test_card_is_localized_to_chinese(self):
++        html = build_overview_issues_html(_session(unvalidated_writes=self._hits()))
++        self.assertIn("改了代码但全程未验证", html)
++        self.assertIn("改了 3 个代码文件（第 2–9 步）", html)
++        self.assertIn("整个运行没有任何测试/构建/检查命令", html)
++        self.assertIn("正确性全凭智能体自信", html)
++        self.assertIn("至少验证一次", html)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_user_repeats.py b/tests/test_user_repeats.py
+new file mode 100644
+index 0000000..3e6cb83
+--- /dev/null
++++ b/tests/test_user_repeats.py
+@@ -0,0 +1,177 @@
++"""User repeated messages: the exact same user text sent two or more times.
++
++Only whitespace is normalized; anything else ("继续" vs "请继续") is a
++different message and stays out, keeping the rule explainable in one
++sentence.
++"""
++
++import unittest
++from types import SimpleNamespace
++
++from agent_trajviz.insight.patterns import detect_user_repeats
++from agent_trajviz.insight.issues import prepare_overview_issues
++from agent_trajviz.insight.presenters.issues import build_overview_issues_html
++
++
++def _user(index, text):
++    return {"index": index, "role": "user", "text_preview": text, "tokens": {}}
++
++
++def _assistant(index):
++    return {"index": index, "role": "assistant", "text_preview": "done", "tokens": {}}
++
++
++def _session(**kwargs):
++    base = dict(
++        steps=[],
++        failure_patterns=[],
++        failure_chains=[],
++        fruitless_streaks=[],
++        tool_selection=[],
++        plan_metrics={},
++        plan_history=[],
++        edit_thrash=[],
++        repeated_searches=[],
++        oversized_outputs=[],
++        blind_retries=[],
++        user_repeats=[],
++        unvalidated_writes=[],
++        redundant_re_reads=[],
++        phase_regressions=[],
++        performance_bottlenecks=[],
++        premature_compactions=[],
++        compaction_aftermath=[],
++        file_interactions=[],
++        format="",
++    )
++    base.update(kwargs)
++    return SimpleNamespace(**base)
++
++
++class DetectUserRepeatsTests(unittest.TestCase):
++    def test_verbatim_repeat_is_flagged(self):
++        steps = [
++            _user(0, "把报告改成中文"),
++            _assistant(1),
++            _user(2, "把报告改成中文"),
++        ]
++        reps = detect_user_repeats(steps)
++        self.assertEqual(len(reps), 1)
++        self.assertEqual(reps[0]["count"], 2)
++        self.assertEqual(reps[0]["steps"], [0, 2])
++
++    def test_whitespace_differences_do_not_hide_a_repeat(self):
++        steps = [
++            _user(0, "fix the bug\n   in parser.py"),
++            _user(4, "fix the bug in parser.py"),
++        ]
++        reps = detect_user_repeats(steps)
++        self.assertEqual(len(reps), 1)
++        self.assertEqual(reps[0]["message"], "fix the bug in parser.py")
++
++    def test_different_messages_are_not_flagged(self):
++        steps = [
++            _user(0, "继续"),
++            _user(2, "请继续"),
++            _user(4, "继续吧"),
++        ]
++        self.assertEqual(detect_user_repeats(steps), [])
++
++    def test_assistant_text_is_ignored(self):
++        steps = [
++            _user(0, "done"),
++            _assistant(1),  # same text, wrong role
++        ]
++        self.assertEqual(detect_user_repeats(steps), [])
++
++    def test_three_repeats_count_and_sort_first(self):
++        steps = [
++            _user(0, "继续"),
++            _assistant(1),
++            _user(2, "继续"),
++            _assistant(3),
++            _user(4, "继续"),
++            _user(6, "别的消息"),
++            _user(8, "别的消息"),
++        ]
++        reps = detect_user_repeats(steps)
++        self.assertEqual([r["count"] for r in reps], [3, 2])
++        self.assertEqual(reps[0]["steps"], [0, 2, 4])
++
++    def test_empty_messages_are_skipped(self):
++        steps = [_user(0, ""), _user(2, "   ")]
++        self.assertEqual(detect_user_repeats(steps), [])
++
++
++class UserRepeatCardTests(unittest.TestCase):
++    def _repeats(self):
++        return [{"message": "把报告改成中文", "count": 2, "steps": [0, 2]}]
++
++    def test_synthetic_continuation_messages_are_not_user_repeats(self):
++        # OpenCode injects "Continue if you have next steps..." after each
++        # compaction. It repeats verbatim across compactions but the framework
++        # typed it, not the user.
++        def _synthetic(index, text="Continue if you have next steps, or stop."):
++            return {
++                "index": index,
++                "role": "user",
++                "tool_calls": [],
++                "tokens": {},
++                "parts": [{"type": "text", "text": text, "synthetic": True}],
++            }
++
++        steps = [_synthetic(24), _synthetic(33), _synthetic(39)]
++        self.assertEqual(detect_user_repeats(steps), [])
++
++    def test_mixed_synthetic_and_typed_text_uses_the_typed_one(self):
++        step = {
++            "index": 1,
++            "role": "user",
++            "tool_calls": [],
++            "tokens": {},
++            "parts": [
++                {"type": "text", "text": "Continue if you have next steps.", "synthetic": True},
++                {"type": "text", "text": "请继续", "synthetic": False},
++            ],
++        }
++        hits = detect_user_repeats([step, dict(step, index=5)])
++        self.assertEqual(len(hits), 1)
++        self.assertEqual(hits[0]["message"], "请继续")
++
++    def test_typed_text_parts_still_count(self):
++        def _typed(index, text="把报告发我"):
++            return {
++                "index": index,
++                "role": "user",
++                "tool_calls": [],
++                "tokens": {},
++                "parts": [{"type": "text", "text": text}],
++            }
++
++        hits = detect_user_repeats([_typed(1), _typed(4)])
++        self.assertEqual(len(hits), 1)
++        self.assertEqual(hits[0]["count"], 2)
++
++    def test_card_is_built_from_the_detector_output(self):
++        issues = prepare_overview_issues(_session(user_repeats=self._repeats()))
++        card = [i for i in issues if i.source_id == "antipattern:user_repeat:0"]
++        self.assertEqual(len(card), 1)
++        self.assertEqual(card[0].kind, "antipattern")
++        self.assertEqual(card[0].title, "User repeated a message (2×)")
++        self.assertEqual(card[0].detail, "把报告改成中文")
++        self.assertEqual(card[0].steps, (0, 2))
++
++    def test_no_card_when_nothing_was_flagged(self):
++        issues = prepare_overview_issues(_session())
++        self.assertFalse([i for i in issues if "user_repeat" in i.source_id])
++
++    def test_card_is_localized_to_chinese(self):
++        html = build_overview_issues_html(_session(user_repeats=self._repeats()))
++        self.assertIn("用户重复发送同一消息 (2×)", html)
++        self.assertIn("把报告改成中文", html)
++        self.assertIn("最直接的证据", html)
++        self.assertIn("查看第一次发送该消息后智能体的响应", html)
++
++
++if __name__ == "__main__":
++    unittest.main()
