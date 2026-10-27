@@ -58,7 +58,7 @@ class CodeArtsTests(unittest.TestCase):
 
         self.assertEqual(preview, "actual user request")
 
-    def test_codearts_keeps_all_five_token_legend_items(self):
+    def test_codearts_drops_the_structurally_zero_cache_write_legend_item(self):
         from agent_trajviz.insight.charts import build_token_chart
         from agent_trajviz.insight.loaders import load_trajectory
         from agent_trajviz.insight.parser import parse_steps
@@ -68,9 +68,11 @@ class CodeArtsTests(unittest.TestCase):
 
         # Root + explore subagent → one panel each; legend still lists each
         # series once (second panel suppresses duplicate legend entries).
+        # Cache Write is structurally zero in CodeArts exports, so it never
+        # enters the legend even though include_empty is set for this format.
         self.assertEqual(
             [trace.name for trace in figure.data if trace.showlegend is not False],
-            ["Cache Read", "Fresh Input", "Reasoning", "Output", "Cache Write"],
+            ["Cache Read", "Fresh Input", "Reasoning", "Output"],
         )
         # Root assistant is Workflow step 1 on the first panel
         # (50 fresh + 20 cache + 20 output + 10 reasoning).

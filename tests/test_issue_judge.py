@@ -3,14 +3,15 @@
 import os
 import unittest
 from unittest.mock import patch
-from types import SimpleNamespace
 
 from agent_trajviz.insight.issue_judge import (
     judge_issue_fix,
     judge_overview_issues,
+    judge_run_summary,
     iter_judge_overview_issues,
     pack_issue_judge_context,
     parse_issue_judgment,
+    parse_run_summary,
 )
 from agent_trajviz.insight.llm_config import AnalysisLLMConfig
 from agent_trajviz.insight.presenters.issues import (
@@ -19,6 +20,7 @@ from agent_trajviz.insight.presenters.issues import (
     rank_issues,
     render_overview_issues_html,
 )
+from tests.overview_session_stub import overview_session
 
 
 def _cfg() -> AnalysisLLMConfig:
@@ -35,25 +37,8 @@ def _cfg() -> AnalysisLLMConfig:
 
 
 def _session(**kwargs):
-    base = dict(
-        steps=[],
-        failure_patterns=[],
-        failure_chains=[],
-        fruitless_streaks=[],
-        tool_selection=[],
-        plan_metrics={},
-        plan_history=[],
-        edit_thrash=[],
-        repeated_searches=[],
-        premature_compactions=[],
-        compaction_aftermath=[],
-        phase_regressions=[],
-        performance_bottlenecks=[],
-        file_interactions=[],
-        format="claude_code",
-    )
-    base.update(kwargs)
-    return SimpleNamespace(**base)
+    kwargs.setdefault("format", "claude_code")
+    return overview_session(**kwargs)
 
 
 class ParseJudgmentTests(unittest.TestCase):
@@ -187,11 +172,15 @@ class JudgeMockTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertIsNotNone(judged[0].judgment)
         html = render_overview_issues_html(judged)
+        # Option A: the LLM judgment owns the single action slot.
         self.assertIn("修改位置", html)
-        self.assertIn("修复建议", html)
-        self.assertNotIn("Show fix", html)
         self.assertIn("CLAUDE.md", html)
         self.assertIn("空搜索超过 N 次后停止", html)
+        self.assertIn("AI · 置信度：中", html)
+        self.assertIn(">建议<", html)
+        # The rule-based playbook folds away under 技术细节 as 常规做法.
+        self.assertIn("常规做法", html)
+        self.assertIn("更换搜索关键词或路径", html)
         self.assertIn("已为 1 个问题生成修复建议", html)
 
     def test_iter_judge_yields_before_each_and_finished(self):
@@ -243,6 +232,72 @@ class JudgeMockTests(unittest.TestCase):
         ])
         self.assertNotIn(">Change<", html)
         self.assertNotIn(">Fix", html)
+
+
+class RunSummaryJudgeTests(unittest.TestCase):
+    """The one-shot (task, outcome) LLM summary of the whole run."""
+
+    def _session(self):
+        return _session(
+            steps=[
+                {
+                    "index": 0,
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "把 SO_LOAD_PATH 改成新路径"}],
+                    "tool_calls": [],
+                },
+                {
+                    "index": 1,
+                    "role": "assistant",
+                    "parts": [{"type": "text", "text": "已改完 11 个文件"}],
+                    "tool_calls": [],
+                },
+            ],
+            metrics={"tool_call_count": 12, "tokens": {"total": 40000}},
+        )
+
+    def test_parse_raw_and_fenced_json(self):
+        self.assertEqual(
+            parse_run_summary('{"task":"改路径","outcome":"完成"}'),
+            ("改路径", "完成"),
+        )
+        task, outcome = parse_run_summary(
+            '```json\n{"task": "改路径", "outcome": "完成"}\n```'
+        )
+        self.assertEqual((task, outcome), ("改路径", "完成"))
+
+    def test_parse_rejects_missing_task(self):
+        with self.assertRaises(ValueError):
+            parse_run_summary('{"task":"","outcome":"完成"}')
+        with self.assertRaises(ValueError):
+            parse_run_summary("no json here")
+
+    def test_judge_run_summary_sends_context_and_language(self):
+        seen = {}
+
+        def chat_fn(config, system, messages):
+            seen["system"] = system
+            seen["user"] = messages[0]["content"]
+            return '{"task":"把加载路径迁移到新目录","outcome":"11 个文件全部改完"}'
+
+        task, outcome = judge_run_summary(
+            self._session(), config=_cfg(), chat_fn=chat_fn, language="zh",
+        )
+        self.assertEqual(task, "把加载路径迁移到新目录")
+        self.assertEqual(outcome, "11 个文件全部改完")
+        self.assertIn("run summarizer", seen["system"])
+        self.assertIn("把 SO_LOAD_PATH 改成新路径", seen["user"])
+        self.assertIn("已改完 11 个文件", seen["user"])
+        self.assertIn('"steps": 2', seen["user"])
+        self.assertIn("Simplified Chinese (Mandarin)", seen["user"])
+
+    def test_judge_run_summary_requires_config(self):
+        empty = AnalysisLLMConfig(
+            base_url="", api_key="", model="", provider="openai",
+            temperature=0.0, max_tokens=512, timeout=30, source="analyze",
+        )
+        with self.assertRaises(ValueError):
+            judge_run_summary(self._session(), config=empty, require_config=True)
 
 
 if __name__ == "__main__":

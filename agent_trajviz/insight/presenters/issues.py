@@ -12,6 +12,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import cast, get_args
 
+from ..context_usage import _explicit_compaction_events
 from ..issues import (  # noqa: F401  (re-exported: UI and judge import them here)
     Confidence,
     IssueJudgment,
@@ -23,6 +24,7 @@ from ..issues import (  # noqa: F401  (re-exported: UI and judge import them her
 )
 from ..rendering import _step_link_chips
 from ..session import LoadedSession
+from ..tool_failure import tool_call_failed
 
 _ISSUE_KINDS = frozenset(get_args(IssueKind))
 _CONFIDENCES = frozenset(get_args(Confidence))
@@ -42,6 +44,60 @@ _ISSUE_KIND_LABELS_ZH: dict[IssueKind, str] = {
 }
 
 _CONFIDENCE_ZH: dict[Confidence, str] = {"high": "高", "medium": "中", "low": "低"}
+
+#: What the reader should do about each issue type, keyed by source_id prefix
+#: (first match wins). Falls back to a per-kind action.
+_ISSUE_ACTION_ZH: tuple[tuple[str, str], ...] = (
+    ("antipattern:compaction_thin_read", "人工复核压缩后那次写修改过的文件，确认内容与文件真实状态一致。"),
+    ("antipattern:compaction_premature", "检查压缩摘要是否保留了关键信息；频繁出现时考虑调大上下文窗口。"),
+    ("antipattern:compaction_grew", "这次压缩可以忽略；频繁出现时检查摘要是否写得过长。"),
+    ("antipattern:fruitless", "更换搜索关键词或路径，先确认目标位置存在。"),
+    ("antipattern:repeated_search", "修正查询词或路径，避免重复空搜。"),
+    ("antipattern:bash_read", "改用 Read 工具读文件（带行号、更省上下文）。"),
+    ("antipattern:edit_thrash", "写入前先 Read 目标文件，确认路径与内容匹配。"),
+    ("antipattern:stalled_plan", "检查未完成的待办是否需要收尾或显式关闭。"),
+    ("antipattern:plan_resets", "确认计划重置是有意为之；否则让智能体就地修订计划。"),
+    ("antipattern:tool_errors", "排查环境问题：路径、权限、依赖是否就绪。"),
+    ("antipattern:oversized_output", "让智能体改用带条数限制的读取：Read 指定行区间、head/tail、grep -c，测试命令关闭详细输出。"),
+    ("antipattern:blind_retry", "失败后先读错误信息，修改命令或环境（路径/权限/依赖）再重试；偶发超时类错误重试一次属正常。"),
+    ("antipattern:user_repeat", "查看第一次发送该消息后智能体的响应，确认它为何没有满足需求。"),
+    ("antipattern:unvalidated_writes", "让智能体在改动后运行测试或构建（pytest、make、npm run build 等），至少验证一次。"),
+    ("antipattern:redundant_reread", "让智能体依赖已读内容；确需重读时，先确认文件已变更（写入后或压缩后重读是合理的）。"),
+    ("fail:system:", "排查运行环境配置（路径、权限）。"),
+    ("cascade:", "从第一个失败步骤入手排查根因，避免反复重试放大问题。"),
+    ("bottleneck:", "点步骤链接查看该步的耗时构成，针对性优化。"),
+)
+
+_ISSUE_ACTION_FALLBACK_ZH: dict[IssueKind, str] = {
+    "error": "点步骤链接查看失败详情，排查输入与环境。",
+    "risk": "点步骤链接复核相关步骤的输出。",
+    "antipattern": "点步骤链接查看相关步骤。",
+    "bottleneck": "点步骤链接查看该步骤的耗时构成。",
+}
+
+#: Real impact line for tool-failure cards; the recovery path moves to the
+#: action line (it is "what to do", not "what it costs").
+_FAIL_IMPACT_ZH = "工具调用失败会浪费轮次和 token；连续失败可能拖慢甚至卡住任务。"
+
+
+def _issue_action_zh(issue: OverviewIssue) -> str:
+    """The plain-language "what to do" line for an issue card."""
+    sid = issue.source_id or ""
+    why = issue.why or ""
+    if why.startswith("Typical recovery: "):
+        chain = why[len("Typical recovery: ") :]
+        tools = [t.strip() for t in chain.split("→")]
+        if len(tools) == 1:
+            did = f"调用 {tools[0]}"
+        else:
+            did = "依次调用 " + " → ".join(tools)
+        return f"失败后智能体{did}，自行恢复了；这类失败通常无需人工干预。"
+    if why == "No recovery path found after this error cluster.":
+        return "该错误之后智能体未自行恢复——建议人工排查该步骤的输入与环境。"
+    for prefix, action in _ISSUE_ACTION_ZH:
+        if sid.startswith(prefix):
+            return action
+    return _ISSUE_ACTION_FALLBACK_ZH.get(issue.kind, "")
 
 
 def _with_count(label_zh: str, title_en: str) -> str:
@@ -63,19 +119,16 @@ def _localize_fruitless_detail(detail: str) -> str:
 def _localize_bottleneck_title(title: str) -> str:
     m = re.match(r"Idle/queue bottleneck before #(\d+) \((\d+(?:\.\d+)?)s gap\)$", title)
     if m:
-        return f"空闲/排队瓶颈，发生在 #{m.group(1)}（{m.group(2)}秒空隙）"
-    m = re.match(r"Tool bottleneck: (.+) \((\d+(?:\.\d+)?)s\)$", title)
-    if m:
-        return f"工具瓶颈：{m.group(1)}（{m.group(2)}秒）"
+        return f"空闲/排队瓶颈：第 {m.group(1)} 步前空等 {m.group(2)} 秒"
     m = re.match(r"Context/cache bottleneck at #(\d+) \((\d+(?:\.\d+)?)s\)$", title)
     if m:
-        return f"上下文/缓存瓶颈，发生在 #{m.group(1)}（{m.group(2)}秒）"
+        return f"上下文/缓存瓶颈：第 {m.group(1)} 步耗时 {m.group(2)} 秒"
     m = re.match(r"Inference bottleneck at #(\d+) \((\d+(?:\.\d+)?)s\)$", title)
     if m:
-        return f"推理瓶颈，发生在 #{m.group(1)}（{m.group(2)}秒）"
+        return f"推理瓶颈：第 {m.group(1)} 步耗时 {m.group(2)} 秒"
     m = re.match(r"Performance bottleneck at #(\d+)$", title)
     if m:
-        return f"性能瓶颈，发生在 #{m.group(1)}"
+        return f"性能瓶颈：第 {m.group(1)} 步耗时异常"
     return title
 
 
@@ -95,7 +148,7 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
         elif detail.endswith("well below the window limit"):
             detail = "压缩时窗口占用：远低于窗口上限"
         return (
-            _with_count("过早压缩上下文", title),
+            _with_count("上下文被过早压缩", title),
             detail,
             "上下文窗口在远未写满时就被压缩——通常是智能体主动触发的 compress/compact，"
             "而非运行环境强制回收。过早压缩会丢失上下文；请检查摘要是否保留了关键信息。",
@@ -105,33 +158,42 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
         detail_zh = re.sub(r"step (\d+):", r"第\1步：", detail)
         detail_zh = re.sub(r", \+(\d+) more$", r"，另有 \1 次", detail_zh)
         return (
-            _with_count("压缩后上下文反而变大", title),
+            _with_count("压缩未起效：上下文不降反增", title),
             detail_zh,
             "压缩结束后窗口占用不小于压缩前——摘要本身比腾出的消息更占 token，"
-            "这次压缩等于白做。",
+            "这次压缩没有腾出有效空间。",
         )
 
     if sid.startswith("antipattern:compaction_thin_read"):
-        step_m = re.search(r"#(\d+)", title)
-        if step_m:
-            title = f"压缩后的写操作可能基于摘要而非新鲜读取（第 {step_m.group(1)} 步压缩之后）"
-        dropped = re.search(r"compaction dropped (\S+) tokens", detail)
-        span = re.search(
-            r"steps (\d+) and (\d+) span it: ~(\S+) tokens of file reads before vs ~(\S+) after \((\d+)% less\)",
-            detail,
+        m = re.match(
+            r"Post-compaction write may rest on summarized context \(#(\d+)\)$",
+            title,
         )
-        zh = []
-        if dropped:
-            zh.append(f"压缩丢弃约 {dropped.group(1)} token")
-        if span:
-            zh.append(
-                f"第 {span.group(1)}、{span.group(2)} 步两次连续写之间发生压缩："
-                f"压缩前读取 ≈{span.group(3)} token，压缩后仅 ≈{span.group(4)} token"
-                f"（少 {span.group(5)}%）"
+        if m:
+            title = f"压缩后凭摘要改代码（第 {m.group(1)} 步压缩之后）"
+        segs = [s.strip() for s in detail.split(";") if s.strip()]
+        zh: list[str] = []
+        for seg in segs:
+            m = re.match(r"compaction dropped (\S+) tokens$", seg)
+            if m:
+                zh.append(f"压缩丢弃约 {m.group(1)} token")
+                continue
+            m = re.match(
+                r"consecutive writes at steps (\d+) and (\d+) span it: "
+                r"~(\S+) tokens of file reads before vs ~(\S+) after \((\d+)% less\)$",
+                seg,
             )
+            if m:
+                zh.append(
+                    f"第 {m.group(1)}、{m.group(2)} 步两次连续写之间发生压缩："
+                    f"压缩前读取 ≈{m.group(3)} token，压缩后仅 ≈{m.group(4)} token"
+                    f"（少 {m.group(5)}%）"
+                )
+                continue
+            zh.append(seg)
         return (
             title,
-            "；".join(zh) or detail,
+            "；".join(zh),
             "两次连续写之间发生压缩，且压缩后的文件读取量比压缩前少 20% 以上："
             "第二次写所依据的信息大部分只剩压缩摘要，而非上下文中的新鲜读取，"
             "写出的内容可能偏离文件真实状态。写操作需要读多少因任务而异，"
@@ -140,7 +202,7 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
 
     if sid.startswith("antipattern:fruitless"):
         return (
-            _with_count("无效搜索连续空转", title),
+            _with_count("连续多次搜索无结果", title),
             _localize_fruitless_detail(detail),
             "连续三次及以上搜索均无匹配；持续空转通常说明搜错了位置或关键词。",
         )
@@ -184,16 +246,91 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
     if sid.startswith("antipattern:repeated_search:"):
         m = re.match(r"Repeated empty search \((\d+)×\)$", title)
         if m:
-            title = f"重复的空结果搜索（{m.group(1)}×）"
+            title = f"同一搜索多次返回空结果（{m.group(1)}×）"
         return (
             title,
             detail,
             "同一搜索多次返回空结果（不一定连续）——查询词或路径很可能不对。",
         )
 
+    if sid.startswith("antipattern:redundant_reread:"):
+        detail_zh = re.sub(
+            r"(\S+) re-read (\d+)× with no write or compaction in between "
+            r"\(steps ([\d, ]+)\)",
+            lambda m: (
+                f"{m.group(1)} 重复读取 {m.group(2)} 次——两次读取之间既没有写入"
+                f"也没有压缩（第 {m.group(3).replace(', ', '、')} 步）"
+            ),
+            detail,
+        )
+        return (
+            _with_count("重复读取未变更的文件", title),
+            detail_zh,
+            "文件既没有被修改，也没有因压缩丢失——内容本来就在上下文里，"
+            "重复读取只是白花 token。",
+        )
+
+    if sid.startswith("antipattern:unvalidated_writes"):
+        detail_zh = re.sub(
+            r"(\d+) code file\(s\) written in steps (\d+)–(\d+); "
+            r"no test/build/lint command in the whole run",
+            r"改了 \1 个代码文件（第 \2–\3 步）；整个运行没有任何测试/构建/检查命令",
+            detail,
+        )
+        return (
+            "改了代码但全程未验证",
+            detail_zh,
+            "所有改动都成功了，但没有任何命令检查过结果——正确性全凭智能体自信，"
+            "它自己看不到的回归没有任何机会被发现。",
+        )
+
+    if sid.startswith("antipattern:user_repeat:"):
+        return (
+            _with_count("用户重复发送同一消息", title),
+            detail,
+            "用户把一字不差的同一条消息又发了一遍——这是“上一次没有满足需求”"
+            "最直接的证据，不需要任何推测。",
+        )
+
+    if sid.startswith("antipattern:blind_retry:"):
+        m = re.match(r"Blind retry of failed (\S+) call \((\d+)×\)$", title)
+        if m:
+            title = f"失败后原样重试 {m.group(1)}（{m.group(2)}×）"
+        detail = re.sub(
+            r"(\d+) of (\d+) identical attempts failed — ",
+            r"\2 次完全相同的调用中 \1 次失败 — ",
+            detail,
+        )
+        return (
+            title,
+            detail,
+            "失败的调用未做任何修改就被原样重发，且再次失败——同样的输入在同样的"
+            "环境下只会得到同样的结果，重试只是白烧 token 和轮次。",
+        )
+
+    if sid.startswith("antipattern:oversized_output"):
+        detail_zh = re.sub(
+            r"step (\d+) (\S+) ≈([\d,]+) tokens \((\d+)% of context\)",
+            r"第\1步 \2 ≈\3 token（占上下文 \4%）",
+            detail,
+        )
+        detail_zh = re.sub(
+            r"step (\d+) (\S+) ≈([\d,]+) tokens",
+            r"第\1步 \2 ≈\3 token",
+            detail_zh,
+        )
+        detail_zh = re.sub(r", \+(\d+) more$", r"，另 \1 次", detail_zh)
+        detail_zh = detail_zh.replace(", ", "，")
+        return (
+            _with_count("单条工具输出过大", title),
+            detail_zh,
+            "这条工具输出会一直留在对话历史里：在被压缩掉之前，后面每一步都要把它"
+            "整条重新计入上下文。大输出通常来自整文件 cat、全量 find 或详细模式测试。",
+        )
+
     if sid.startswith("antipattern:tool_errors"):
         return (
-            _with_count("工具错误", title),
+            _with_count("环境类工具错误", title),
             "根据工具输出检测到（平台错误、权限、文件缺失等）",
             "失败的工具调用既费 token 又费轮次，且往往是环境问题而非智能体策略错误。",
         )
@@ -216,7 +353,18 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
         return title, detail, why
 
     if sid.startswith("fail:"):
-        return title, detail, _localize_recovery_why(why)
+        # Plain title for the scan; the tool name and exit code live in the
+        # folded tech detail, one click away.
+        m = re.search(r" \((\d+)×\)$", title)
+        plain = title[: m.start()] if m else title
+        detail_zh = plain
+        if detail:
+            detail_zh += f"；示例错误：{detail}"
+        return (
+            _with_count("工具调用失败", title),
+            detail_zh,
+            _FAIL_IMPACT_ZH,
+        )
 
     if sid.startswith("cascade:"):
         return (
@@ -226,8 +374,15 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
         )
 
     if sid.startswith("bottleneck:"):
-        title = _localize_bottleneck_title(title)
-        detail = re.sub(r"^Step (\d+):", r"第\1步：", detail)
+        m = re.match(r"Tool bottleneck: (.+) \((\d+(?:\.\d+)?)s\)$", title)
+        if m:
+            # Plain title: tool name + duration; the full command/target is in
+            # the detail (folded away by the card).
+            tool = m.group(1).split(": ", 1)[0]
+            title = f"工具瓶颈：{tool} 调用耗时 {m.group(2)} 秒"
+        else:
+            title = _localize_bottleneck_title(title)
+        detail = re.sub(r"Step (\d+):", r"第\1步：", detail)
         detail = detail.replace(" executing tools", " 在执行工具")
         if why.startswith("Large pre-step idle"):
             why = "步骤前有很长空闲，通常是排队或限流——应降低并行压力或调整等待策略，而不是改提示词。"
@@ -242,15 +397,11 @@ def _localize_issue_text(issue: OverviewIssue) -> tuple[str, str, str]:
         return title, detail, why
 
     # Synthetic cards in tests (and recovery why without a fail: source id).
-    return title, detail, _localize_recovery_why(why)
-
-
-def _localize_recovery_why(why: str) -> str:
-    if why.startswith("Typical recovery: "):
-        return "常见恢复路径：" + why[len("Typical recovery: ") :]
-    if why == "No recovery path found after this error cluster.":
-        return "该错误簇之后未找到恢复路径。"
-    return why
+    if why.startswith("Typical recovery: ") or (
+        why == "No recovery path found after this error cluster."
+    ):
+        return title, detail, _FAIL_IMPACT_ZH
+    return title, detail, why
 
 
 def overview_issues_payload(issues: list[OverviewIssue]) -> list[dict]:
@@ -327,48 +478,70 @@ def issue_analysis_question_from_payload(rows: list, number: int) -> str | None:
 
 
 def _issue_card(issue: OverviewIssue, number: int) -> str:
-    """Compact scan row: number + kind badge + title + step chips + optional LLM fix."""
+    """Scan row: number + kind badge + plain title, then visible impact and
+    action lines; the technical detail folds away below.
+
+    The action slot holds exactly one suggestion: the LLM judgment when it
+    exists (with fix location and confidence), otherwise the rule-based
+    playbook. When the LLM owns the slot, the playbook folds away under
+    技术细节 as 常规做法.
+    """
     title_raw, detail_raw, why_raw = _localize_issue_text(issue)
+    action_raw = _issue_action_zh(issue)
     title = html.escape(title_raw)
-    detail = html.escape(detail_raw)
     border = ISSUE_KIND_COLORS[issue.kind]
     steps_html = _step_link_chips(list(issue.steps), label="第{n}步", more="另有 {extra} 步")
 
-    judgment_html = ""
-    if issue.judgment is not None:
-        j = issue.judgment
+    judgment = issue.judgment
+    why_html = ""
+    if why_raw:
+        why_html = (
+            "<div class='overview-issue-why'>"
+            "<span class='overview-issue-label'>影响</span>"
+            f"{html.escape(why_raw)}</div>"
+        )
+    action_html = ""
+    if judgment is not None:
         also_html = ""
-        if j.also:
+        if judgment.also:
             also_html = (
-                f"<div style='font-size:11px;color:var(--ov-muted);margin-top:6px;"
-                f"line-height:1.35;'>补充：{html.escape(j.also)}</div>"
+                f"<div class='overview-issue-also'>补充：{html.escape(judgment.also)}</div>"
             )
-        judgment_html = (
-            "<div style='margin-top:8px;font-size:12px;line-height:1.4;'>"
-            "<span style='font-size:10px;font-weight:600;letter-spacing:0.04em;"
-            "color:var(--ov-muted);'>修改位置</span>"
-            f"<div style='font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"
-            f"font-size:12px;color:var(--ov-text);margin-top:2px;'>"
-            f"{html.escape(j.where)}</div></div>"
-            "<div style='margin-top:8px;padding:8px 10px;background:var(--ov-bg);"
-            "border-radius:4px;'>"
-            "<div style='font-size:10px;font-weight:600;letter-spacing:0.04em;"
-            "color:var(--ov-muted);margin-bottom:4px;'>"
-            f"修复建议 <span style='font-weight:500;letter-spacing:0;"
-            f"color:var(--ov-muted);'>（置信度：{_CONFIDENCE_ZH[j.confidence]}）</span></div>"
-            f"<div style='font-size:13px;line-height:1.4;color:var(--ov-text);'>"
-            f"{html.escape(j.fix)}</div>"
-            f"{also_html}</div>"
+        action_html = (
+            "<div class='overview-issue-action'>"
+            "<span class='overview-issue-label'>建议</span>"
+            f"<span class='overview-issue-label overview-issue-label-ai'>"
+            f"AI · 置信度：{_CONFIDENCE_ZH[judgment.confidence]}</span>"
+            f"<div class='overview-issue-fix'>{html.escape(judgment.fix)}</div>"
+            "<div class='overview-issue-where'>"
+            "<span class='overview-issue-where-label'>修改位置</span>"
+            f"<span class='overview-issue-where-value'>{html.escape(judgment.where)}</span>"
+            f"</div>{also_html}</div>"
+        )
+    elif action_raw:
+        action_html = (
+            "<div class='overview-issue-action'>"
+            "<span class='overview-issue-label'>建议</span>"
+            f"{html.escape(action_raw)}</div>"
         )
 
-    detail_html = (
-        f"<span class='overview-issue-detail'>{detail}</span>" if detail_raw else ""
-    )
-    info_html = ""
-    if why_raw:
-        info_html = (
-            f"<span class='overview-issue-info' title='{html.escape(why_raw)}' "
-            f"aria-hidden='true'>ⓘ</span>"
+    tech_parts: list[str] = []
+    if detail_raw:
+        tech_parts.append(
+            f"<div class='overview-issue-detail'>{html.escape(detail_raw)}</div>"
+        )
+    if judgment is not None and action_raw:
+        tech_parts.append(
+            "<div class='overview-issue-detail'>"
+            "<span class='overview-issue-label'>常规做法</span>"
+            f"{html.escape(action_raw)}</div>"
+        )
+    tech_html = ""
+    if tech_parts:
+        tech_html = (
+            "<details class='overview-issue-tech'>"
+            "<summary>技术细节</summary>"
+            f"{''.join(tech_parts)}</details>"
         )
     analyze_html = (
         f"<button type='button' class='overview-issue-analyze' "
@@ -384,11 +557,11 @@ def _issue_card(issue: OverviewIssue, number: int) -> str:
         f"<span class='overview-issue-kind' style='color:{border};'>"
         f"{_ISSUE_KIND_LABELS_ZH[issue.kind]}</span>"
         f"<span class='overview-issue-title'>{title}</span>"
-        f"{info_html}"
-        f"{detail_html}"
         f"</div>"
+        f"{why_html}"
+        f"{action_html}"
         f"{steps_html}"
-        f"{judgment_html}"
+        f"{tech_html}"
         f"{analyze_html}"
         f"</div>"
     )
@@ -520,15 +693,209 @@ def _issue_cards_html(issues: list[OverviewIssue]) -> str:
     return "".join(_issue_group_html(view) for view in group_issue_families(issues))
 
 
+def _fmt_k(n: float) -> str:
+    """Compact token counts for summary lines: 940 / 12.3k / 1.2M."""
+    n = int(n)
+    if abs(n) < 1000:
+        return f"{n:,}"
+    if abs(n) < 1_000_000:
+        v = n / 1000
+        return f"{v:.1f}k".replace(".0k", "k")
+    return f"{n / 1_000_000:.2f}M"
+
+
+def _fmt_wall(seconds: float) -> str:
+    """Wall-clock duration: 45s / 5m 40s / 2h 05m."""
+    total = int(round(seconds))
+    if total < 60:
+        return f"{total}s"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s" if secs else f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m" if minutes else f"{hours}h"
+
+
+def _run_numbers_zh(steps: list[dict], metrics: dict) -> list[str]:
+    """The headline numbers of a run, as display-ready strings.
+
+    Tool names come from the export, so they are escaped here and the list is
+    joined WITHOUT a second escape.
+    """
+    nums = [f"{len(steps)} 步"]
+    wall = metrics.get("wall_clock")
+    if isinstance(wall, (int, float)) and wall > 0:
+        nums.append(_fmt_wall(wall))
+    toks = metrics.get("tokens") or {}
+    total_tokens = toks.get("total") or 0
+    if total_tokens:
+        nums.append(f"{_fmt_k(total_tokens)} token")
+    cache_read = toks.get("cache_read") or 0
+    fresh = toks.get("input") or 0
+    if cache_read + fresh > 0:
+        pct = round(cache_read / (cache_read + fresh) * 100)
+        nums.append(f"缓存命中 {pct}%")
+    tool_n = metrics.get("tool_call_count") or 0
+    if tool_n:
+        breakdown = metrics.get("tool_breakdown") or {}
+        if breakdown:
+            top_name, top_n = max(breakdown.items(), key=lambda kv: kv[1])
+            nums.append(f"工具 {tool_n} 次（{html.escape(str(top_name))} 最多，{top_n} 次）")
+        else:
+            nums.append(f"工具 {tool_n} 次")
+    compactions = _explicit_compaction_events(steps)
+    if compactions:
+        nums.append(f"压缩 {len(compactions)} 次")
+    sub_agents = len(metrics.get("agent_breakdown") or {})
+    if sub_agents:
+        nums.append(f"{sub_agents + 1} 个 agent")
+    return nums
+
+
+_SPINNER_SVG = (
+    "<svg class='overview-issues-progress-spinner' width='14' height='14' "
+    "viewBox='0 0 24 24' aria-hidden='true' "
+    "style='flex-shrink:0;display:block'>"
+    "<circle cx='12' cy='12' r='10' fill='none' "
+    "stroke='currentColor' stroke-opacity='0.25' stroke-width='3'/>"
+    "<path d='M12 2a10 10 0 0 1 10 10' fill='none' stroke='currentColor' "
+    "stroke-width='3' stroke-linecap='round'>"
+    "<animateTransform attributeName='transform' type='rotate' "
+    "from='0 12 12' to='360 12 12' dur='0.7s' repeatCount='indefinite'/>"
+    "</path></svg>"
+)
+
+
+def _issues_spinner_html(label: str, *, inline: bool = False) -> str:
+    """SMIL spinner (survives Gradio HTML swaps / prefers-reduced-motion)."""
+    tag = "span" if inline else "div"
+    style = " style='margin:0;display:inline-flex;'" if inline else ""
+    return (
+        f"<{tag} class='overview-issues-progress' role='status' "
+        f"aria-live='polite'{style}>"
+        f"{_SPINNER_SVG}<span>{html.escape(label)}</span></{tag}>"
+    )
+
+
+def _run_pending_value_html() -> str:
+    """Spinner placeholder shown while the LLM run summary is being generated."""
+    return _issues_spinner_html("正在等待 AI 总结任务与结局…", inline=True)
+
+
+def build_run_summary_html(
+    session: LoadedSession,
+    ai_summary: tuple[str, str] | None = None,
+    *,
+    ai_pending: bool = False,
+) -> str:
+    """Story of the run shown under the verdict banner.
+
+    任务/结局 come from the LLM (*ai_summary*, shown with an AI badge — see
+    ``issue_judge.judge_run_summary``); while it is being generated
+    (*ai_pending*) a spinner placeholder is shown instead. Without AI the two
+    rows are omitted entirely — only the 数字 row (local metrics) remains.
+    """
+    steps = session.steps
+    if not steps:
+        return ""
+
+    # Ending note: the last assistant step that ran tools ended with every
+    # call failed — the run likely stopped on broken ground.
+    note = ""
+    for s in reversed(steps):
+        calls = s.get("tool_calls") or []
+        if s.get("role") == "assistant" and calls:
+            if all(tool_call_failed(c) for c in calls if isinstance(c, dict)):
+                note = "该步工具调用全部失败"
+            break
+
+    def _row(label: str, value: str) -> str:
+        return (
+            f"<div class='ov-run-row'>"
+            f"<span class='ov-run-label'>{label}</span>"
+            f"<span class='ov-run-value'>{value}</span></div>"
+        )
+
+    rows = []
+    if ai_summary is not None:
+        ai_task, ai_outcome = ai_summary
+        if ai_task:
+            task = (
+                "<span class='overview-issue-label overview-issue-label-ai'>AI</span>"
+                f"{html.escape(ai_task)}"
+            )
+        else:
+            task = "<span class='ov-run-muted'>（AI 未总结任务）</span>"
+        outcome_parts = []
+        if ai_outcome:
+            outcome_parts.append(
+                "<span class='overview-issue-label overview-issue-label-ai'>AI</span>"
+                f"{html.escape(ai_outcome)}"
+            )
+        else:
+            outcome_parts.append("<span class='ov-run-muted'>（AI 未总结结局）</span>")
+        if note:
+            outcome_parts.append(
+                f"<span class='ov-run-note'>⚠ {html.escape(note)}</span>"
+            )
+        rows.append(_row("任务", task))
+        rows.append(_row("结局", " ".join(outcome_parts)))
+    elif ai_pending:
+        rows.append(_row("任务与结局", _run_pending_value_html()))
+    metrics = getattr(session, "metrics", None) or {}
+    rows.append(_row("数字", " · ".join(_run_numbers_zh(steps, metrics))))
+    return "<div class='ov-run-summary'>" + "".join(rows) + "</div>"
+
+
+def _verdict_banner_html(issues: list[OverviewIssue]) -> str:
+    """One-glance health verdict above the Issues panel: overall status plus
+    the single most important issue in plain language."""
+    if not issues:
+        return (
+            "<div class='ov-verdict' style='border-left-color:var(--ov-success);'>"
+            "<div class='ov-verdict-head' style='color:var(--ov-success);'>"
+            "✅ 未检测到明显问题</div>"
+            "<div class='ov-verdict-text'>本次运行的工作流健康；"
+            "可在下方各分区查看执行细节。</div></div>"
+        )
+    errors = sum(1 for i in issues if i.kind == "error")
+    risks = sum(1 for i in issues if i.kind == "risk")
+    others = len(issues) - errors - risks
+    top = issues[0]
+    top_title, _, _top_detail = _localize_issue_text(top)
+    top_action = _issue_action_zh(top)
+    if errors or risks:
+        color = "var(--ov-bad)" if errors else "var(--ov-risk)"
+        parts = []
+        if errors:
+            parts.append(f"{errors} 个错误")
+        if risks:
+            parts.append(f"{risks} 个质量风险")
+        head = "❗ 需要关注：" + "、".join(parts)
+        text = f"最要紧的一项：「{top_title}」。{top_action}"
+    else:
+        color = "var(--ov-warn)"
+        head = f"⚠ 运行完成，有 {others} 个可优化项（不影响结果正确性）"
+        text = f"最主要的一项：「{top_title}」。{top_action}"
+    return (
+        f"<div class='ov-verdict' style='border-left-color:{color};'>"
+        f"<div class='ov-verdict-head' style='color:{color};'>{head}</div>"
+        f"<div class='ov-verdict-text'>{html.escape(text)}</div></div>"
+    )
+
+
 def render_overview_issues_html(
     issues: list[OverviewIssue],
     *,
     banner: str = "",
     progress: str = "",
+    run_summary: str = "",
 ) -> str:
     """Render a foldable Issues panel (healthy empty state when *issues* is empty).
 
     *progress* is a live status line shown inside the panel while the LLM judge runs.
+    *run_summary* is the three-line run story shown between the verdict banner
+    and the panel (see :func:`build_run_summary_html`).
     """
     banner_html = ""
     if banner:
@@ -539,27 +906,18 @@ def render_overview_issues_html(
 
     progress_html = ""
     if progress:
-        # SMIL (not CSS) so prefers-reduced-motion / Gradio HTML swaps don't freeze it.
         progress_html = (
             "<div class='overview-issues-progress' role='status' aria-live='polite'>"
             "<span class='overview-issues-progress-label'>思考中…</span>"
-            "<svg class='overview-issues-progress-spinner' width='14' height='14' "
-            "viewBox='0 0 24 24' aria-hidden='true' "
-            "style='flex-shrink:0;display:block'>"
-            "<circle cx='12' cy='12' r='10' fill='none' "
-            "stroke='currentColor' stroke-opacity='0.25' stroke-width='3'/>"
-            "<path d='M12 2a10 10 0 0 1 10 10' fill='none' stroke='currentColor' "
-            "stroke-width='3' stroke-linecap='round'>"
-            "<animateTransform attributeName='transform' type='rotate' "
-            "from='0 12 12' to='360 12 12' dur='0.7s' repeatCount='indefinite'/>"
-            "</path></svg>"
-            f"<span>{html.escape(progress)}</span>"
+            f"{_SPINNER_SVG}<span>{html.escape(progress)}</span>"
             "</div>"
         )
 
     if not issues:
         return (
-            "<details class='overview-issues-panel' id='overview-issues'>"
+            _verdict_banner_html(issues)
+            + run_summary
+            + "<details class='overview-issues-panel' id='overview-issues'>"
             "<summary class='overview-issues-summary'>"
             "<span>问题</span>"
             "<span class='overview-issues-summary-meta'>未检测到问题</span>"
@@ -576,7 +934,7 @@ def render_overview_issues_html(
     judged = sum(1 for i in issues if i.judgment is not None)
     count_label = f"{count} 个问题"
     if progress:
-        count_label += " · 正在生成修复建议…"
+        count_label += " · 正在 AI 分析…"
     elif judged:
         count_label += f" · 已为 {judged} 个问题生成修复建议"
 
@@ -587,11 +945,13 @@ def render_overview_issues_html(
     )
     hint = (
         f"<div class='overview-issues-hint'>{lead} · 点击步骤可跳转到 Workflow"
-        " · 「AI 深入分析」打开右侧分析面板继续追问"
-        " · 鼠标悬停 ⓘ 查看说明</div>"
+        " · 技术细节默认折叠，点击展开"
+        " · 「AI 深入分析」打开右侧分析面板继续追问</div>"
     )
     return (
-        "<details class='overview-issues-panel' id='overview-issues' open>"
+        _verdict_banner_html(issues)
+        + run_summary
+        + "<details class='overview-issues-panel' id='overview-issues' open>"
         "<summary class='overview-issues-summary'>"
         "<span>问题</span>"
         f"<span class='overview-issues-summary-meta'>{html.escape(count_label)}</span>"
@@ -611,10 +971,17 @@ def build_overview_issues_html(
     issues: list[OverviewIssue] | None = None,
     banner: str = "",
     progress: str = "",
+    ai_summary: tuple[str, str] | None = None,
+    ai_pending: bool = False,
 ) -> str:
     """Collect (deduped + ranked) and render Overview Issues for *session*."""
     if issues is None:
         ranked = prepare_overview_issues(session)
     else:
         ranked = list(issues)
-    return render_overview_issues_html(ranked, banner=banner, progress=progress)
+    return render_overview_issues_html(
+        ranked,
+        banner=banner,
+        progress=progress,
+        run_summary=build_run_summary_html(session, ai_summary, ai_pending=ai_pending),
+    )

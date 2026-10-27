@@ -288,7 +288,7 @@ class AftermathIssueCardTests(unittest.TestCase):
     def test_card_localizes_to_chinese(self):
         cards, _ = self._cards()
         title, detail, why = _localize_issue_text(cards[0])
-        self.assertIn("压缩后的写操作可能基于摘要而非新鲜读取", title)
+        self.assertIn("压缩后凭摘要改代码（第 2 步压缩之后）", title)
         self.assertIn("第 2 步压缩之后", title)
         self.assertIn("第 1、3 步两次连续写之间发生压缩", detail)
         self.assertIn("压缩前读取 ≈", detail)

@@ -1,13 +1,13 @@
 """Overview Issues triage panel — collect, rank, render."""
 
 import unittest
-from types import SimpleNamespace
 
 from agent_trajviz.insight.issues import dedupe_overlapping_issues
 from agent_trajviz.insight.presenters.issues import (
     IssueJudgment,
     OverviewIssue,
     build_overview_issues_html,
+    build_run_summary_html,
     collect_overview_issues,
     group_issue_families,
     issue_analysis_question_from_payload,
@@ -16,28 +16,8 @@ from agent_trajviz.insight.presenters.issues import (
     rank_issues,
     render_overview_issues_html,
 )
-
-
-def _session(**kwargs):
-    base = dict(
-        steps=[],
-        failure_patterns=[],
-        failure_chains=[],
-        fruitless_streaks=[],
-        tool_selection=[],
-        plan_metrics={},
-        plan_history=[],
-        edit_thrash=[],
-        repeated_searches=[],
-        phase_regressions=[],
-        performance_bottlenecks=[],
-        premature_compactions=[],
-        compaction_aftermath=[],
-        file_interactions=[],
-        format="",
-    )
-    base.update(kwargs)
-    return SimpleNamespace(**base)
+from agent_trajviz.insight.presenters.overview import build_token_summary_html
+from tests.overview_session_stub import overview_session as _session
 
 
 class OverviewIssuesTests(unittest.TestCase):
@@ -174,7 +154,7 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn("animateTransform", html)
         self.assertIn("currentColor", html)
         self.assertIn("Suggesting fixes 1/3", html)
-        self.assertIn("正在生成修复建议…", html)
+        self.assertIn("正在 AI 分析…", html)
         self.assertNotIn("修改位置", html)
 
     def test_step_chips_without_fix_or_change(self):
@@ -191,8 +171,13 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn("tvGotoWorkflowStep(7)", html)
         self.assertIn(">第3步<", html)
         self.assertIn(">第7步<", html)
-        self.assertIn("overview-issue-info", html)
-        self.assertIn("title='常见恢复路径：Read'", html)
+        self.assertIn("overview-issue-why", html)
+        self.assertIn("overview-issue-action", html)
+        self.assertIn("overview-issue-tech", html)
+        self.assertIn(">影响<", html)
+        self.assertIn(">建议<", html)
+        self.assertIn(">技术细节<", html)
+        self.assertIn("失败后智能体调用 Read，自行恢复了", html)
         self.assertIn("overview-issue-analyze", html)
         self.assertIn("AI 深入分析", html)
         self.assertIn("tvAnalyzeIssue", html)
@@ -322,8 +307,8 @@ class OverviewIssuesTests(unittest.TestCase):
         self.assertIn("23–33%", premature.detail)
         self.assertIn("128k", premature.detail)
         html = render_overview_issues_html(rank_issues(issues))
-        self.assertIn("过早压缩上下文", html)
-        self.assertIn("压缩后上下文反而变大", html)
+        self.assertIn("上下文被过早压缩", html)
+        self.assertIn("压缩未起效：上下文不降反增", html)
         self.assertIn("压缩时窗口占用：假定 128k token 窗口的", html)
         # Visible chrome is Chinese; the AI ask prompt is rebuilt server-side.
         self.assertNotIn("overview-issue-title'>Premature compactions", html)
@@ -526,6 +511,243 @@ class OverviewIssuesTests(unittest.TestCase):
                 title[:1].isdigit(),
                 f"issue title should not start with a digit: {title!r}",
             )
+
+
+class RunSummaryTests(unittest.TestCase):
+    """The three-line run story under the verdict banner."""
+
+    @staticmethod
+    def _step(role, text="", *, tokens=None, tool_calls=None):
+        return {
+            "index": 0,
+            "role": role,
+            "agent": "",
+            "is_sub_agent": False,
+            "session_id": "s1",
+            "tokens": tokens or {},
+            "parts": [{"type": "text", "text": text}] if text else [],
+            "tool_calls": tool_calls or [],
+            "model_id": "m",
+        }
+
+    def _session(self, steps, metrics=None):
+        session = _session()
+        session.steps = steps
+        if metrics is not None:
+            session.metrics = metrics
+        return session
+
+    def test_ai_rows_and_numbers_rows(self):
+        session = self._session(
+            [
+                self._step("user", "修复登录页在 Safari 下崩溃的问题"),
+                self._step(
+                    "assistant",
+                    "已修复：给 flex 容器补了 min-width，回归测试全绿。",
+                    tokens={"total": 12345, "input": 1000, "cache_read": 9000},
+                ),
+            ],
+            metrics={
+                "wall_clock": 125,
+                "tokens": {"total": 12345, "input": 1000, "cache_read": 9000},
+                "tool_call_count": 7,
+                "tool_breakdown": {"bash": 5, "read": 2},
+            },
+        )
+        html = build_run_summary_html(
+            session, ai_summary=("修复登录页崩溃", "已修复，测试全绿")
+        )
+        self.assertIn("ov-run-summary", html)
+        self.assertIn("ov-run-label'>任务", html)
+        self.assertIn("修复登录页崩溃", html)
+        self.assertIn("ov-run-label'>结局", html)
+        self.assertIn("已修复，测试全绿", html)
+        self.assertIn("ov-run-label'>数字", html)
+        self.assertIn("2 步", html)
+        self.assertIn("2m 5s", html)
+        self.assertIn("12.3k token", html)
+        self.assertIn("缓存命中 90%", html)
+        self.assertIn("工具 7 次（bash 最多，5 次）", html)
+
+    def test_default_mode_hides_task_and_outcome_rows(self):
+        # Without AI the 任务/结局 rows are omitted — only 数字 remains.
+        session = self._session(
+            [
+                self._step("user", "修复登录页在 Safari 下崩溃的问题"),
+                self._step("assistant", "已修复：回归测试全绿。"),
+            ],
+        )
+        html = build_run_summary_html(session)
+        self.assertIn("ov-run-summary", html)
+        self.assertIn("ov-run-label'>数字", html)
+        self.assertIn("2 步", html)
+        self.assertNotIn("ov-run-label'>任务", html)
+        self.assertNotIn("ov-run-label'>结局", html)
+        self.assertNotIn("修复登录页在 Safari 下崩溃的问题", html)
+        self.assertNotIn("已修复：回归测试全绿", html)
+
+    def test_summary_sits_between_banner_and_panel(self):
+        session = self._session(
+            [self._step("user", "hi"), self._step("assistant", "done")],
+        )
+        html = build_overview_issues_html(session)
+        self.assertLess(html.index("ov-verdict"), html.index("ov-run-summary"))
+        self.assertLess(html.index("ov-run-summary"), html.index("overview-issues-panel"))
+
+    def test_raw_user_text_is_never_rendered(self):
+        # Raw first/last messages are not a display path any more — the rows
+        # are AI-only, so untrusted user text never reaches the summary.
+        session = self._session(
+            [self._step("user", "<img src=x onerror=alert(1)>")],
+        )
+        for html in (
+            build_run_summary_html(session),
+            build_run_summary_html(session, ai_pending=True),
+        ):
+            self.assertNotIn("<img src=x", html)
+            self.assertNotIn("onerror", html)
+
+    def test_all_failed_ending_is_flagged(self):
+        session = self._session(
+            [
+                self._step("user", "跑一下部署"),
+                self._step(
+                    "assistant",
+                    "尝试部署",
+                    tool_calls=[
+                        {"tool_name": "bash", "status": "error"},
+                        {"tool_name": "bash", "status": "error"},
+                    ],
+                ),
+            ],
+        )
+        html = build_run_summary_html(session, ai_summary=("部署", "尝试部署"))
+        self.assertIn("ov-run-note", html)
+        self.assertIn("该步工具调用全部失败", html)
+
+    def test_recovered_ending_is_not_flagged(self):
+        session = self._session(
+            [
+                self._step("user", "跑一下部署"),
+                self._step(
+                    "assistant",
+                    "部署完成",
+                    tool_calls=[
+                        {"tool_name": "bash", "status": "error"},
+                        {"tool_name": "bash", "status": "completed"},
+                    ],
+                ),
+            ],
+        )
+        html = build_run_summary_html(session, ai_summary=("部署", "部署完成"))
+        self.assertNotIn("ov-run-note", html)
+
+    def test_no_steps_means_no_summary(self):
+        self.assertEqual(build_run_summary_html(_session()), "")
+        self.assertNotIn("ov-run-summary", build_overview_issues_html(_session()))
+
+    def test_pending_mode_shows_spinner_placeholder(self):
+        session = self._session(
+            [self._step("user", "很长的原始任务描述"), self._step("assistant", "完成")],
+        )
+        html = build_run_summary_html(session, ai_pending=True)
+        self.assertIn("ov-run-label'>任务与结局", html)
+        self.assertIn("正在等待 AI 总结任务与结局…", html)
+        self.assertIn("overview-issues-progress-spinner", html)
+        self.assertIn("animateTransform", html)
+        self.assertIn("ov-run-label'>数字", html)
+        self.assertNotIn("很长的原始任务描述", html)
+        self.assertNotIn("ov-run-label'>任务</span>", html)
+
+    def test_ai_summary_replaces_raw_text_with_badge(self):
+        session = self._session(
+            [
+                self._step("user", "很长的原始任务描述，不应该出现在 AI 总结模式下"),
+                self._step("assistant", "很长的原始结局描述"),
+            ],
+        )
+        html = build_run_summary_html(session, ai_summary=("AI 总结的任务", "AI 总结的结局"))
+        self.assertIn("overview-issue-label-ai", html)
+        self.assertIn("AI 总结的任务", html)
+        self.assertIn("AI 总结的结局", html)
+        self.assertNotIn("不应该出现在 AI 总结模式下", html)
+        self.assertNotIn("很长的原始结局描述", html)
+
+    def test_ai_summary_escapes_model_text(self):
+        session = self._session([self._step("user", "hi")])
+        html = build_run_summary_html(
+            session, ai_summary=("<img src=x onerror=alert(1)>", "ok")
+        )
+        self.assertNotIn("<img src=x", html)
+        self.assertIn("&lt;img src=x onerror=", html)
+
+    def test_partial_ai_summary_shows_placeholder_per_row(self):
+        session = self._session(
+            [self._step("user", "原始任务"), self._step("assistant", "原始结局")],
+        )
+        html = build_run_summary_html(session, ai_summary=("", "AI 结局"))
+        self.assertIn("（AI 未总结任务）", html)
+        self.assertIn("AI 结局", html)
+        self.assertNotIn("原始任务", html)
+        self.assertNotIn("原始结局", html)
+
+    def test_build_overview_issues_html_passes_ai_state_through(self):
+        session = self._session(
+            [self._step("user", "hi"), self._step("assistant", "done")],
+        )
+        html = build_overview_issues_html(session, ai_summary=("任务A", "结局B"))
+        self.assertIn("任务A", html)
+        self.assertIn("结局B", html)
+        html = build_overview_issues_html(session, ai_pending=True)
+        self.assertIn("正在等待 AI 总结任务与结局…", html)
+
+
+class TokenSummaryLineTests(unittest.TestCase):
+    """The always-visible takeaway line above the Token Usage chart."""
+
+    @staticmethod
+    def _step(role, *, tokens=None, parts=None):
+        return {
+            "index": 0,
+            "role": role,
+            "agent": "",
+            "is_sub_agent": False,
+            "session_id": "s1",
+            "tokens": tokens or {},
+            "parts": parts or [],
+            "tool_calls": [],
+            "model_id": "m",
+        }
+
+    def _session(self, steps):
+        session = _session()
+        session.steps = steps
+        return session
+
+    def test_cache_hit_max_step_and_peak(self):
+        html = build_token_summary_html(self._session([
+            self._step("user"),
+            self._step("assistant", tokens={"total": 8000, "input": 500, "cache_read": 7000}),
+            self._step("assistant", tokens={"total": 20000, "input": 300, "cache_read": 19000}),
+        ]))
+        self.assertIn("缓存命中 97%（命中 26k / 新算 800）", html)
+        self.assertIn("最大单步 20k（第 2 步）", html)
+        self.assertIn("上下文峰值 19.3k", html)
+        self.assertNotIn("压缩", html)
+
+    def test_compaction_drop_is_summarised(self):
+        html = build_token_summary_html(self._session([
+            self._step("assistant", tokens={"total": 10000, "input": 10000}),
+            self._step("user", parts=[{"type": "compaction", "summary": "s"}]),
+            self._step("assistant", tokens={"total": 4000, "input": 4000}),
+        ]))
+        self.assertIn("压缩丢弃 6k token（1 次）", html)
+
+    def test_empty_session_renders_nothing(self):
+        self.assertEqual(build_token_summary_html(self._session([])), "")
+        session = _session()
+        session.steps = [{"role": "user", "parts": [], "tool_calls": [], "tokens": {}}]
+        self.assertEqual(build_token_summary_html(session), "")
 
 
 if __name__ == "__main__":

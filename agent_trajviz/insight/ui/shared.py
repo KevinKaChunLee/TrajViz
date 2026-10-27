@@ -6,6 +6,7 @@ import functools
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from threading import Lock
 
 import gradio as gr
 
@@ -37,6 +38,39 @@ def format_choices() -> list[tuple[str, str]]:
     from ...api import FORMATS
 
     return [("Auto-detect", ""), *((label, key) for key, label in FORMATS.items())]
+
+
+# The run each browser session last loaded (``None`` after a clear), keyed by
+# Gradio session hash. Post-load streams that paint the UI across many yields
+# (the LLM Issues judge) check this to stop themselves once a newer load
+# replaced the trajectory they were analyzing — otherwise the replaced stream
+# keeps overwriting the new trace's panels with the old one's content.
+_latest_run_by_session: dict[str | None, object] = {}
+_latest_run_lock = Lock()
+
+
+def record_latest_run(session_hash: str | None, run: object) -> None:
+    """Note *run* as the trajectory *session_hash* currently displays."""
+    with _latest_run_lock:
+        _latest_run_by_session[session_hash] = run
+
+
+def is_latest_run(session_hash: str | None, run: object) -> bool:
+    """True while *run* is still what *session_hash* last loaded.
+
+    With no record (direct/library callers, tests) everything counts as
+    current; a recorded ``None`` (cleared upload) supersedes every run.
+    """
+    with _latest_run_lock:
+        if session_hash not in _latest_run_by_session:
+            return True
+        return _latest_run_by_session[session_hash] is run
+
+
+def drop_latest_run(session_hash: str | None) -> None:
+    """Forget *session_hash* on browser unload."""
+    with _latest_run_lock:
+        _latest_run_by_session.pop(session_hash, None)
 
 
 def safe_callback(label: str) -> Callable:

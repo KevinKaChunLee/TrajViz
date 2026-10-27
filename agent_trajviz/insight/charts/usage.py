@@ -59,12 +59,14 @@ def _add_token_bar_traces(
     By default only adds traces that have non-zero data to avoid misleading legends
     (e.g., trajectories that only report total tokens, no breakdown).
 
-    Pass ``include_empty=True`` to force every trace into the legend (useful when
-    the viewer wants to see which fields are tracked even if they happen to be
-    zero across the entire trajectory).
+    Pass ``include_empty=True`` to force every tracked-but-zero trace into the
+    legend. Cache Write is the one exception: OpenAI-style exports (OpenCode,
+    CodeArts) structurally report zero for it, so an all-zero Cache Write never
+    enters the legend — it would only add a dead entry every viewer asks about.
 
-    Pass ``cache_write`` to add a 5th stacked trace. For OpenCode this sample
-    always reports zero, but the field is present and worth showing.
+    Pass ``cache_write`` to add a 5th stacked trace (shown only when non-zero,
+    or when ``include_empty`` would otherwise force it — still subject to the
+    Cache Write opt-out above).
 
     Stack order (bottom → top) mirrors context-window occupancy: cache read
     forms the base, then fresh input, then generated reasoning / output;
@@ -89,7 +91,8 @@ def _add_token_bar_traces(
     rc = _subplot_rc(row, col)
     step_prefix = f"{x_label} " if x_label else ""
     for name, values, color in traces:
-        if include_empty or any(v > 0 for v in values):
+        forced = include_empty and name != "Cache Write"
+        if forced or any(v > 0 for v in values):
             show = _claim_legend(legend_shown, name) if legend_shown is not None else True
             bar_kwargs: dict = dict(
                 x=x_values,

@@ -120,6 +120,13 @@ def _count_label(label: str, count: int) -> str:
     return f"{label} ({count}×)" if count else label
 
 
+def _short_display(text: str, limit: int = 48) -> str:
+    """Truncate *text* for an issue detail/title, keeping *limit* chars."""
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)] + "…"
+
+
 def _from_failure_patterns(session: LoadedSession | Analysis) -> list[OverviewIssue]:
     out: list[OverviewIssue] = []
     for i, pat in enumerate(session.failure_patterns or []):
@@ -340,18 +347,132 @@ def _from_antipatterns(session: LoadedSession | Analysis) -> list[OverviewIssue]
         display = str(rep.get("display") or rep.get("signature") or "")
         count = int(rep.get("count") or 0)
         steps = tuple(int(s) for s in (rep.get("steps") or []) if s is not None)
-        short = display if len(display) <= 48 else (display[:45] + "…")
         out.append(
             OverviewIssue(
                 kind="antipattern",
                 title=f"Repeated empty search ({count}×)",
-                detail=short,
+                detail=_short_display(display),
                 why=(
                     "The same search ran multiple times with empty results (not only as a "
                     "consecutive streak) — the query or path is likely wrong."
                 ),
                 steps=steps,
                 source_id=f"antipattern:repeated_search:{i}",
+            )
+        )
+
+    oversized = session.oversized_outputs or []
+    if oversized:
+        shown = oversized[:3]
+        desc = ", ".join(
+            f"step {o['step']} {o['tool']} ≈{int(o['tokens']):,} tokens"
+            + (f" ({int(o['share'])}% of context)" if o.get("share") is not None else "")
+            for o in shown
+        )
+        remaining = len(oversized) - len(shown)
+        if remaining > 0:
+            desc += f", +{remaining} more"
+        out.append(
+            OverviewIssue(
+                kind="antipattern",
+                title=_count_label("Oversized tool outputs", len(oversized)),
+                detail=desc,
+                why=(
+                    "A tool result this large stays in the conversation history, so every "
+                    "later step pays for it again until a compaction drops it. Typical "
+                    "sources: whole-file cat, unbounded find, verbose test output."
+                ),
+                steps=tuple(sorted({int(o["step"]) for o in oversized})),
+                source_id="antipattern:oversized_output",
+            )
+        )
+
+    for i, retry in enumerate(session.blind_retries or []):
+        tool = str(retry.get("tool") or "tool")
+        attempts = int(retry.get("attempts") or 0)
+        failed = int(retry.get("failed") or 0)
+        steps = tuple(int(s) for s in (retry.get("steps") or []) if s is not None)
+        display = str(retry.get("display") or "")
+        out.append(
+            OverviewIssue(
+                kind="antipattern",
+                title=f"Blind retry of failed {tool} call ({attempts}×)",
+                detail=(
+                    f"{failed} of {attempts} identical attempts failed — "
+                    f"{_short_display(display)}"
+                ),
+                why=(
+                    "A failed call was resubmitted verbatim and failed again — unchanged "
+                    "input in an unchanged environment yields the same result, so the "
+                    "retries only burned tokens and turns."
+                ),
+                steps=steps,
+                source_id=f"antipattern:blind_retry:{i}",
+            )
+        )
+
+    for i, rep in enumerate(session.user_repeats or []):
+        message = str(rep.get("message") or "")
+        count = int(rep.get("count") or 0)
+        steps = tuple(int(s) for s in (rep.get("steps") or []) if s is not None)
+        out.append(
+            OverviewIssue(
+                kind="antipattern",
+                title=f"User repeated a message ({count}×)",
+                detail=_short_display(message, 60),
+                why=(
+                    "The user sent the exact same message again — the most direct evidence "
+                    "available that the previous response did not satisfy them; no "
+                    "inference required."
+                ),
+                steps=steps,
+                source_id=f"antipattern:user_repeat:{i}",
+            )
+        )
+
+    unvalidated = session.unvalidated_writes or []
+    if unvalidated:
+        u = unvalidated[0]
+        write_steps = tuple(int(s) for s in (u.get("steps") or []) if s is not None)
+        first, last = write_steps[0], write_steps[-1]
+        out.append(
+            OverviewIssue(
+                kind="antipattern",
+                title="Code changes were never validated",
+                detail=(
+                    f"{int(u.get('files') or 0)} code file(s) written in steps "
+                    f"{first}–{last}; no test/build/lint command in the whole run"
+                ),
+                why=(
+                    "Every write succeeded but nothing checked the result — correctness "
+                    "rests on the agent's confidence alone, and regressions it cannot "
+                    "see have no chance of being caught."
+                ),
+                steps=write_steps[:12],
+                source_id="antipattern:unvalidated_writes",
+            )
+        )
+
+    for i, reread in enumerate(session.redundant_re_reads or []):
+        path = str(reread.get("path") or "")
+        count = int(reread.get("count") or 0)
+        steps = tuple(int(s) for s in (reread.get("steps") or []) if s is not None)
+        step_list = ", ".join(str(s) for s in steps)
+        out.append(
+            OverviewIssue(
+                kind="antipattern",
+                title=f"Re-read an unchanged file ({count}×)",
+                detail=(
+                    f"{path} re-read {count}× with no write or compaction in "
+                    f"between (steps {step_list})"
+                ),
+                why=(
+                    "Nothing wrote to the file and no compaction dropped it — the "
+                    "content was already in context, so each re-read spends fresh "
+                    "tokens for nothing."
+                ),
+                steps=steps,
+                source_id=f"antipattern:redundant_reread:{i}",
             )
         )
 
