@@ -46,6 +46,7 @@ change the public API (the names exported from `agent_trajviz`).
   Show readable Codex error diagnostics while retaining original output payloads.
 - Include active and interrupted OpenCode reviewer sessions during collection,
   respect native parent relationships and keep unfinished response timing unknown.
+  Distinguish child prompt and model-mode lanes in workflow filter labels.
 - Measure post-compaction context from the next live request rather than the
   compaction request’s billed input; allow unavailable compaction measurements
   in exported view schemas.
