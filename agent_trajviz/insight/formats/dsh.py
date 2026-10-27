@@ -281,11 +281,11 @@ def _dsh_is_human_user_source(source: Any) -> bool:
 def _dsh_tool_result_payload(data: dict) -> tuple[str, str, bool]:
     """Return ``(call_id, output_text, is_error)`` from a ``tool/result`` event."""
     message = data.get("message") if isinstance(data.get("message"), dict) else {}
-    call_id = ""
+    call_id = str(message.get("toolCallId") or "")
     source = message.get("source")
     if isinstance(source, dict) and source.get("callId"):
         call_id = str(source.get("callId"))
-    is_error = bool(data.get("error"))
+    is_error = bool(message.get("isError") or data.get("error"))
     chunks: list[str] = []
     for item in _dsh_iter_content(message.get("content")):
         if item.get("type") in ("tool-result", "tool_result"):

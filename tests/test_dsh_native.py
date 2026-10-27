@@ -189,6 +189,32 @@ class DshNativeTests(unittest.TestCase):
             self.assertEqual(captured.metrics["tokens"]["total"], 70)
             self.assertEqual(captured.metrics["tool_call_count"], 1)
 
+    def test_v4_flat_tool_result_preserves_outcome_and_direct_call_id(self):
+        # Released v4 stores the result fields on message, with plain text
+        # content, rather than nesting them in a tool-result content block.
+        for source_has_id in (False, True):
+            for is_error in (False, True):
+                with self.subTest(source_has_id=source_has_id, is_error=is_error), tempfile.TemporaryDirectory() as tmp:
+                    rows = events()
+                    source = {"kind": "tool"}
+                    if source_has_id:
+                        source["callId"] = "root-call"
+                    rows[-2]["data"]["message"] = {
+                        "id": "result", "role": "tool", "source": source,
+                        "toolCallId": "root-call", "isError": is_error,
+                        "content": [{"type": "text", "text": "command failed" if is_error else "ok"}],
+                    }
+                    captured = tv.load(write(Path(tmp), rows, compressed=False))
+                    model = next(step for step in captured.steps if step["role"] == "assistant")
+                    self.assertEqual(captured.metrics["tool_call_count"], 1)
+                    self.assertEqual(len(captured.steps), 2)
+                    self.assertEqual(model["error_count"], int(is_error))
+                    tool = model["tool_calls"][0]
+                    self.assertEqual(tool["tool_id"], "root-call")
+                    self.assertEqual(tool["status"], "error" if is_error else "success")
+                    self.assertEqual(tool["output"], "command failed" if is_error else "ok")
+                    self.assertEqual(tool["duration_ms"], 5000)
+
     def test_missing_reasoning_breakdown_is_not_reported_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             rows = events()
