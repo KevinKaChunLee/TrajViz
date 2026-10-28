@@ -264,6 +264,40 @@ class AnalysisChatTests(unittest.TestCase):
         self.assertEqual(body["messages"][0], {"role": "system", "content": "SYS"})
         self.assertEqual(body["model"], "demo-model")
 
+    def test_analyze_headers_merge_into_openai_request(self):
+        class FakeResp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"choices": [{"message": {"content": "ok"}}]}
+
+        cfg = _cfg(extra_headers={
+            "X-HW-ID": "com.huawei.ocean_maas",
+            "X-HW-APPKEY": "app-secret",
+            "Authorization": "Bearer should-not-win",
+        })
+        with patch.object(assistant.requests, "post", return_value=FakeResp()) as post:
+            assistant.complete_chat(cfg, "SYS", [{"role": "user", "content": "q"}])
+        headers = post.call_args.kwargs["headers"]
+        self.assertEqual(headers["X-HW-ID"], "com.huawei.ocean_maas")
+        self.assertEqual(headers["X-HW-APPKEY"], "app-secret")
+        self.assertEqual(headers["Authorization"], "Bearer sk-test")
+
+    def test_resolve_reads_analyze_headers_json(self):
+        env = {
+            "ANALYZE_BASE_URL": "https://api.example.com/v1",
+            "ANALYZE_API_KEY": "sk-x",
+            "ANALYZE_MODEL": "m",
+            "ANALYZE_HEADERS": (
+                '{"X-HW-ID": "com.huawei.ocean_maas", "X-HW-APPKEY": "xxxx"}'
+            ),
+        }
+        with patch.dict(os.environ, env, clear=True):
+            cfg = resolve_analysis_config()
+        self.assertEqual(cfg.extra_headers["X-HW-ID"], "com.huawei.ocean_maas")
+        self.assertEqual(cfg.extra_headers["X-HW-APPKEY"], "xxxx")
+
     def test_every_prompt_names_the_metrics_to_cite(self):
         for prompt in (assistant.SYSTEM_PROMPT, assistant.system_prompt("Simplified Chinese"),
                        assistant.system_prompt("German")):

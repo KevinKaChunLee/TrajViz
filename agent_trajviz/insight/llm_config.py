@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .._llm_http import env_json_dict
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -126,6 +128,8 @@ class AnalysisLLMConfig:
     max_tokens: int
     timeout: int
     source: str  # "analyze" | "label" | "mixed" | "missing"
+    #: From ``ANALYZE_HEADERS`` / ``LABEL_HEADERS``; out of repr (may hold secrets).
+    extra_headers: dict[str, str] = field(default_factory=dict, repr=False)
 
     @property
     def ready(self) -> bool:
@@ -191,6 +195,9 @@ def resolve_analysis_config() -> AnalysisLLMConfig:
     if timeout <= 0:
         timeout = 120
 
+    # ANALYZE_HEADERS wins; LABEL_HEADERS fills so one .env drives both tools.
+    extra_headers = env_json_dict("ANALYZE_HEADERS") or env_json_dict("LABEL_HEADERS")
+
     return AnalysisLLMConfig(
         base_url=base_url.rstrip("/"),
         api_key=api_key,
@@ -200,6 +207,7 @@ def resolve_analysis_config() -> AnalysisLLMConfig:
         max_tokens=max_tokens,
         timeout=timeout,
         source=source,
+        extra_headers=extra_headers,
     )
 
 

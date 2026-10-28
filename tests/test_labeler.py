@@ -32,6 +32,32 @@ class LabelerTests(unittest.TestCase):
                 "ANALYZE_MODEL": "analysis-model",
             })
 
+    def test_label_headers_merge_into_openai_request(self):
+        class FakeResp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"choices": [{"message": {"content": '{"phase":"understand","action":"read_file"}'}}]}
+
+        sent = {}
+
+        def post(url, json=None, headers=None, timeout=None):
+            sent["headers"] = headers
+            return FakeResp()
+
+        env = {
+            "LABEL_HEADERS": '{"X-HW-ID": "com.huawei.ocean_maas", "X-HW-APPKEY": "xxxx"}',
+        }
+        with patch.dict(os.environ, env, clear=False), patch("requests.post", post):
+            llm.call_llm(
+                "https://llm.example.com/v1", "sk-test", "m",
+                "sys", "user step", provider="openai",
+            )
+        self.assertEqual(sent["headers"]["X-HW-ID"], "com.huawei.ocean_maas")
+        self.assertEqual(sent["headers"]["X-HW-APPKEY"], "xxxx")
+        self.assertEqual(sent["headers"]["Authorization"], "Bearer sk-test")
+
     def test_retry_logs_never_include_provider_error_details(self):
         sensitive_message = "https://viewer:synthetic-password@example.invalid/v1?key=synthetic-query"
         with (
