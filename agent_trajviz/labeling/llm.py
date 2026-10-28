@@ -140,7 +140,12 @@ def _call_openai(
         timeout=timeout,
     )
     resp.raise_for_status()
-    return str(resp.json()["choices"][0]["message"]["content"]).strip()
+    content = resp.json()["choices"][0]["message"]["content"]
+    if content is None:
+        return ""
+    if not isinstance(content, str):
+        raise ValueError("OpenAI response content is not text")
+    return content.strip()
 
 
 def _call_anthropic(

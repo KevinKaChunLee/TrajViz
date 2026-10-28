@@ -52,12 +52,24 @@ def pair_tasks(
 ) -> tuple[list[tuple[BatchResult, BatchResult]], list[BatchResult], list[BatchResult]]:
     """Match tasks between before and after batches by task_id.
 
-    Returns (paired, before_only, after_only).
+    Returns (paired, before_only, after_only). Unpaired entries include failed
+    comparisons, so an input error cannot silently disappear from the report.
+    Each batch must have unique, non-empty string task identifiers.
     """
-    before_map = {r.task_id: r for r in before_results if r.report is not None}
-    after_map = {r.task_id: r for r in after_results if r.report is not None}
+    def index_results(results: list[BatchResult], side: str) -> dict[str, BatchResult]:
+        indexed: dict[str, BatchResult] = {}
+        for result in results:
+            if not isinstance(result.task_id, str) or not result.task_id.strip():
+                raise ValueError(f"{side} task_id must be a non-empty string")
+            if result.task_id in indexed:
+                raise ValueError(f"{side} has duplicate task_id {result.task_id!r}")
+            indexed[result.task_id] = result
+        return indexed
 
-    paired_ids = set(before_map.keys()) & set(after_map.keys())
+    before_map = index_results(before_results, "Before batch")
+    after_map = index_results(after_results, "After batch")
+    paired_ids = {tid for tid in before_map.keys() & after_map.keys()
+                  if before_map[tid].report is not None and after_map[tid].report is not None}
 
     paired = [(before_map[tid], after_map[tid]) for tid in sorted(paired_ids)]
     before_only = [before_map[tid] for tid in sorted(set(before_map.keys()) - paired_ids)]
@@ -386,6 +398,8 @@ def generate_recommendation(
     guardrails: list[dict],
 ) -> str:
     """Generate a one-line recommendation based on intervention effect."""
+    if not metric_deltas:
+        return "No comparable metric observations are available."
     improved = [n for n, d in metric_deltas.items() if d["direction"] == "improved"]
     regressed = [n for n, d in metric_deltas.items() if d["direction"] == "regressed"]
 
@@ -440,7 +454,8 @@ def build_intervention_report(
             "significance_warning": d.get("significance_warning"),
         }
 
-    recommendation = generate_recommendation(metric_deltas, guardrails)
+    recommendation = (generate_recommendation(metric_deltas, guardrails) if paired else
+                      "Intervention effects are unavailable: no successful task pairs are available.")
 
     return {
         "before_manifest": before_manifest,
@@ -448,6 +463,12 @@ def build_intervention_report(
         "paired_tasks": len(paired),
         "unpaired_before": len(before_only),
         "unpaired_after": len(after_only),
+        "input_errors": [
+            {"side": side, "task_id": result.task_id,
+             "error": result.error or "Comparison report is unavailable."}
+            for side, results in (("before", before_only), ("after", after_only))
+            for result in results if result.report is None
+        ],
         "intervention_effect": clean_deltas,
         "significance": "Wilcoxon signed-rank per metric; Holm-adjusted across metrics, alpha 0.05",
         "guardrail_warnings": guardrails,

@@ -45,6 +45,9 @@ CONVERGE_CSS = """
 
 /* ── Report panel ───────────────────────────────────────────── */
 .cvg-report {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
         'Noto Sans SC', 'Noto Sans CJK SC', sans-serif;
     background: var(--cvg-card);
@@ -193,4 +196,11 @@ CONVERGE_CSS = """
     font-size: 0.8rem;
     line-height: 1.4;
 }
+@media (max-width: 600px) {
+    .cvg-report { padding: 0.75rem; }
+    .cvg-outcome-table th, .cvg-outcome-table td,
+    .cvg-milestone-table th, .cvg-milestone-table td,
+    .cvg-anchor-table th, .cvg-anchor-table td { padding: 0.35rem 0.5rem; }
+}
+
 """

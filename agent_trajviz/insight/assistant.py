@@ -679,7 +679,12 @@ def _call_openai(
     response = requests.post(url, json=body, headers=headers, timeout=config.timeout)
     response.raise_for_status()
     data = response.json()
-    return str(data["choices"][0]["message"]["content"]).strip()
+    content = data["choices"][0]["message"]["content"]
+    if content is None:
+        return ""
+    if not isinstance(content, str):
+        raise ValueError("OpenAI response content is not text")
+    return content.strip()
 
 
 def _call_anthropic(

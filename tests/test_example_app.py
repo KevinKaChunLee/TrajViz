@@ -115,6 +115,51 @@ class LiveAppTests(unittest.TestCase):
         self.assertEqual(summary["evidence_level"], "single_pair_hypothesis")
         self.assertTrue(milestones and divergence)
 
+    def test_multi_session_capture_requires_selection_and_keeps_unknown_tokens(self):
+        from tests.test_otlp_e2e import _bundle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _, archive = _bundle(Path(tmp), partial=True)
+            inspected = self.client.predict(self.handle_file(str(archive)), api_name="/sessions")
+            self.assertTrue(inspected["visible"])
+            self.assertIsNone(inspected["value"])
+            self.assertEqual({item[1] for item in inspected["choices"]}, {"demo-session", "second-session"})
+            summary, _, _ = self.client.predict(self.handle_file(str(archive)), api_name="/load")
+            self.assertIn("multiple sessions", summary.lower())
+            summary, _, _ = self.client.predict(self.handle_file(str(archive)), "second-session",
+                                                api_name="/select_session")
+            self.assertIn("n/a tokens", summary)
+            _, _, view = self.client.predict("summary", api_name="/view")
+            self.assertIsNone(json.loads(view)["data"]["tokens"]["total"])
+            exported = self.client.predict(api_name="/export")
+            with zipfile.ZipFile(exported) as archive:
+                restored = tv.Trajectory.from_dict(json.loads(archive.read("trajectory.json")))
+            self.assertEqual(restored.raw["_otel"]["session_id"], "second-session")
+            self.assertIsNone(restored.metrics["tokens"]["total"])
+            hidden = self.client.predict(self.handle_file(str(CC_RUN)), api_name="/sessions")
+            self.assertFalse(hidden["visible"])
+            self.assertIsNone(hidden["value"])
+
+    def test_native_summary_identifies_estimates_and_incomplete_tool_evidence(self):
+        from tests.test_cursor_evidence import capture
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "cursor.json"
+            source.write_text(json.dumps(capture()), encoding="utf-8")
+            summary, _, _ = self.client.predict(self.handle_file(str(source)), api_name="/load")
+            self.assertIn("estimated tokens", summary)
+            self.assertIn("limited evidence", summary)
+            self.assertIn("n/a success", summary)
+
+    def test_compressed_native_file_is_accepted_by_the_upload_component(self):
+        from tests.test_dsh_native import events, write
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = write(Path(tmp) / "native", events())
+            summary, _, _ = self.client.predict(self.handle_file(str(source)), api_name="/load")
+            self.assertIn("DeepSeek Harness", summary)
+            self.assertIn("70 tokens", summary)
+
     def test_a_non_trajectory_upload_is_a_message_not_a_crash(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
             fh.write('{"hello": "world"}')

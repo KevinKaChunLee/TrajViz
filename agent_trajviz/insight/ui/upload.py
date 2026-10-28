@@ -42,13 +42,14 @@ class UploadRefs:
 
 def layout() -> UploadRefs:
     gr.HTML(
-        "<div style='display:flex;align-items:baseline;gap:12px;margin-bottom:4px;'>"
-        "<span style='font-size:20px;font-weight:700;letter-spacing:-0.02em;'>TrajViz</span>"
-        "<span style='font-size:12px;color:var(--ov-muted);'>Coding Agent Trajectory Analysis Dashboard</span>"
-        "</div>"
+        "<div class='tv-header'>"
+        "<span class='tv-brand'>TrajViz</span>"
+        "<span class='tv-subtitle'>Coding Agent Trajectory Analysis Dashboard</span>"
+        "</div>",
+        elem_classes=["app-title"],
     )
 
-    with gr.Column(elem_classes=["upload-row"]) as upload_accordion, gr.Row(equal_height=True):
+    with gr.Column(elem_classes=["upload-row"]) as upload_accordion, gr.Row(equal_height=False):
         format_selector = gr.Dropdown(
             label="Format",
             choices=format_choices(),
@@ -90,7 +91,7 @@ def layout() -> UploadRefs:
                 file_types=[".json"],
                 height=110,
             )
-            label_load_btn = gr.Button("Load Labels", variant="secondary", size="sm", min_width=120)
+            label_load_btn = gr.Button("Load Labels", variant="secondary", size="sm", min_width=120, scale=0)
 
     with gr.Column(visible=False) as summary_area:
         summary_banner = gr.HTML("", elem_classes=["summary-banner"])

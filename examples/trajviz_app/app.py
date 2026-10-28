@@ -7,7 +7,7 @@ This app reproduces the TrajViz dashboard -- KPI strip, Overview sections,
 Patterns, Attribution, Comparison, Workflow, Raw Data and the AI sidebar --
 using only the library's public API: `agent_trajviz` for loading and every
 view, `agent_trajviz.figures` for the charts, `agent_trajviz.llm` for the AI
-features and `agent_trajviz.attribution` for DECAF. It is what another
+features and `agent_trajviz.attribution` for failure attribution. It is what another
 project would write on top of the library; nothing here imports internals.
 """
 
@@ -47,6 +47,17 @@ def _path(upload: Any) -> str | None:
     return upload if isinstance(upload, str) else getattr(upload, "name", str(upload))
 
 
+def _inspect_sessions(upload):
+    """Inspect a saved capture without choosing a multi-session run implicitly."""
+    path = _path(upload)
+    try:
+        sessions = tv.list_sessions(path, format="otlp") if path else []
+    except (tv.LoadError, OSError, ValueError):
+        sessions = []
+    return gr.update(choices=[(row.get("label") or row["id"], row["id"]) for row in sessions],
+                     value=sessions[0]["id"] if len(sessions) == 1 else None, visible=bool(sessions))
+
+
 class Refs:
     """Every component the handlers update, by name."""
 
@@ -68,7 +79,9 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout, read top to bottom
         with gr.Row():
             r.fmt = gr.Dropdown(FORMAT_CHOICES, value="", label="Format", scale=1)
             with gr.Column(scale=2):
-                r.traj_file = gr.File(label="Trajectory (.json / .jsonl / .zip)", file_types=[".json", ".jsonl", ".zip"])
+                r.traj_file = gr.File(label="Trajectory (.json / .jsonl / .zstd / .zip)",
+                                      file_types=[".json", ".jsonl", ".zstd", ".zip"])
+                r.session_selector = gr.Dropdown(label="Captured session", choices=[], value=None, visible=False)
                 with gr.Row():
                     r.load_btn = gr.Button("Load Trajectory", variant="primary")
                     r.export_btn = gr.Button("Export HTML", interactive=False)
@@ -158,7 +171,7 @@ def build_app() -> gr.Blocks:  # noqa: C901 - one layout, read top to bottom
                     r.anti_html = gr.HTML("")
 
             with gr.Tab("Attribution"):
-                gr.HTML("<div class='tv-section-subtitle'>DECAF capability failure attribution — which workflow "
+                gr.HTML("<div class='tv-section-subtitle'>Capability failure attribution — which workflow "
                         "capability broke, with tiered evidence. Needs the task's reference data.</div>")
                 r.attr_btn = gr.Button("Diagnose failure", variant="primary", size="sm")
                 with gr.Accordion("Override agent / instance / reference data", open=False), gr.Row():
@@ -271,23 +284,56 @@ def _wire(app: gr.Blocks, r: Refs, state: gr.State, sidebar: Any) -> None:
                     r.swimlane_plot, r.agent_tok_plot, r.ctx_agent, r.ctx_snapshot, r.ctx_window, r.ctx_html,
                     r.ctx_plot, r.diag_html, r.files_plot, r.roots_html, r.plan_plot, r.perf_md, r.hot_md,
                     r.steps_md, r.seq_html, r.fail_html, r.anti_html, r.wf_agents, r.wf_count, r.wf_toc, r.wf_cards,
-                    r.wf_step, r.wf_detail, r.raw, r.attr_html, r.ai_status, r.chat]
+                    r.wf_step, r.wf_detail, r.raw, r.attr_html, r.ai_status, r.chat,
+                    r.export_file, r.labels_file, r.labels_html, r.lab_phase, r.lab_action,
+                    r.lab_phase_dur, r.lab_action_dur, r.lab_timeline, r.rg_html, r.rg_plot, r.rg_behavior,
+                    r.pw_html, r.pw_counts, r.pw_durations, r.wf_roles, r.wf_features, r.wf_search]
 
-    def on_load(upload, fmt):
+    def reset_derived():
+        # Labels, downloads and comparison panels describe one loaded baseline.
+        # A new run must not inherit them, even if its upload fails or is cleared.
+        return {
+            r.export_file: gr.update(value=None, visible=False),
+            r.labels_file: gr.update(value=None),
+            r.labels_html: "<div class='tv-muted'>Upload a labels file and press Load Labels.</div>",
+            **dict.fromkeys((r.lab_phase, r.lab_action, r.lab_phase_dur, r.lab_action_dur, r.lab_timeline,
+                             r.rg_plot, r.pw_counts, r.pw_durations)),
+            r.rg_html: "", r.rg_behavior: "", r.pw_html: "",
+            r.wf_roles: ROLE_FILTERS, r.wf_features: [], r.wf_search: "",
+        }
+
+    def empty_load(message):
+        text = (r.kpis, r.issues, r.session, r.tools_md, r.agent_cards, r.ctx_html, r.diag_html,
+                r.roots_html, r.perf_md, r.hot_md, r.steps_md, r.seq_html, r.fail_html, r.anti_html,
+                r.wf_count, r.wf_toc, r.wf_cards, r.raw, r.attr_html)
+        plots = (r.tok_plot, r.dur_plot, r.tool_plot, r.tool_dur_plot, r.outcome_plot, r.skill_plot,
+                 r.swimlane_plot, r.agent_tok_plot, r.ctx_plot, r.files_plot, r.plan_plot)
+        return {
+            **reset_derived(), **dict.fromkeys(text, ""), **dict.fromkeys(plots),
+            state: None, r.banner: panels.error_banner(message), r.tabs: gr.update(visible=False),
+            r.export_btn: gr.update(interactive=False), r.ctx_window: None,
+            r.ctx_agent: gr.update(choices=[], value=None, visible=False),
+            r.ctx_snapshot: gr.update(choices=[], value=None, visible=False),
+            r.wf_agents: gr.update(choices=[], value=[], visible=False),
+            r.wf_step: gr.update(choices=[], value=None), r.wf_detail: panels.step_detail(None),
+            r.ai_status: _ai_status(None), r.chat: [],
+        }
+
+    def on_load(upload, fmt, session_id=None):
         path = _path(upload)
         if path is None:
-            return {r.banner: panels.error_banner("Choose a trajectory file first.")}
+            return empty_load("Choose a trajectory file first.")
         try:
-            run = tv.load(path, format=fmt or None)
+            run = tv.load(path, format=fmt or None, session_id=session_id or None)
         except tv.LoadError as exc:
-            return {r.banner: panels.error_banner(f"Could not load {os.path.basename(path)}: {exc}"),
-                    r.tabs: gr.update(visible=False), state: None}
+            return empty_load(f"Could not load {os.path.basename(path)}: {exc}")
         views = run.views()
         d = {vid: v.data for vid, v in views.items()}
         stats = d["context_pressure"]["stats"]
         detected = stats.get("window_limit") if stats.get("window_source") in ("declared", "model") else None
+        limited = run.format == "otlp" or bool(d["metrics"].get("tool_unknown_outcomes"))
         ctx = {"run": run, "views": views, "name": os.path.basename(path), "labels": None,
-               "detected_window": detected}
+               "detected_window": detected, "limited_evidence": limited}
         pressure = views["context_pressure"]
         agents = [(a["label"], a["key"]) for a in d["context_pressure"]["agents"]]
         ctx_html, ctx_fig = _context_outputs(ctx, None, None, None)
@@ -295,12 +341,13 @@ def _wire(app: gr.Blocks, r: Refs, state: gr.State, sidebar: Any) -> None:
         visible = _visible_steps(ctx, ROLE_FILTERS, [], [], "")
         step_choices = [(f"#{row['step']} {row['role']}", row["position"]) for row in d["workflow"]["steps"]]
         return {
-            state: ctx,
+            **reset_derived(), state: ctx,
             r.banner: panels.banner(ctx["name"], d["summary"], list(run.warnings)),
-            r.kpis: panels.kpi_strip(d["summary"], d["metrics"], d["health"], d["issues"], d["agents"], d["steps"]),
+            r.kpis: panels.kpi_strip(d["summary"], d["metrics"], d["health"], d["issues"], d["agents"], d["steps"],
+                                     limited_evidence=limited),
             r.tabs: gr.update(visible=True),
             r.export_btn: gr.update(interactive=True),
-            r.issues: panels.issues_panel(d["issues"]),
+            r.issues: panels.issues_panel(d["issues"], limited_evidence=limited),
             r.session: panels.session_details(d["session"]),
             r.tok_plot: _figure(views["token_usage"]),
             r.dur_plot: _figure(views["step_durations"]),
@@ -312,13 +359,15 @@ def _wire(app: gr.Blocks, r: Refs, state: gr.State, sidebar: Any) -> None:
             r.agent_cards: panels.agent_cards(d["agents"]),
             r.swimlane_plot: _figure(views["agent_swimlane"]),
             r.agent_tok_plot: _figure(views["agent_tokens"]),
-            r.ctx_agent: gr.update(choices=agents, value=pressure.data["agent"], visible=len(agents) > 2),
+            r.ctx_agent: gr.update(choices=agents,
+                                   value=pressure.data["agent"] if any(key == pressure.data["agent"] for _, key in agents) else None,
+                                   visible=len(agents) > 2),
             r.ctx_snapshot: gr.update(choices=[("Current window", "current")], value="current", visible=False),
             r.ctx_window: detected,
             r.ctx_html: ctx_html,
             r.ctx_plot: ctx_fig,
             r.diag_html: panels.diagnostics_summary(d["failure_chains"], d["error_clusters"], d["bottlenecks"],
-                                                    d["file_interactions"], d["context_pressure"]),
+                                                    d["file_interactions"], d["context_pressure"], limited_evidence=limited),
             r.files_plot: _figure(views["file_interactions"]),
             r.roots_html: panels.root_causes(d["error_clusters"]),
             r.plan_plot: _figure(views["plan"]),
@@ -326,8 +375,8 @@ def _wire(app: gr.Blocks, r: Refs, state: gr.State, sidebar: Any) -> None:
             r.hot_md: panels.hotspots_md(d["hotspots"]),
             r.steps_md: panels.per_step_md(d["steps"]),
             r.seq_html: panels.tool_sequences_html(d["tool_sequences"]),
-            r.fail_html: panels.failure_patterns_html(d["failure_patterns"]),
-            r.anti_html: panels.antipatterns_html(d),
+            r.fail_html: panels.failure_patterns_html(d["failure_patterns"], limited_evidence=limited),
+            r.anti_html: panels.antipatterns_html(d, limited_evidence=limited),
             r.wf_agents: gr.update(choices=wf_agents, value=[], visible=bool(wf_agents)),
             r.wf_count: f"<div class='tv-muted'>Showing {len(visible)} of {len(run.steps)} steps</div>",
             r.wf_toc: panels.workflow_toc(d["workflow"], visible),
@@ -340,8 +389,12 @@ def _wire(app: gr.Blocks, r: Refs, state: gr.State, sidebar: Any) -> None:
             r.chat: [],
         }
 
-    r.load_btn.click(on_load, inputs=[r.traj_file, r.fmt], outputs=load_outputs, api_name="load")
-    r.traj_file.upload(on_load, inputs=[r.traj_file, r.fmt], outputs=load_outputs)
+    load_inputs = [r.traj_file, r.fmt, r.session_selector]
+    r.load_btn.click(on_load, inputs=load_inputs, outputs=load_outputs, api_name="load")
+    inspected = r.traj_file.change(_inspect_sessions, inputs=r.traj_file, outputs=r.session_selector,
+                                   api_name="sessions")
+    inspected.then(on_load, inputs=load_inputs, outputs=load_outputs)
+    r.session_selector.input(on_load, inputs=load_inputs, outputs=load_outputs, api_name="select_session")
 
     def on_nav(section):
         return [gr.update(visible=name == section) for name in SECTIONS]
@@ -402,7 +455,7 @@ def _wire(app: gr.Blocks, r: Refs, state: gr.State, sidebar: Any) -> None:
             raise gr.Error("Load a trajectory first.")
         issues, errors = llm.suggest_fixes(ctx["run"])
         note = "".join(f"<div class='tv-muted'>⚠ {panels.E(e)}</div>" for e in errors)
-        return panels.issues_panel(issues) + note
+        return panels.issues_panel(issues, limited_evidence=ctx.get("limited_evidence", False)) + note
 
     r.fixes_btn.click(on_fixes, inputs=state, outputs=r.issues, api_name="suggest_fixes")
 

@@ -11,10 +11,8 @@ from agent_trajviz.tool_vocab import BASH_TOOL_NAMES as _BASH_TOOLS, WRITE_TOOL_
 # stdlib/tool_vocab at module level, so there is no import cycle.
 from agent_trajviz.insight.diagnostics import _extract_bash_paths
 from agent_trajviz.insight.patterns import _is_validation_command
-# Failure detection is tool_failure.py's job. These two call sites hold a
-# bare status *string* rather than a whole tool-call dict, so they use
-# status_failed rather than tool_call_failed.
-from agent_trajviz.insight.tool_failure import status_failed
+from agent_trajviz.insight.tool_failure import status_failed, tool_call_failed
+from agent_trajviz.insight.telemetry_quality import tool_field_observed
 
 
 # ---------------------------------------------------------------------------
@@ -386,40 +384,47 @@ def assign_effect_labels(
                 for path in _extract_bash_paths(error_text):
                     error_files.add(_normalize_target(path))
 
-    # Build write sequence per target for reverted detection
-    writes_by_target: dict[str, list[int]] = {}
-    for i, a in enumerate(actions):
-        if a.action_type == "FILE_WRITE":
-            writes_by_target.setdefault(a.target, []).append(i)
-
-    # Find the last write per target (surviving write)
-    last_write_per_target: dict[str, int] = {}
-    for target, indices in writes_by_target.items():
-        last_write_per_target[target] = indices[-1]
-
-    # Build step lookup for O(1) access by step_index
     step_by_index: dict[int, dict] = {s["index"]: s for s in steps}
+    own_calls = [
+        _find_own_tool_call(action, step_by_index[action.step_index], actions, i)
+        if action.action_type != "REASON" and action.step_index in step_by_index
+        and step_by_index[action.step_index].get("tool_calls") else None
+        for i, action in enumerate(actions)
+    ]
+    last_write_per_target: dict[str, int] = {}
+    uncertain_write_per_target: dict[str, int] = {}
+    for i, action in enumerate(actions):
+        if action.action_type != "FILE_WRITE":
+            continue
+        call = own_calls[i]
+        if call is not None and not tool_field_observed(call, "tool_outcomes"):
+            uncertain_write_per_target[action.target] = i
+        elif not status_failed(action.status) and (call is None or not tool_call_failed(call)):
+            # A failed later write did not overwrite the earlier successful one.
+            last_write_per_target[action.target] = i
 
     for i, a in enumerate(actions):
         if a.action_type == "REASON":
             a.effect_label = "unknown"
             continue
-
-        # Failed: tool errored or bad exit code
+        own_tc = own_calls[i]
+        if own_tc is not None and not tool_field_observed(own_tc, "tool_outcomes"):
+            a.effect_label = "unknown"
+            a.effect_detail = {"reason": "tool_outcome_unobserved"}
+            continue
         if status_failed(a.status):
             a.effect_label = "failed"
             a.effect_detail["reason"] = "tool_status_error"
             continue
-        # Check exit code from the action's OWN tool call only: id match
-        # when available, positional pairing otherwise — never a name-scan that
-        # picks up a failing sibling call.
-        step = step_by_index.get(a.step_index)
-        own_tc = _find_own_tool_call(a, step, actions, i) if step is not None else None
         if own_tc is not None:
-            m = own_tc.get("metadata", {})
-            if isinstance(m, dict) and m.get("exit") not in (None, 0):
+            metadata = own_tc.get("metadata", {})
+            if isinstance(metadata, dict) and metadata.get("exit") not in (None, 0):
                 a.effect_label = "failed"
-                a.effect_detail["reason"] = f"exit_code_{m['exit']}"
+                a.effect_detail["reason"] = f"exit_code_{metadata['exit']}"
+                continue
+            if tool_call_failed(own_tc):
+                a.effect_label = "failed"
+                a.effect_detail["reason"] = "tool_result_error"
                 continue
 
         if a.action_type == "FILE_WRITE":
@@ -427,6 +432,9 @@ def assign_effect_labels(
                 a.effect_label = "reverted"
                 a.effect_detail["reason"] = "overwritten_by_later_write"
                 a.effect_detail["survives_to_final_patch"] = False
+            elif uncertain_write_per_target.get(a.target, -1) > i:
+                a.effect_label = "unknown"
+                a.effect_detail = {"reason": "later_write_outcome_unobserved"}
             else:
                 a.effect_label = "survived"
                 a.effect_detail["survives_to_final_patch"] = True

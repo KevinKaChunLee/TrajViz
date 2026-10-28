@@ -141,6 +141,84 @@ class LiveReplicaTests(unittest.TestCase):
         path = exported["value"] if isinstance(exported, dict) else exported
         self.assertIn("<html", Path(path["path"] if isinstance(path, dict) else path).read_text()[:2000].lower())
 
+    def test_native_capture_without_clocks_renders_unavailable_instead_of_zero(self):
+        from tests.test_cursor_evidence import capture
+
+        source = Path(self.tmp.name) / "untimed-cursor.json"
+        source.write_text(json.dumps(capture()), encoding="utf-8")
+        out = self.client.predict(self.file(str(source)), "", api_name="/load")
+        rendered = json.dumps(out, default=str)
+        self.assertIn("P95 n/a", rendered)
+        self.assertNotIn("P95 0.00s", rendered)
+        self.assertIn("limited evidence", rendered)
+        self.assertNotIn("No diagnostic issues detected", rendered)
+        self.assertNotIn("none found", rendered)
+
+    def test_multi_session_capture_selects_explicitly_and_preserves_unknown_usage(self):
+        from tests.test_otlp_e2e import _bundle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _, archive = _bundle(Path(tmp), partial=True)
+            inspected = self.client.predict(self.file(str(archive)), api_name="/sessions")
+            self.assertTrue(inspected["visible"])
+            self.assertIsNone(inspected["value"])
+            self.assertEqual({item[1] for item in inspected["choices"]}, {"demo-session", "second-session"})
+            missing = self.client.predict(self.file(str(archive)), "", api_name="/load")
+            self.assertIn("multiple sessions", json.dumps(missing).lower())
+            selected = self.client.predict(self.file(str(archive)), "", "second-session",
+                                           api_name="/select_session")
+            rendered = json.dumps(selected, default=str)
+            self.assertIn("n/a tokens", rendered)
+            self.assertIn("limited evidence", rendered)
+            exported = self.client.predict(api_name="/export")
+            path = exported["value"] if isinstance(exported, dict) else exported
+            html = Path(path["path"] if isinstance(path, dict) else path).read_text()
+            self.assertIn("second-session", html)
+
+    def test_new_failed_or_cleared_baseline_resets_labels_comparisons_and_export(self):
+        invalid = Path(self.tmp.name) / "invalid.json"
+        invalid.write_text('{"not_a_trajectory": true}', encoding="utf-8")
+        for target in (None, str(invalid), str(ASTROPY)):
+            with self.subTest(target=target):
+                self._load()
+                labels = self.client.predict(self.file(str(_labels(DJANGO, Path(self.tmp.name)))), api_name="/labels")
+                self.assertIn("Labels loaded", json.dumps(labels))
+                self.client.predict([self.file(str(ASTROPY))], "", api_name="/run_group")
+                self.client.predict(self.file(str(ASTROPY)), None, None, "", api_name="/compare")
+                self.client.predict(api_name="/export")
+                output = self.client.predict(self.file(target) if target else None, "", api_name="/load")
+                rendered = json.dumps(output, default=str)
+                self.assertNotIn("Labels loaded", rendered)
+                self.assertNotIn("Alignment", rendered)
+                self.assertNotIn("trajviz-report-", rendered)
+                self.assertNotIn("602,021", rendered)
+                if target != str(ASTROPY):
+                    self.assertEqual(output[1], "")
+                    callback = next(fn.fn for fn in self.app.fns.values() if fn.api_name == "load")
+                    packed = callback(target, "")
+                    tabs = next(component for component in packed if component.get_block_name() == "tabs")
+                    export = next(component for component in packed if component.get_block_name() == "button"
+                                  and component.value == "Export HTML")
+                    self.assertFalse(packed[tabs]["visible"])
+                    self.assertFalse(packed[export]["interactive"])
+                    with self.assertRaises(Exception) as caught:
+                        self.client.predict(api_name="/export")
+                    self.assertIn("Load a trajectory first", str(caught.exception))
+                else:
+                    callback = next(fn.fn for fn in self.app.fns.values() if fn.api_name == "load")
+                    packed = callback(target, "")
+                    tabs = next(component for component in packed if component.get_block_name() == "tabs")
+                    self.assertTrue(packed[tabs]["visible"])
+
+    def test_compressed_native_file_is_accepted_by_the_upload_component(self):
+        from tests.test_dsh_native import events, write
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = write(Path(tmp) / "native", events())
+            rendered = json.dumps(self.client.predict(self.file(str(source)), "", api_name="/load"), default=str)
+            self.assertIn("DeepSeek Harness", rendered)
+            self.assertIn("70 tokens", rendered)
+
     def test_llm_features_without_configuration_answer_with_a_message(self):
         self._load()
         history, _ = self.client.predict("What is slow?", [], api_name="/ask")

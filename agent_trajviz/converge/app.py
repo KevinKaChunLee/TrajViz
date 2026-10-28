@@ -93,6 +93,19 @@ def _note_html(text: str) -> str:
     return f"<div class='cvg-report'><p>{html.escape(text)}</p></div>"
 
 
+def _input_errors_html(errors: list[dict], shown: dict[str, str]) -> str:
+    """Show failed batch inputs without exposing their server-side paths."""
+    if not errors:
+        return ""
+    rows = []
+    for error in errors:
+        side = f"{error['side']}: " if error.get("side") else ""
+        task = f"{side}{error.get('task_id', '(unknown task)')}"
+        detail = _public(str(error.get("error") or "Comparison report is unavailable."), shown)
+        rows.append(f"<li><b>{html.escape(task)}</b>: {html.escape(detail)}</li>")
+    return f"<h3>Input errors ({len(errors)})</h3><ul class='cvg-warning'>{''.join(rows)}</ul>"
+
+
 def compare_uploads(ref_upload, cmp_upload, anchor_upload, rate, fuzzy) -> tuple:
     """Pairwise view: report HTML, three figures and the anchor-chart update."""
     from .charts import (
@@ -171,6 +184,10 @@ def batch_report_html(manifest_upload, rate, fuzzy, *, data_root: str | os.PathL
 
     parts = ['<div class="cvg-report">', "<h2>Batch Report</h2>"]
     parts.append(f"<p>{aggregate.get('compared_count', 0)} of {aggregate.get('task_count', 0)} tasks compared</p>")
+    parts.append(_input_errors_html(
+        [{"task_id": result.task_id, "error": result.error} for result in results if result.report is None],
+        {**_root_names(root), **_upload_names(manifest_path)},
+    ))
 
     metrics = aggregate.get("metrics", {})
     if metrics:
@@ -234,7 +251,10 @@ def before_after_report_html(before_upload, after_upload, rate, fuzzy, *, data_r
                            {**_root_names(root), **_upload_names(before_path, after_path)})
 
     parts = ['<div class="cvg-report">', "<h2>Intervention Report</h2>"]
-    parts.append(f"<p>Paired tasks: {report['paired_tasks']}</p>")
+    parts.append(f"<p>Paired tasks: {report['paired_tasks']} · "
+                 f"Unpaired before: {report['unpaired_before']} · Unpaired after: {report['unpaired_after']}</p>")
+    parts.append(_input_errors_html(report.get("input_errors", []),
+                                   {**_root_names(root), **_upload_names(before_path, after_path)}))
 
     rec = report.get("recommendation", "")
     if rec:

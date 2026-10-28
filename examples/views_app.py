@@ -40,22 +40,39 @@ def _table(view: tv.View) -> tuple[list[str], list[list]]:
                       for h in headers] for row in rows]
 
 
-def load_run(upload):
+def inspect_sessions(upload):
+    """Offer an explicit choice when an uploaded capture contains sessions."""
+    path = _upload_path(upload)
+    try:
+        sessions = tv.list_sessions(path, format="otlp") if path else []
+    except (tv.LoadError, OSError, ValueError):
+        sessions = []
+    return gr.update(choices=[(row.get("label") or row["id"], row["id"]) for row in sessions],
+                     value=sessions[0]["id"] if len(sessions) == 1 else None, visible=bool(sessions))
+
+
+def load_run(upload, session_id=None):
     """Load a trajectory; return (state, summary markdown, health rows, issue rows)."""
     path = _upload_path(upload)
     if path is None:
         return None, "Upload a trajectory file.", gr.update(value=None), gr.update(value=None)
     try:
-        run = tv.load(path)
+        run = tv.load(path, session_id=session_id or None)
     except tv.LoadError as exc:
         return None, f"**Could not load the file:** {exc}", gr.update(value=None), gr.update(value=None)
     s = run.view("summary").data
     rate = s["tool_success_rate"]
+    tokens = (s['tokens'] or {}).get('total')
+    token_text = 'n/a' if tokens is None else f'{tokens:,}'
+    if run.tokens_estimated:
+        token_text += ' estimated'
+    limited = run.format == 'otlp' or bool(run.metrics.get('tool_unknown_outcomes'))
     summary = (
         f"### {Path(path).name}\n"
         f"**{s['format_label']}** · {s['steps']} steps · {s['agents']} agent(s) · "
-        f"{(s['tokens'] or {}).get('total', 0):,} tokens · {s['tool_calls']} tool calls "
+        f"{token_text} tokens · {s['tool_calls']} tool calls "
         f"({'n/a' if rate is None else f'{rate}%'} success) · {s['issues']} issue(s)"
+        + (" · limited evidence" if limited else "")
     )
     health_headers, health_rows = _table(run.view("health"))
     issue_view = run.view("issues")
@@ -110,7 +127,8 @@ def build_app() -> gr.Blocks:
         gr.Markdown("# TrajViz example app\nBuilt on the public `agent_trajviz` API only.")
         state = gr.State(None)
         with gr.Tab("Analyze"):
-            upload = gr.File(label="Trajectory", file_types=[".json", ".jsonl", ".zip"])
+            upload = gr.File(label="Trajectory", file_types=[".json", ".jsonl", ".zstd", ".zip"])
+            session = gr.Dropdown(label="Captured session", choices=[], value=None, visible=False)
             summary = gr.Markdown()
             with gr.Row():
                 health = gr.Dataframe(label="Health checks", interactive=False, wrap=True)
@@ -123,9 +141,14 @@ def build_app() -> gr.Blocks:
             export_btn = gr.Button("Download every view as JSON")
             export_file = gr.File(label="views.zip")
 
-            loaded = upload.change(load_run, inputs=upload, outputs=[state, summary, health, issues],
-                                   api_name="load")
-            loaded.then(show_view, inputs=[state, view_id], outputs=[plot, table, view_json])
+            inspected = upload.change(inspect_sessions, inputs=upload, outputs=session, api_name="sessions")
+            loaded = inspected.then(load_run, inputs=[upload, session], outputs=[state, summary, health, issues],
+                                    api_name="load")
+            selected = session.input(load_run, inputs=[upload, session], outputs=[state, summary, health, issues],
+                                     api_name="select_session")
+            for event in (loaded, selected):
+                event.then(show_view, inputs=[state, view_id], outputs=[plot, table, view_json])
+                event.then(lambda: gr.update(value=None), outputs=export_file)
             view_id.change(show_view, inputs=[state, view_id], outputs=[plot, table, view_json], api_name="view")
             export_btn.click(export_views, inputs=state, outputs=export_file, api_name="export")
         with gr.Tab("Compare"):

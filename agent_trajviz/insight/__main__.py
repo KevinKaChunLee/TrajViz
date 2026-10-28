@@ -156,7 +156,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.format or args.session_id:
                 report_options.update(format_hint=args.format or "", session_id=args.session_id)
             path = report_from_path(args.report, args.output, **report_options)
-        except ReportError as exc:
+        except (ReportError, OSError) as exc:
             print(exc, file=sys.stderr)
             return 1
         print(path)

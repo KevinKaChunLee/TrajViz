@@ -24,12 +24,8 @@ def _optional_token_count(tokens: dict, key: str) -> int | None:
     NaN/Infinity are rejected: JSON permits those literals and ``int(inf)``
     raises ``OverflowError``, which would escape ``parse_steps``.
     """
-    value = tokens.get(key)
-    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    if not math.isfinite(value):
-        return None
-    return int(value)
+    value = _as_number(tokens.get(key))
+    return int(value) if value is not None else None
 
 
 def usable_token_count(value) -> int | None:
@@ -42,20 +38,14 @@ def usable_token_count(value) -> int | None:
     Such a record cannot be repaired without guessing, so it is reported as
     unknown rather than summed into a total or clamped to a false zero.
     """
-    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    if not math.isfinite(value) or value < 0:
-        return None
-    return int(value)
+    value = _as_number(value)
+    return int(value) if value is not None and value >= 0 else None
 
 
 def _finite_token(value) -> int | float:
-    """A reported token value with NaN/Infinity replaced by 0."""
-    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
-        return 0
-    if not math.isfinite(value):
-        return 0
-    return value
+    """A reported token value with unusable numbers replaced by 0."""
+    value = _as_number(value)
+    return value if value is not None else 0
 
 
 def cache_read_share(cache_read_tokens, total_tokens) -> float | None:
@@ -315,9 +305,8 @@ _MAX_EPOCH_MS = 253_402_300_799_999
 
 def _as_epoch_ms(value):
     """A plausible epoch-milliseconds number, else ``None``."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    if not math.isfinite(value) or value <= 0 or value > _MAX_EPOCH_MS:
+    value = _as_number(value)
+    if value is None or value <= 0 or value > _MAX_EPOCH_MS:
         return None
     return value
 
@@ -325,7 +314,12 @@ def _as_epoch_ms(value):
 def _as_number(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return value if math.isfinite(value) else None
+    try:
+        return value if math.isfinite(value) else None
+    except OverflowError:
+        # Python ints are unbounded; statistics and charts still need values
+        # representable by the finite numeric domain used by the model.
+        return None
 
 
 def _normalize_tool_call(tc: dict) -> None:
@@ -473,7 +467,13 @@ def complete_steps(steps: Iterable[Any]) -> list[dict]:
                 tc.setdefault(key, copy.copy(default))
             if not tc.get("status"):
                 tc["status"] = "error" if tool_call_failed(tc) else "completed"
+            # Preview construction below reads tool_name before the final
+            # normalization pass; incomplete custom calls still need a name.
+            _normalize_tool_call(tc)
         step["tool_calls"] = calls
+        if "parts" in step:
+            parts = step["parts"]
+            step["parts"] = [part for part in parts if isinstance(part, dict)] if isinstance(parts, list) else []
         if "parts" not in step:
             text = step.get("text_preview")
             step["parts"] = ([{"type": "text", "text": text, "synthetic": False, "metadata": {}, "time": {},
