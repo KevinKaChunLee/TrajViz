@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 
+from .._llm_http import merge_llm_headers
 from .._redact import redact
 from .analytics import compute_step_analytics
 from .diagnostics import (
@@ -665,10 +666,10 @@ def _call_openai(
     messages: list[dict[str, str]],
 ) -> str:
     url = f"{config.base_url}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {config.api_key}",
-    }
+    headers = merge_llm_headers(
+        config.extra_headers,
+        auth={"Authorization": f"Bearer {config.api_key}"},
+    )
     body: dict[str, Any] = {
         "model": config.model,
         "messages": [{"role": "system", "content": system}, *messages],
@@ -688,11 +689,10 @@ def _call_anthropic(
     messages: list[dict[str, str]],
 ) -> str:
     url = f"{config.base_url}/messages"
-    headers = {
-        "Content-Type": "application/json",
-        "x-api-key": config.api_key,
-        "anthropic-version": "2023-06-01",
-    }
+    headers = merge_llm_headers(
+        config.extra_headers,
+        auth={"x-api-key": config.api_key, "anthropic-version": "2023-06-01"},
+    )
     body: dict[str, Any] = {
         "model": config.model,
         "system": system,
