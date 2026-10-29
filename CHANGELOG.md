@@ -7,6 +7,11 @@ change the public API (the names exported from `agent_trajviz`).
 
 ## [Unreleased]
 
+### Added
+
+- Dashboard Settings for model connections, request options and reply language,
+  with session-only API keys and optional remembered connection details.
+
 ### Fixed
 
 - Reject malformed normalized trajectories before analysis, preserve large JSONL

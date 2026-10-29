@@ -33,7 +33,7 @@ from ..presenters.overview import (
     empty_plotly_fig,
 )
 from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
-from ..llm_config import resolve_analysis_config
+from ..llm_config import resolve_session_settings
 from ..session import LoadedSession, session_from_run
 from .shared import SharedState, safe_callback
 from .upload import UploadRefs
@@ -441,7 +441,7 @@ def bind(
     shared: SharedState,
     upload: UploadRefs,
     load_events: tuple = (),  # kept for the uniform tab-bind signature
-) -> None:
+) -> tuple:
     overview_section_names = OVERVIEW_SECTION_NAMES
     overview_sections = _resolve_overview_sections(refs)
 
@@ -457,18 +457,19 @@ def bind(
         js="() => { if (window.tvExpandFileTimeline) { window.tvExpandFileTimeline(); setTimeout(window.tvExpandFileTimeline, 200); } }",
     )
 
-    def on_suggest_fixes(run):
+    def on_suggest_fixes(run, settings=None):
         """Run the LLM Issues judge on request; progress shows inside the panel."""
         if run is None or not run.steps:
             yield ""
             return
 
-        cfg = resolve_analysis_config()
+        active = resolve_session_settings(settings)
+        cfg = active.config
         session = session_from_run(run, "")
 
         if not cfg.ready:
             missing = ", ".join(cfg.missing)
-            banner = f"Configure {missing} in .env to auto-suggest fixes"
+            banner = f"Open Settings or configure {missing} in .env to auto-suggest fixes"
             yield build_overview_issues_html(session, banner=banner)
             return
 
@@ -480,7 +481,7 @@ def bind(
         judged = ranked
         errors: list[str] = []
         for progress in iter_judge_overview_issues(
-            session, ranked, config=cfg, limit=JUDGE_ISSUE_CAP,
+            session, ranked, config=cfg, limit=JUDGE_ISSUE_CAP, language=active.language,
         ):
             judged = progress.issues
             errors = progress.errors
@@ -518,7 +519,7 @@ def bind(
 
     judge_event = dict(
         fn=on_suggest_fixes,
-        inputs=[shared.state_run],
+        inputs=[shared.state_run, *([shared.state_settings] if shared.state_settings is not None else [])],
         outputs=[refs.issues_html],
         show_progress="minimal",
         concurrency_id="issues_judge",
@@ -526,7 +527,7 @@ def bind(
     # Explicit click ONLY. Chaining this onto load_events would ship trajectory
     # excerpts off-box for every file a user opens, with no consent and no way
     # to decline; the heuristic (offline) Issues panel is what load renders.
-    refs.suggest_fixes_btn.click(**judge_event)
+    judge_dependency = refs.suggest_fixes_btn.click(**judge_event)
 
     @safe_callback("Context utilization")
     def _rebuild_utilization(agent_key, window_limit, snapshot_key, steps, raw, dark):
@@ -697,3 +698,4 @@ def bind(
     # rather than running a second load (see `load.bind_load`).
     _reset_outputs = label_outputs + [upload.label_file_upload]
     upload.load_btn.click(fn=_reset_labels, inputs=None, outputs=_reset_outputs)
+    return (judge_dependency,)

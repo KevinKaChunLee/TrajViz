@@ -790,6 +790,7 @@ def analyze_loaded_trajectory(
     brief: str | None = None,
     config: AnalysisLLMConfig | None = None,
     chat_fn: ChatFn | None = None,
+    language: str | None = None,
 ) -> tuple[str, list[dict]]:
     """Run the first analysis pass for a loaded run.
 
@@ -802,10 +803,11 @@ def analyze_loaded_trajectory(
     if brief is None:
         brief = build_analysis_brief(steps, raw if isinstance(raw, dict) else {})
     history = answer_question(
-        auto_analysis_question(),
+        auto_analysis_question(language),
         [],
         brief,
         config=config,
         chat_fn=chat_fn,
+        language=language,
     )
     return brief, history

@@ -27,6 +27,8 @@ class SharedState:
     # Handlers that need the run itself read it here rather than re-parsing
     # `state_raw`, which holds nothing for a format registered by a plugin.
     state_run: gr.State
+    # Session-only model overrides; credentials never enter browser storage.
+    state_settings: gr.State | None = None
 
 
 def format_choices() -> list[tuple[str, str]]:

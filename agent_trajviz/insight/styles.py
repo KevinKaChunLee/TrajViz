@@ -200,6 +200,12 @@ APP_CSS = """
     background: transparent;
     box-shadow: none;
 }
+/* Settings actions stay compact beside the analysis sidebar. */
+#app-settings button.settings-action {
+    font-size: 13px !important;
+    padding: 8px 14px !important;
+    min-height: 36px;
+}
 /* Type scale */
 h2, .section-header { font-size: 18px; font-weight: 700; }
 h3, .card-header { font-size: 14px; font-weight: 600; }

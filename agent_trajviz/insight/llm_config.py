@@ -8,6 +8,7 @@ drive both the labeler and the analysis chat.
 
 from __future__ import annotations
 
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -125,7 +126,7 @@ class AnalysisLLMConfig:
     temperature: float | None
     max_tokens: int
     timeout: int
-    source: str  # "analyze" | "label" | "mixed" | "missing"
+    source: str  # "analyze" | "label" | "mixed" | "missing" | "session"
 
     @property
     def ready(self) -> bool:
@@ -203,9 +204,180 @@ def resolve_analysis_config() -> AnalysisLLMConfig:
     )
 
 
-def config_status_html(*, loaded_steps: int | None = None) -> str:
+
+@dataclass(frozen=True)
+class AnalysisSettings:
+    """A browser session's model connection and reply language.
+
+    Keep this object in server-side session state. It must not be persisted in
+    browser storage or returned as a component value: ``config`` holds the key.
+    """
+
+    config: AnalysisLLMConfig
+    language: str
+
+
+def resolve_session_settings(settings: AnalysisSettings | None = None) -> AnalysisSettings:
+    """Return session overrides, or the launch environment's defaults."""
+    if settings is None:
+        return AnalysisSettings(resolve_analysis_config(), analysis_language())
+    if not isinstance(settings, AnalysisSettings):
+        raise ValueError("Invalid settings state. Reset settings and try again.")
+    return settings
+
+
+def _validated_base_url(value: str) -> str:
+    """Validate an optional endpoint without echoing credentials in errors."""
+    value = value.strip().rstrip("/")
+    if not value:
+        return ""
+    message = "Base URL must be an HTTP or HTTPS endpoint without credentials, query parameters or fragments."
+    if any(ch.isspace() or ord(ch) < 32 for ch in value):
+        raise ValueError(message)
+    try:
+        parsed = urlparse(value)
+        port = parsed.port
+        if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or "?" in value or "#" in value or port == 0):
+            raise ValueError(message)
+    except ValueError:
+        raise ValueError(message) from None
+    return value
+
+
+def nonsecret_settings(settings: AnalysisSettings | None = None) -> dict[str, object]:
+    """Form defaults that never expose a key or credentials embedded in a URL."""
+    resolved = resolve_session_settings(settings)
+    cfg = resolved.config
+    try:
+        base_url = _validated_base_url(cfg.base_url)
+    except ValueError:
+        base_url = ""
+    # The environment resolver preserves historical semantics; form defaults
+    # must additionally be finite JSON values accepted by the Apply validator.
+    temperature = cfg.temperature
+    if temperature is not None:
+        maximum = 1 if cfg.provider == "anthropic" else 2
+        if isinstance(temperature, bool) or not math.isfinite(temperature) or not 0 <= temperature <= maximum:
+            temperature = 0.2
+    try:
+        max_tokens = _positive_integer(cfg.max_tokens, "Maximum output tokens")
+    except ValueError:
+        max_tokens = 2048
+    try:
+        timeout = _positive_integer(cfg.timeout, "Timeout")
+    except ValueError:
+        timeout = 120
+    return {
+        "provider": cfg.provider,
+        "base_url": base_url,
+        "model": cfg.model,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "timeout": timeout,
+        "language": resolved.language,
+    }
+
+
+def _settings_text(value: object, label: str, *, allow_empty: bool = True) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be text.")
+    value = value.strip()
+    if (not allow_empty and not value) or any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        raise ValueError(f"{label} must be nonempty text without control characters.")
+    return value
+
+
+def _positive_integer(value: object, label: str) -> int:
+    message = f"{label} must be a positive whole number."
+    if isinstance(value, bool):
+        raise ValueError(message)
+    if isinstance(value, int):
+        result = value
+    elif isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            raise ValueError(message)
+        result = int(value)
+    elif isinstance(value, str):
+        try:
+            result = int(value.strip())
+        except ValueError:
+            raise ValueError(message) from None
+    else:
+        raise ValueError(message)
+    if result <= 0 or result > 2**31 - 1:
+        raise ValueError(message)
+    return result
+
+
+def build_session_settings(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    provider: str,
+    temperature: float | str | None,
+    max_tokens: int | float | str,
+    timeout: int | float | str,
+    language: str,
+    previous: AnalysisSettings | None = None,
+    clear_api_key: bool = False,
+) -> AnalysisSettings:
+    """Validate form values without changing process environment or files.
+
+    An empty key field preserves a configured key only at the same endpoint
+    and provider. Changing either destination requires entering a new key;
+    otherwise the result is not ready. ``clear_api_key`` explicitly removes it.
+    Empty endpoint/model values are useful for configuring language and request
+    options before a connection is available.
+    """
+    previous_config = resolve_session_settings(previous).config
+    endpoint = _validated_base_url(_settings_text(base_url, "Base URL"))
+    model = _settings_text(model, "Model")
+    provider = _settings_text(provider, "Provider", allow_empty=False).lower()
+    if provider not in {"openai", "anthropic"}:
+        raise ValueError("Provider must be OpenAI-compatible or Anthropic.")
+    language = _settings_text(language, "Reply language", allow_empty=False)
+    api_key = _settings_text(api_key, "API key")
+    if not isinstance(clear_api_key, bool):
+        raise ValueError("Clear API key must be a checkbox value.")
+    if clear_api_key:
+        api_key = ""
+    elif not api_key and (endpoint == previous_config.base_url.rstrip("/")
+                          and provider == previous_config.provider):
+        api_key = previous_config.api_key
+
+    if temperature is None or (isinstance(temperature, str) and not temperature.strip()):
+        parsed_temperature = None
+    else:
+        message = "Temperature must be a finite number, or blank to omit it."
+        if isinstance(temperature, bool):
+            raise ValueError(message)
+        try:
+            parsed_temperature = float(temperature)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError(message) from None
+        maximum = 1 if provider == "anthropic" else 2
+        if not math.isfinite(parsed_temperature) or not 0 <= parsed_temperature <= maximum:
+            raise ValueError(f"Temperature must be between 0 and {maximum} for this provider, or blank to omit it.")
+
+    config = AnalysisLLMConfig(
+        base_url=endpoint,
+        api_key=api_key,
+        model=model,
+        provider=provider,
+        temperature=parsed_temperature,
+        max_tokens=_positive_integer(max_tokens, "Maximum output tokens"),
+        timeout=_positive_integer(timeout, "Timeout"),
+        source="session",
+    )
+    return AnalysisSettings(config=config, language=language)
+
+
+def config_status_html(*, loaded_steps: int | None = None, config: AnalysisLLMConfig | None = None) -> str:
     """Short HTML status for the analysis sidebar (never includes the key)."""
-    cfg = resolve_analysis_config()
+    cfg = config if config is not None else resolve_analysis_config()
     bits: list[str] = []
     if cfg.ready:
         # Name where the trajectory brief goes: the base URL comes from the
@@ -228,23 +400,32 @@ def config_status_html(*, loaded_steps: int | None = None) -> str:
             f"<code>{_escape(cfg.model)}</code> · {_escape(cfg.provider)} · "
             f"sends to <code>{_escape(host)}</code>"
         )
-        if cfg.source == "label":
+        if cfg.source == "session":
+            bits.append("UI settings")
+        elif cfg.source == "label":
             bits.append("using LABEL_*")
         elif cfg.source == "mixed":
             bits.append("ANALYZE_* + LABEL_*")
         else:
             bits.append("ANALYZE_*")
+    elif cfg.source == "session":
+        missing_fields = [label for label, value in (("base URL", cfg.base_url), ("API key", cfg.api_key),
+                                                     ("model", cfg.model)) if not value]
+        bits.append(
+            "<span class='analysis-status-warn'>Not configured</span> · "
+            f"set {_escape(', '.join(missing_fields))} in Settings"
+        )
     elif len(cfg.missing) >= 3:
         bits.append(
             "<span class='analysis-status-warn'>Not configured</span> · "
-            "set <code>ANALYZE_*</code> (or <code>LABEL_*</code>) in the environment "
+            "open Settings, or set <code>ANALYZE_*</code> (or <code>LABEL_*</code>) in the environment "
             "or a <code>.env</code> file"
         )
     else:
         missing = ", ".join(cfg.missing)
         bits.append(
             f"<span class='analysis-status-warn'>Not configured</span> · "
-            f"set {_escape(missing)} in <code>.env</code>"
+            f"open Settings, or set {_escape(missing)} in <code>.env</code>"
         )
     if loaded_steps:
         bits.append(f"{loaded_steps} steps in context")
@@ -258,7 +439,7 @@ def setup_help_text(cfg: AnalysisLLMConfig | None = None) -> str:
     cfg = cfg or resolve_analysis_config()
     missing = ", ".join(cfg.missing) if cfg.missing else "ANALYZE_BASE_URL, ANALYZE_API_KEY, ANALYZE_MODEL"
     return (
-        "The analysis panel is not configured.\n\n"
+        "The analysis panel is not configured. Open Settings to configure the connection for this session.\n\n"
         f"Set {missing} in the environment, or in a `.env` file in the directory "
         "TrajViz was launched from (`.env.example` in the source repository lists "
         "every option).\n\n"

@@ -231,12 +231,17 @@ class LightOnlyPinTests(unittest.TestCase):
 
     def test_only_the_page_load_handler_writes_state_dark(self):
         app, cfg = _app()
-        page_load = [dep for dep in cfg["dependencies"] if any(name == "load" for _, name in dep.get("targets", []))]
-        self.assertEqual(len(page_load), 1)
-        dark_ids = list(page_load[0]["outputs"])
-        self.assertEqual(len(dark_ids), 1, "the page-load handler no longer writes exactly state_dark")
-        writers = [dep for dep in cfg["dependencies"] if dark_ids[0] in dep.get("outputs", [])]
+        loads = [bf for bf in _fns(app) if getattr(bf.fn, "__name__", "") == "_do_load"]
+        self.assertEqual(len(loads), 1)
+        dark_inputs = [component for component in loads[0].inputs if isinstance(component, gr.State)]
+        self.assertEqual(len(dark_inputs), 1, "the load path no longer reads exactly state_dark")
+        dark_id = dark_inputs[0]._id
+        writers = [dep for dep in cfg["dependencies"] if dark_id in dep.get("outputs", [])]
         self.assertEqual(len(writers), 1, "something other than page load now writes state_dark")
+        writer = writers[0]
+        self.assertEqual(writer["outputs"], [dark_id], "the page-load handler no longer writes exactly state_dark")
+        self.assertEqual({name for _, name in writer.get("targets", [])}, {"load"})
+        self.assertIs(app.fns[writer["id"]].fn(), False, "the page-load handler must pin light mode")
 
 
 class LaunchPresentationTests(unittest.TestCase):
