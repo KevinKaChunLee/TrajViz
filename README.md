@@ -14,6 +14,8 @@ Inspect tokens, timing, tool calls, subagents and failure patterns across native
 agent sessions. TrajViz also imports saved Claude Code OpenTelemetry (OTLP)
 captures. The core uses only the Python standard library.
 
+[Documentation](https://rshu.github.io/TrajViz/)
+
 ## Install
 
 Requires Python 3.11+.

@@ -51,3 +51,21 @@ the optional DECAF checkout skip without it.
 3. `.github/workflows/release.yml` checks the tag against `__version__`, runs
    the suite, builds and checks the distributions, and publishes to PyPI
    through Trusted Publishing once the `pypi` environment is approved.
+
+## Documentation
+
+Keep public API descriptions in docstrings and task guides in the maintained
+Markdown files under `docs/`. Local notes in that directory remain ignored.
+Generated HTML is built in `site/` and is never committed.
+
+```bash
+uv run --locked --with pdoc==16.0.0 python .github/scripts/build_docs.py \
+    --package-root . --output site --version-label development --check-examples
+```
+
+CI builds the site and runs marked examples on pull requests. A successful
+`main` build publishes development documentation; the latest published package
+provides the stable API reference. Release documentation is retained as a ZIP
+asset on its GitHub release and served at its versioned URL, starting with
+0.3.1. The documentation
+workflow can rebuild the stable snapshot explicitly after a documentation fix.

@@ -39,7 +39,7 @@ jobs:
         run: uv sync --locked --extra dev
       - name: Lint (ruff)
         if: matrix.python == '3.13'
-        run: uv run --locked ruff check agent_trajviz tests examples
+        run: uv run --locked ruff check agent_trajviz tests examples .github/scripts
       # No PYTHONPATH: `pythonpath = ["."]` in [tool.pytest.ini_options] puts
       # the repo root on sys.path and pins rootdir to this repository.
       - name: Test
@@ -167,7 +167,7 @@ jobs:
           /tmp/app/bin/python -c "from agent_trajviz.converge.app import build_ui; build_ui()"
 
   # The API reference, built from the docstrings of the public modules. It is
-  # kept as an artifact to download, not deployed anywhere.
+  # validated on every change; trusted publication follows successful main CI.
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -179,10 +179,14 @@ jobs:
           version: ${{ env.UV_VERSION }}
       - name: Install (locked)
         run: uv sync --locked --extra dev
-      - name: Build the API reference
+      - name: Build documentation and run examples
         run: >
-          uv run --locked --with "pdoc>=15" pdoc --docformat restructuredtext -o site
-          agent_trajviz agent_trajviz.figures agent_trajviz.dashboard agent_trajviz.llm agent_trajviz.attribution
+          uv run --locked --with pdoc==16.0.0 python .github/scripts/build_docs.py
+          --package-root . --output site --version-label development --check-examples
+      - name: Test documentation tooling
+        run: >
+          uv run --locked --with pdoc==16.0.0 python -m pytest -q
+          tests/test_docs_build.py tests/test_docs_examples.py tests/test_docs_archive.py tests/test_docs_source.py
       - name: Upload the API reference
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -7,6 +7,11 @@ change the public API (the names exported from `agent_trajviz`).
 
 ## [Unreleased]
 
+### Added
+
+- Publish versioned API documentation and tested usage guides, with stable and
+  development sites built automatically from the supported public interfaces.
+
 ## [0.3.1] - 2026-10-29
 
 ### Added

@@ -71,7 +71,7 @@ agent-trajviz-label = "agent_trajviz.labeling.labeler:main"
 
 [project.urls]
 Homepage = "https://github.com/rshu/TrajViz"
-Documentation = "https://github.com/rshu/TrajViz#readme"
+Documentation = "https://rshu.github.io/TrajViz/"
 Repository = "https://github.com/rshu/TrajViz"
 Issues = "https://github.com/rshu/TrajViz/issues"
 Changelog = "https://github.com/rshu/TrajViz/blob/main/CHANGELOG.md"
