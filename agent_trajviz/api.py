@@ -50,6 +50,50 @@ def _plain(steps: list[Step]) -> list[dict[str, Any]]:
     return cast("list[dict[str, Any]]", steps)
 
 
+def _exported_steps(value: list[Any]) -> list[Step]:
+    """Validate normalized record containers without rewriting source evidence."""
+    import math
+
+    for position, step in enumerate(value):
+        prefix = f"invalid trajectory step {position}"
+        if not isinstance(step, dict):
+            raise ValueError(f"{prefix}: expected an object")
+        for key, kind in (("tokens", dict), ("parts", list), ("tool_calls", list)):
+            if not isinstance(step.get(key), kind):
+                raise ValueError(f"{prefix}: {key} must be a {kind.__name__}")
+        for key in ("tool_call_count", "error_count"):
+            if type(step.get(key)) is not int or step[key] < 0:
+                raise ValueError(f"{prefix}: {key} must be a nonnegative integer")
+        if type(step.get("index")) is not int:
+            raise ValueError(f"{prefix}: index must be an integer")
+        if "raw_index" in step and type(step["raw_index"]) is not int:
+            raise ValueError(f"{prefix}: raw_index must be an integer")
+        if not isinstance(step.get("role"), str):
+            raise ValueError(f"{prefix}: role must be a string")
+        for key in ("total", "input", "output", "cache_read", "cache_write"):
+            number = step["tokens"].get(key)
+            try:
+                finite = not isinstance(number, bool) and isinstance(number, (int, float)) and math.isfinite(number)
+            except OverflowError:
+                finite = False
+            if not finite:
+                raise ValueError(f"{prefix}: tokens.{key} must be a finite number")
+        for part in step["parts"]:
+            if not isinstance(part, dict):
+                raise ValueError(f"{prefix}: parts must contain objects")
+            for key in ("type", "text"):
+                if key in part and not isinstance(part[key], str):
+                    raise ValueError(f"{prefix}: part {key} must be a string")
+        for call in step["tool_calls"]:
+            if not isinstance(call, dict) or not isinstance(call.get("tool_name"), str):
+                raise ValueError(f"{prefix}: tool_calls must contain named tool objects")
+            if not isinstance(call.get("status"), str):
+                raise ValueError(f"{prefix}: tool status must be a string")
+            if "metadata" in call and not isinstance(call["metadata"], dict):
+                raise ValueError(f"{prefix}: tool metadata must be an object")
+    return cast("list[Step]", value)
+
+
 @dataclass(frozen=True, eq=False)
 class Trajectory:
     """One loaded agent run: its detected format and its normalized steps.
@@ -175,7 +219,8 @@ class Trajectory:
         """Rebuild a trajectory from :meth:`to_dict` output (parsed JSON).
 
         Raises :class:`ValueError` for a document of another layout or
-        version. Without ``raw`` (``to_dict()`` without ``include_raw``) the
+        version, or malformed normalized records. For partial custom records,
+        use :meth:`from_steps`. Without ``raw`` (``to_dict()`` without ``include_raw``) the
         steps are restored; OTLP exports also retain their selection, timing
         and evidence metadata. Other formats may lose analyses that read raw
         export metadata.
@@ -183,11 +228,15 @@ class Trajectory:
         if not isinstance(data, Mapping) or not isinstance(data.get("steps"), list):
             raise ValueError("not an agent-trajviz trajectory: no steps")
         version = data.get("schema_version")
-        if version != SCHEMA_VERSION:
+        if type(version) is not int or version != SCHEMA_VERSION:
             raise ValueError(f"unsupported trajectory schema_version {version!r} (expected {SCHEMA_VERSION})")
         fmt = data.get("format")
         if not isinstance(fmt, str) or not fmt:
             raise ValueError("not an agent-trajviz trajectory: no format")
+        steps = _exported_steps(data["steps"])
+        warnings = data.get("warnings")
+        if warnings is not None and not isinstance(warnings, (list, tuple)):
+            raise ValueError("not an agent-trajviz trajectory: warnings must be an array")
         raw = data.get("raw")
         raw = dict(raw) if isinstance(raw, Mapping) else {}
         telemetry = data.get("telemetry")
@@ -213,10 +262,10 @@ class Trajectory:
                     raw.setdefault(new, raw.pop(old))
         return cls(
             format=fmt,
-            steps=cast("list[Step]", list(data["steps"])),
+            steps=list(steps),
             source=data.get("source"),
             sha256=data.get("sha256"),
-            warnings=tuple(str(w) for w in data.get("warnings") or ()),
+            warnings=tuple(str(w) for w in warnings or ()),
             tokens_estimated=bool(data.get("tokens_estimated")),
             raw=raw,
         )
@@ -467,6 +516,8 @@ def _load_exported(data: Mapping[str, Any], path: str, format: str | None) -> Tr
         raise LoadError(str(exc), code="unsupported_schema", path=path) from exc
     if format is not None and run.format != format:
         raise LoadError(f"the file is {run.format}, not {format}", code="mismatch", path=path, detected=run.format)
+    if not run.steps:
+        raise LoadError("no trajectory steps found in the exported trajectory", code="no_steps", path=path)
     return run
 
 

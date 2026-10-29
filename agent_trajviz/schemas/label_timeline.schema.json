@@ -106,6 +106,12 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "raw_index": {
+                "type": "integer"
+              },
+              "label_source": {
+                "type": "string"
               }
             }
           }

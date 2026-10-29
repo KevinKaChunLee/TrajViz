@@ -15,6 +15,17 @@ change the public API (the names exported from `agent_trajviz`).
   SQLite consolidator exports (`info` + `parts`) are unchanged.
 - Session files saved by Windows PowerShell (`Out-File` / `Set-Content`,
   UTF-16 with a BOM) load. A `0xFF` byte that is not that BOM is still rejected.
+- Reject malformed normalized trajectories before analysis, preserve large JSONL
+  round trips and handle invalid numeric observations without crashing.
+- Retain failed batch inputs and unpaired tasks; keep comparison effects unknown
+  when tool outcomes are unavailable.
+- Preserve unrelated files during JSON exports, reject unsafe or colliding view
+  filenames, and report output-path errors without a traceback.
+- Handle empty model responses and align label timeline schemas with labeler output.
+- Support unavailable measurements and explicit session selection in example apps,
+  and clear stale labels, comparisons and downloads when the input changes.
+- Correct mobile header overlap, repeated warning padding, upload action sizing
+  and clipped comparison tables.
 
 ### Changed
 

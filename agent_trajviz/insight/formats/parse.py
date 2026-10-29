@@ -109,6 +109,10 @@ def _unwrap_singleton_object_payload(payload: Any) -> Any:
 
 def _looks_like_object_dump(raw: dict) -> bool:
     """True when an unknown dict still looks like a JSON trajectory object."""
+    # Sorted normalized exports can put their type marker beyond the API's
+    # cheap prefix sniff. They remain objects even with a .jsonl filename.
+    if raw.get("type") == "agent-trajviz-trajectory":
+        return True
     if isinstance(raw.get("trajectory"), list):
         return True
     if isinstance(raw.get("messages"), list):

@@ -111,18 +111,21 @@ def _print_summary(report: dict) -> None:
 
         for agent_key, agent_label in [("reference", "Reference"), ("compared", "Compared")]:
             agent_data = anchor_analysis.get(agent_key, {})
-            wp = agent_data.get("write_precision") or 0
-            wr = agent_data.get("write_recall") or 0
-            opr = agent_data.get("off_patch_write_ratio") or 0
+            def percent(value: float | None) -> str:
+                return "n/a" if value is None else f"{value * 100:.1f}%"
+
+            wp = percent(agent_data.get("write_precision"))
+            wr = percent(agent_data.get("write_recall"))
+            opr = percent(agent_data.get("off_patch_write_ratio"))
             anchor_written = agent_data.get("anchor_files_written", 0)
             total_written = agent_data.get("files_written", 0)
             total_anchor = anchor_analysis.get("total_anchor_files", 0)
             first_read = agent_data.get("time_to_first_anchor_read")
             first_write = agent_data.get("time_to_first_anchor_write")
             print(f"\n    {agent_label}:")
-            print(f"      Write precision: {wp * 100:.1f}%  ({anchor_written}/{total_written} files in anchor)")
-            print(f"      Write recall:    {wr * 100:.1f}%  ({anchor_written}/{total_anchor} anchor files)")
-            print(f"      Off-patch ratio: {opr * 100:.1f}%")
+            print(f"      Write precision: {wp}  ({anchor_written}/{total_written} files in anchor)")
+            print(f"      Write recall:    {wr}  ({anchor_written}/{total_anchor} anchor files)")
+            print(f"      Off-patch ratio: {opr}")
             fr_str = f"step {first_read}" if first_read is not None else "N/A"
             fw_str = f"step {first_write}" if first_write is not None else "N/A"
             print(f"      First anchor read:  {fr_str}")
@@ -195,8 +198,8 @@ def _print_batch_summary(batch_report: dict) -> None:
         for t in per_task:
             status = t.get("status", "?")
             tid = t.get("task_id", "?")
-            if status == "failed":
-                print(f"    {tid}: FAILED — {t.get('error', '?')[:60]}")
+            if status in {"error", "failed"}:
+                print(f"    {tid}: ERROR — {t.get('error', '?')}")
             else:
                 a = t.get("alignment_summary", {})
                 print(f"    {tid}: R={a.get('recall', 0):.3f} P={a.get('precision', 0):.3f} "
@@ -217,6 +220,9 @@ def _print_intervention_summary(report: dict) -> None:
     if report.get("unpaired_before", 0) or report.get("unpaired_after", 0):
         print(f"  Unpaired: {report.get('unpaired_before', 0)} before-only, "
               f"{report.get('unpaired_after', 0)} after-only")
+
+    for error in report.get("input_errors", []):
+        print(f"  {error['side'].capitalize()} {error['task_id']}: ERROR — {error['error']}")
 
     # Metric deltas
     deltas = report.get("intervention_effect", {})
@@ -303,7 +309,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     modes = sum([
         bool(args.batch),
         bool(args.before or args.after),
-        bool(args.ref_file and args.cmp_file),
+        args.ref_file is not None or args.cmp_file is not None,
     ])
     if modes > 1:
         parser.error("Use one mode: positional ref/cmp, --batch, or --before/--after")
@@ -311,6 +317,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("Provide ref_file and cmp_file, --batch <manifest>, or --before/--after <manifests>")
     if bool(args.before) != bool(args.after):
         parser.error("--before and --after must be used together")
+    if args.batch is None and args.before is None and (args.ref_file is None or args.cmp_file is None):
+        parser.error("Provide both ref_file and cmp_file")
 
     if args.before and args.after:
         # Before/after mode

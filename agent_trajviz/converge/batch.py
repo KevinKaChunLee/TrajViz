@@ -53,6 +53,7 @@ def parse_manifest(
     base = os.path.abspath(base_dir) if base_dir is not None else os.path.dirname(os.path.abspath(manifest_path))
     real_root = os.path.realpath(root) if root is not None else None
     entries: list[ManifestEntry] = []
+    task_ids: set[str] = set()
 
     for i, item in enumerate(data):
         if not isinstance(item, dict):
@@ -64,7 +65,13 @@ def parse_manifest(
                     f"Manifest entry {i} (task_id={item.get('task_id', '?')}) "
                     f"missing required field '{field_name}'"
                 )
-        where = f"Manifest entry {i} (task_id={item['task_id']})"
+        task_id = item["task_id"]
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError(f"Manifest entry {i}: task_id must be a non-empty string")
+        if task_id in task_ids:
+            raise ValueError(f"Manifest entry {i}: duplicate task_id {task_id!r}")
+        task_ids.add(task_id)
+        where = f"Manifest entry {i} (task_id={task_id})"
 
         def _resolve(label: str, value: object, where: str = where) -> str:
             if not isinstance(value, str) or not value.strip():

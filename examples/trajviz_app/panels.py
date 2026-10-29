@@ -24,6 +24,10 @@ def _fmt_secs(value: Any) -> str:
     return format_duration_seconds(value)
 
 
+def _fmt_decimal(value: Any, digits: int = 2, suffix: str = "") -> str:
+    return f"{value:.{digits}f}{suffix}" if isinstance(value, (int, float)) and not isinstance(value, bool) else "n/a"
+
+
 def sparkline(values: list[float], width: int = 100, height: int = 20) -> str:
     """A small inline SVG polyline of *values* (empty when there are fewer than two)."""
     vals = [float(v) for v in values if isinstance(v, (int, float))]
@@ -41,12 +45,11 @@ def sparkline(values: list[float], width: int = 100, height: int = 20) -> str:
 
 def banner(name: str, summary: dict, warnings: list[str]) -> str:
     rate = summary.get("tool_success_rate")
-    tokens = (summary.get("tokens") or {}).get("total") or 0
+    tokens = (summary.get("tokens") or {}).get("total")
     parts = [f"<b>{E(name)}</b> — {E(summary.get('format_label') or '')}",
              f"{summary.get('steps')} steps", f"{summary.get('tool_calls')} tool calls "
              f"({'no success rate' if rate is None else f'{rate}% success'})"]
-    if tokens:
-        parts.append(f"{tokens:,} tokens")
+    parts.append(f"{_fmt_int(tokens)} tokens")
     html_out = f"<div class='tv-banner'>{' · '.join(parts)}</div>"
     if warnings:
         html_out += "".join(f"<div class='tv-warnings'>⚠ {E(w)}</div>" for w in warnings)
@@ -58,7 +61,7 @@ def error_banner(message: str) -> str:
 
 
 def kpi_strip(summary: dict, metrics: dict, health: list[dict], issues: list[dict], agents: list[dict],
-              steps: list[dict]) -> str:
+              steps: list[dict], *, limited_evidence: bool = False) -> str:
     """Five cards: steps, wall clock, tokens, issues, tool success."""
     verdict = {v["metric"]: v for v in health}
     durations = [r.get("duration") for r in steps if r.get("role") == "assistant"]
@@ -72,7 +75,7 @@ def kpi_strip(summary: dict, metrics: dict, health: list[dict], issues: list[dic
                        agent_rows)
 
     wall_card = _card("Wall-clock", _fmt_secs(summary.get("wall_clock_s")),
-                      f"P95 {metrics.get('p95_duration') or 0:.2f}s", sparkline(durations))
+                      f"P95 {_fmt_decimal(metrics.get('p95_duration'), suffix='s')}", sparkline(durations))
 
     throughput = verdict.get("Throughput", {})
     rate = metrics.get("output_tokens_per_sec")
@@ -90,8 +93,9 @@ def kpi_strip(summary: dict, metrics: dict, health: list[dict], issues: list[dic
     names = {"error": "error", "antipattern": "pattern", "bottleneck": "bottleneck"}
     kind_rows = "".join(f"<div class='tv-kpi-row'><span>▪ {E(names.get(k, k))}</span><span>{n}</span></div>"
                         for k, n in kinds.items())
-    issue_status = "bad" if kinds.get("error") else ("warn" if issues else "good")
-    issues_card = _card("Issues", str(len(issues)), "" if issues else "none found", kind_rows, status=issue_status)
+    issue_status = "bad" if kinds.get("error") else ("warn" if issues or limited_evidence else "good")
+    issue_note = "limited evidence" if limited_evidence else ("" if issues else "none found")
+    issues_card = _card("Issues", str(len(issues)), issue_note, kind_rows, status=issue_status)
 
     tool = verdict.get("Tool Success", {})
     success = summary.get("tool_success_rate")
@@ -109,9 +113,10 @@ def _card(label: str, value: str, sub: str, extra: str = "", *, status: str = ""
 
 # -- overview panels ------------------------------------------------------------------
 
-def issues_panel(issues: list[dict]) -> str:
+def issues_panel(issues: list[dict], *, limited_evidence: bool = False) -> str:
     if not issues:
-        return "<div class='tv-issues'><b>Issues</b> <span class='tv-muted'>none found</span></div>"
+        status = "limited evidence — some workflow checks are unavailable" if limited_evidence else "none found"
+        return f"<div class='tv-issues'><b>Issues</b> <span class='tv-muted'>{status}</span></div>"
     cards = []
     for issue in issues:
         chips = "".join(f"<span class='tv-chip'>#{int(s)}</span>" for s in issue.get("steps") or [])
@@ -124,6 +129,8 @@ def issues_panel(issues: list[dict]) -> str:
         cards.append(f"<div class='tv-issue {E(issue['kind'])}'><div class='tv-issue-title'>{E(issue['title'])}</div>"
                      f"<div class='tv-issue-detail'>{E(issue['detail'])}</div><div>{chips}</div>{why}{fix}</div>")
     count = f"{len(issues)} issue{'s' if len(issues) != 1 else ''}"
+    if limited_evidence:
+        count += " · limited evidence"
     return (f"<details class='tv-issues' open><summary>Issues <span class='tv-muted'>{count}</span></summary>"
             f"<div class='tv-issues-hint'>Ranked problems — errors, then wasted work, then latency.</div>"
             f"{''.join(cards)}</details>")
@@ -155,7 +162,7 @@ def agent_cards(agents: list[dict]) -> str:
         spawned = (f"<div class='tv-muted'>Spawned at step #{a['spawned_by_step']}</div>"
                    if a.get("spawned_by_step") is not None else "")
         grid = "".join(f"<div><b>{E(v)}</b><span>{E(k)}</span></div>" for k, v in (
-            ("Tokens", _fmt_int(a["total_tokens"])), ("Duration", f"{a['total_duration_s']:.1f}s"),
+            ("Tokens", _fmt_int(a["total_tokens"])), ("Duration", _fmt_decimal(a.get("total_duration_s"), 1, "s")),
             ("Tool calls", str(a["tool_call_count"])), ("Errors", str(a["error_count"])),
             ("Cache %", "N/A" if cache is None else f"{cache:.1f}%"),
             ("Gen tok/s", "n/a" if gen is None else f"{gen:,.1f}")))
@@ -198,7 +205,8 @@ def context_strip(pressure: dict, usage: dict) -> str:
     return head + f"<div class='tv-muted'>{E(title)}</div>{bar}<div class='tv-usage-legend'>{legend}</div>"
 
 
-def diagnostics_summary(chains: dict, clusters: dict, bottlenecks: list, files: dict, pressure: dict) -> str:
+def diagnostics_summary(chains: dict, clusters: dict, bottlenecks: list, files: dict, pressure: dict,
+                        *, limited_evidence: bool = False) -> str:
     parts = []
     if (chains.get("metrics") or {}).get("total_chains"):
         parts.append(f"{chains['metrics']['total_chains']} failure chain(s)")
@@ -212,6 +220,8 @@ def diagnostics_summary(chains: dict, clusters: dict, bottlenecks: list, files: 
     events = (pressure.get("series") or {}).get("events") or []
     if events:
         parts.append(f"{len(events)} compaction event(s)")
+    if limited_evidence:
+        parts.append("Some diagnostic checks are unavailable")
     return f"<div class='tv-muted'>{' · '.join(parts) if parts else 'No diagnostic issues detected.'}</div>"
 
 
@@ -245,14 +255,14 @@ def md_table(rows: list[dict], columns: list[tuple[str, str]], limit: int = 80) 
 def performance_md(metrics: dict) -> str:
     tok = metrics.get("tokens") or {}
     rows = [("Wall clock", _fmt_secs(metrics.get("wall_clock"))), ("Steps", _fmt_int(metrics.get("total_steps"))),
-            ("Avg / median / P95 step (s)", f"{metrics.get('avg_duration') or 0:.2f} / "
-             f"{metrics.get('median_duration') or 0:.2f} / {metrics.get('p95_duration') or 0:.2f}"),
+            ("Avg / median / P95 step (s)", f"{_fmt_decimal(metrics.get('avg_duration'))} / "
+             f"{_fmt_decimal(metrics.get('median_duration'))} / {_fmt_decimal(metrics.get('p95_duration'))}"),
             ("Total tokens", _fmt_int(tok.get("total"))), ("Input", _fmt_int(tok.get("input"))),
             ("Output", _fmt_int(tok.get("output"))), ("Cache read", _fmt_int(tok.get("cache_read"))),
             ("Cache write", _fmt_int(tok.get("cache_write"))),
-            ("Gen tok/s", str(metrics.get("output_tokens_per_sec"))),
-            ("Total processed tok/s", str(metrics.get("tokens_per_second"))),
-            ("First response latency (s)", str(metrics.get("time_to_first_token")))]
+            ("Gen tok/s", "n/a" if metrics.get("output_tokens_per_sec") is None else str(metrics["output_tokens_per_sec"])),
+            ("Total processed tok/s", "n/a" if metrics.get("tokens_per_second") is None else str(metrics["tokens_per_second"])),
+            ("First response latency (s)", "n/a" if metrics.get("time_to_first_token") is None else str(metrics["time_to_first_token"]))]
     return "### Performance\n\n| Metric | Value |\n|---|---:|\n" + "\n".join(f"| {k} | {v} |" for k, v in rows)
 
 
@@ -261,9 +271,9 @@ def behavior_md(metrics: dict, diagnostics: dict) -> str:
     rows = [("Tool calls", _fmt_int(metrics.get("tool_call_count"))),
             ("Tool success", "n/a" if rate is None else f"{rate}%"),
             ("Failed calls", _fmt_int(metrics.get("tool_fail"))),
-            ("Command success", str(metrics.get("command_success_rate"))),
-            ("Tool time share", str(metrics.get("tool_time_fraction"))),
-            ("Edit precision", str(diagnostics.get("edit_precision"))),
+            ("Command success", "n/a" if metrics.get("command_success_rate") is None else str(metrics["command_success_rate"])),
+            ("Tool time share", "n/a" if metrics.get("tool_time_fraction") is None else str(metrics["tool_time_fraction"])),
+            ("Edit precision", "n/a" if diagnostics.get("edit_precision") is None else str(diagnostics["edit_precision"])),
             ("Classified errors", _fmt_int(diagnostics.get("classified_error_count")))]
     breakdown = metrics.get("tool_breakdown") or {}
     tools = "\n".join(f"| {E(str(k))} | {v:,} |" for k, v in sorted(breakdown.items(), key=lambda kv: -kv[1]))
@@ -300,9 +310,10 @@ def tool_sequences_html(seqs: list[dict]) -> str:
     return f"<table class='tv-table'><tr><th>Sequence</th><th>Times</th><th>Starts at</th></tr>{rows}</table>"
 
 
-def failure_patterns_html(patterns: list[dict]) -> str:
+def failure_patterns_html(patterns: list[dict], *, limited_evidence: bool = False) -> str:
     if not patterns:
-        return "<div class='tv-muted'>No failed tool calls.</div>"
+        message = "Failure checks have limited evidence." if limited_evidence else "No failed tool calls."
+        return f"<div class='tv-muted'>{message}</div>"
     rows = "".join(f"<tr><td>{E(p['cluster_label'])}</td><td>{p['count']}</td><td>{E(p.get('error_class') or '')}</td>"
                    f"<td>{' → '.join(E(t) for t in p.get('recovery_path') or [])}</td>"
                    f"<td>{', '.join(f'#{s}' for s in p.get('steps') or [])}</td></tr>" for p in patterns)
@@ -310,7 +321,7 @@ def failure_patterns_html(patterns: list[dict]) -> str:
             f"<th>Steps</th></tr>{rows}</table>")
 
 
-def antipatterns_html(views: dict) -> str:
+def antipatterns_html(views: dict, *, limited_evidence: bool = False) -> str:
     sections = []
     for vid, title, fmt in (
         ("fruitless_streaks", "Fruitless search streaks",
@@ -325,8 +336,9 @@ def antipatterns_html(views: dict) -> str:
     ):
         rows = views.get(vid) or []
         items = "".join(f"<li>{E(str(fmt(r)))}</li>" for r in rows[:20])
+        empty = "Not established from available evidence" if limited_evidence else "none"
         sections.append(f"<h4>{E(title)} <span class='tv-muted'>({len(rows)})</span></h4>"
-                        + (f"<ul>{items}</ul>" if items else "<div class='tv-muted'>none</div>"))
+                        + (f"<ul>{items}</ul>" if items else f"<div class='tv-muted'>{empty}</div>"))
     return "".join(sections)
 
 

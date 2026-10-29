@@ -179,6 +179,31 @@ APP_CSS = """
     color-scheme: light;
 """ + _LIGHT_TOKENS + """
 }
+/* Header stays clear of the right-edge analysis control. */
+.tv-header {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding-right: 190px;
+    margin-bottom: 4px;
+}
+.tv-brand { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.tv-subtitle { font-size: 12px; color: var(--ov-muted); }
+/* Gradio repeats elem_classes on the block and its inner prose wrapper. */
+.app-title > .html-container,
+.summary-banner > .html-container,
+.overview-kpi-strip > .html-container { padding: 0; }
+.app-title.prose,
+.overview-kpi-strip.prose { margin: 0; }
+.summary-banner.prose {
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
 /* Type scale */
 h2, .section-header { font-size: 18px; font-weight: 700; }
 h3, .card-header { font-size: 14px; font-weight: 600; }
@@ -625,7 +650,7 @@ body, p, td, li { font-size: 13px; font-weight: 400; }
     gap: 4px !important;
 }
 .upload-row > .row {
-    align-items: stretch !important;
+    align-items: flex-start !important;
     gap: 10px !important;
 }
 .upload-row .file-upload, .upload-row .upload-button {
@@ -645,6 +670,7 @@ body, p, td, li { font-size: 13px; font-weight: 400; }
 }
 /* Compact load buttons — don't stretch full column width */
 .upload-row button.primary, .upload-row button.secondary {
+    flex-grow: 0 !important;
     max-width: 180px !important;
     align-self: center !important;
     margin-top: 4px !important;
@@ -1987,6 +2013,13 @@ html.tv-theme-dark {
     color: #fff;
     white-space: nowrap;
     line-height: 1.25;
+}
+@media (max-width: 600px) {
+    .tv-header { min-height: 28px; padding-right: 125px; }
+    .tv-subtitle { display: none; }
+    #analysis-sidebar.right:not(.open) .toggle-button::after {
+        content: "AI analysis";
+    }
 }
 """
 

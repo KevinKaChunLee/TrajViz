@@ -16,6 +16,7 @@ turns a :func:`compare` report into views the same way.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import dataclasses
 import functools
@@ -23,6 +24,7 @@ import json
 import math
 import os
 import re
+import tempfile
 from importlib import resources
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -80,7 +82,8 @@ class View:
     def to_json(self, **kwargs: Any) -> str:
         """:meth:`to_dict` as JSON text; keyword arguments go to :func:`json.dumps`."""
         kwargs.setdefault("ensure_ascii", False)
-        return json.dumps(self.to_dict(), allow_nan=False, **kwargs)
+        kwargs.setdefault("allow_nan", False)
+        return json.dumps(self.to_dict(), **kwargs)
 
 
 def _jsonable(value: Any) -> Any:
@@ -405,6 +408,12 @@ _CATALOG: dict[str, Mapping[str, Any]] = {vid: _catalog_entry(spec) for vid, spe
 VIEW_CATALOG: Mapping[str, Mapping[str, Any]] = MappingProxyType(_CATALOG)
 
 
+def _validate_view_id(view_id: object) -> None:
+    if not isinstance(view_id, str) or not _VIEW_ID.fullmatch(view_id) or view_id.casefold() in _RESERVED_VIEW_IDS:
+        raise ValueError(f"invalid view id {view_id!r}: use letters, digits, '_', '.' and '-' "
+                         f"(not {' or '.join(sorted(_RESERVED_VIEW_IDS))})")
+
+
 def register_view(
     view_id: str,
     build: Callable[..., Any],
@@ -432,9 +441,7 @@ def register_view(
     an export), built in, or already registered (pass ``replace=True`` to
     replace your own), or for an unknown *kind*.
     """
-    if not isinstance(view_id, str) or not _VIEW_ID.fullmatch(view_id) or view_id in _RESERVED_VIEW_IDS:
-        raise ValueError(f"invalid view id {view_id!r}: use letters, digits, '_', '.' and '-' "
-                         f"(not {' or '.join(sorted(_RESERVED_VIEW_IDS))})")
+    _validate_view_id(view_id)
     if view_id in _BUILT_IN_VIEWS:
         raise ValueError(f"{view_id!r} is a built-in view")
     if view_id in _SPECS and not replace:
@@ -611,22 +618,40 @@ def export_json(
     trajectory, ``trajectory.json`` holds :meth:`Trajectory.to_dict` with the
     raw export, so the directory reloads with :func:`load`. The
     directory is created if needed; existing files of the same names are
-    replaced.
+    replaced atomically per file. View ids must be valid export filenames and
+    cannot collide with ``index`` or ``trajectory``.
     """
     from . import __version__
     from .api import Trajectory
 
     views = _source_views(source, only)
+    seen: set[str] = set()
+    for view in views.values():
+        if not isinstance(view, View):
+            raise TypeError("export_json() expects View values")
+        _validate_view_id(view.id)
+        filename_key = view.id.casefold()
+        if filename_key in seen:
+            raise ValueError(f"duplicate view id {view.id!r} (case-insensitive filename)")
+        seen.add(filename_key)
     out_dir = Path(directory)
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
 
     def _write(name: str, payload: Any) -> None:
         path = out_dir / name
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=indent, ensure_ascii=False, allow_nan=False) + "\n",
-                       encoding="utf-8")
-        os.replace(tmp, path)
+        text = json.dumps(payload, indent=indent, ensure_ascii=False, allow_nan=False) + "\n"
+        tmp: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=out_dir,
+                                             prefix=".trajviz-", suffix=".tmp", delete=False) as handle:
+                tmp = Path(handle.name)
+                handle.write(text)
+            os.replace(tmp, path)
+        finally:
+            if tmp is not None:
+                with contextlib.suppress(OSError):
+                    tmp.unlink(missing_ok=True)
         written.append(path)
 
     for view in views.values():

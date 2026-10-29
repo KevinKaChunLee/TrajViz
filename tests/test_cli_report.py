@@ -34,6 +34,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from unittest.mock import patch
 from urllib.parse import urlparse
@@ -399,8 +400,12 @@ class ReportAgreesWithDashboardTests(unittest.TestCase):
         """``--dark`` is a rendering switch; it must not change a single reported value."""
         from agent_trajviz.insight.report import build_report_html
 
-        light = build_report_html(self.session, dark=False)
-        dark = build_report_html(self.session, dark=True)
+        # The generation timestamp is independent of theme; a minute rollover
+        # must not change the visible text being compared.
+        with patch("agent_trajviz.insight.report.datetime") as clock:
+            clock.now.return_value = datetime(2026, 1, 1, tzinfo=UTC)
+            light = build_report_html(self.session, dark=False)
+            dark = build_report_html(self.session, dark=True)
         self.assertEqual(_visible_text(light), _visible_text(dark))
         self.assertEqual(
             sorted(re.findall(r'"y":\s*\[[^\]]*\]', light)),

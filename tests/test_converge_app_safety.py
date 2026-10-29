@@ -134,6 +134,44 @@ class BatchViewTests(_Dirs):
         self.assertNotIn(str(self.uploads), html)
 
 
+class PartialBatchInputTests(_Dirs):
+    def test_batch_keeps_successful_results_and_exposes_failed_inputs(self):
+        (self.root / "runs" / "broken.json").write_text('{"unrecognized": true}', encoding="utf-8")
+        manifest = self.manifest([
+            {"task_id": "good", "reference": "runs/ref.json", "compared": "runs/cmp.json"},
+            {"task_id": "<img src=x>", "reference": "runs/ref.json", "compared": "runs/broken.json"},
+        ])
+        rendered = cvg_app.batch_report_html(manifest, 50, False, data_root=self.root)
+        self.assertIn("1 of 2 tasks compared", rendered)
+        self.assertIn("Input errors (1)", rendered)
+        self.assertIn("&lt;img src=x&gt;", rendered)
+        self.assertIn("broken.json", rendered)
+        self.assertNotIn("<img src=x>", rendered)
+        self.assertNotIn(str(self.root), rendered)
+        self.assertNotIn(str(self.uploads), rendered)
+
+    def test_before_after_counts_failed_and_successful_unpaired_inputs(self):
+        (self.root / "runs" / "broken.json").write_text('{"unrecognized": true}', encoding="utf-8")
+        before = self.manifest([
+            {"task_id": "paired", "reference": "runs/ref.json", "compared": "runs/cmp.json"},
+            {"task_id": "<failed>", "reference": "runs/ref.json", "compared": "runs/broken.json"},
+        ], "before.json")
+        after = self.manifest([
+            {"task_id": "paired", "reference": "runs/ref.json", "compared": "runs/cmp.json"},
+            {"task_id": "new", "reference": "runs/ref.json", "compared": "runs/cmp.json"},
+        ], "after.json")
+        rendered = cvg_app.before_after_report_html(before, after, 50, False, data_root=self.root)
+        self.assertIn("Paired tasks: 1", rendered)
+        self.assertIn("Unpaired before: 1", rendered)
+        self.assertIn("Unpaired after: 1", rendered)
+        self.assertIn("Input errors (1)", rendered)
+        self.assertIn("before: &lt;failed&gt;", rendered)
+        self.assertIn("broken.json", rendered)
+        self.assertNotIn("<failed>", rendered)
+        self.assertNotIn(str(self.root), rendered)
+        self.assertNotIn(str(self.uploads), rendered)
+
+
 class CompareViewTests(_Dirs):
     def test_a_cleared_token_rate_is_a_message(self):
         ref, cmp_ = str(self.root / "runs" / "ref.json"), str(self.root / "runs" / "cmp.json")
