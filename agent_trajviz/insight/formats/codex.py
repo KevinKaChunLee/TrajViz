@@ -5,6 +5,7 @@ import json
 import re
 import shlex
 
+from ..shell_cmd import _shell_segments
 from .common import _iso_to_epoch_ms
 from .codex_files import agent_path as _codex_agent_path
 from .codex_files import own_codex_events, parent_thread_id, session_meta
@@ -574,6 +575,10 @@ def _classify_codex_command(func_name: str, cmd: str) -> str:
         # instead of flattening every call into an empty Bash command.
         return str(func_name) or "Bash"
 
+    # Direct cat redirection writes stdin; it must not enter the Read branch.
+    if cmd_lower.startswith(("cat >", "cat >>")):
+        return "Write"
+
     # File reading
     if any(cmd_lower.startswith(p) for p in ["cat ", "head ", "tail ", "sed -n", "less "]):
         return "Read"
@@ -590,6 +595,80 @@ def _classify_codex_command(func_name: str, cmd: str) -> str:
 
     # Test, git, python, and all other shell commands are Bash
     return "Bash"
+
+
+_RG_SEARCH_VALUE_OPTIONS = frozenset({
+    "-A", "-B", "-C", "-m", "-g", "-t", "-T", "-j", "--after-context", "--before-context", "--context",
+    "--max-count", "--glob", "--iglob", "--type", "--type-not", "--type-add", "--type-clear", "--threads",
+    "--encoding", "--max-columns", "--max-depth", "--max-filesize", "--sort", "--sortr", "--ignore-file",
+    "--include", "--exclude", "--exclude-dir", "--label", "--color", "--colors", "--pre", "--pre-glob",
+})
+_GREP_SEARCH_VALUE_OPTIONS = frozenset({
+    "-A", "-B", "-C", "-m", "-D", "-d", "--after-context", "--before-context", "--context", "--max-count",
+    "--include", "--exclude", "--exclude-dir", "--label", "--devices", "--directories",
+})
+
+
+def _command_operands(parts: list[str], value_options: frozenset[str]) -> list[str]:
+    """Positional operands of one shell stage, excluding flags and redirects."""
+    operands = []
+    index, options = 1, True
+    while index < len(parts):
+        token = parts[index]
+        if re.fullmatch(r"[0-9]*[<>]+", token):
+            index += 2
+        elif re.match(r"^[0-9]*[<>]", token):
+            index += 1
+        elif options and token == "--":
+            options = False
+            index += 1
+        elif options and token.startswith("-") and token != "-":
+            option, separator, _ = token.partition("=")
+            index += 2 if option in value_options and not separator else 1
+        else:
+            operands.append(token)
+            index += 1
+    return operands
+
+
+def _search_input(parts: list[str]) -> tuple[str, str]:
+    """Keep search patterns/scopes separate from option values and later pipes."""
+    operands = []
+    name = parts[0].rsplit("/", 1)[-1] if parts else ""
+    value_options = _RG_SEARCH_VALUE_OPTIONS if name in {"rg", "ripgrep"} else _GREP_SEARCH_VALUE_OPTIONS
+    pattern = ""
+    has_pattern = False
+    index, options = 1, True
+    while index < len(parts):
+        token = parts[index]
+        option, separator, value = token.partition("=")
+        if options and option in {"-e", "--regexp", "-f", "--file"}:
+            if not separator and index + 1 < len(parts):
+                value = parts[index + 1]
+            if not has_pattern:
+                pattern = value
+            has_pattern = True
+            index += 1 if separator else 2
+        elif options and token.startswith(("-e", "-f")) and len(token) > 2:
+            if not has_pattern:
+                pattern = token[2:]
+            has_pattern = True
+            index += 1
+        elif re.fullmatch(r"[0-9]*[<>]+", token):
+            index += 2
+        elif re.match(r"^[0-9]*[<>]", token):
+            index += 1
+        elif options and token == "--":
+            options = False
+            index += 1
+        elif options and token.startswith("-") and token != "-":
+            index += 2 if option in value_options and not separator else 1
+        else:
+            operands.append(token)
+            index += 1
+    if not has_pattern and operands:
+        pattern = operands.pop(0)
+    return pattern, operands[-1] if operands else ""
 
 
 def _build_codex_tool_input(
@@ -610,18 +689,19 @@ def _build_codex_tool_input(
     raw_text = raw_args.get("raw", "") if isinstance(raw_args, dict) else ""
 
     if tool_name in ("Read",):
-        # Extract file path from commands like:
-        #   cat file.py, sed -n '1,20p' file.py, head -n 50 file.py
-        #   nl -ba file.py | sed ...
-        parts = cmd.split("|")[0].strip().split()  # take before first pipe
-        # File path is usually the last arg that doesn't start with - or '
-        file_path = ""
-        for p in reversed(parts):
-            if not p.startswith("-") and not p.startswith("'") and not p.startswith('"'):
-                if "." in p or "/" in p:
-                    file_path = p
-                    break
-        return {"file_path": file_path, "command": cmd}
+        segments = _shell_segments(cmd)
+        parts = segments[0] if segments else []
+        reader = parts[0].rsplit("/", 1)[-1] if parts else ""
+        values = frozenset({"-n", "--lines", "-c", "--bytes"}) if reader in {"head", "tail"} else frozenset()
+        if reader == "sed":
+            values = frozenset({"-e", "--expression", "-f", "--file"})
+        operands = _command_operands(parts, values)
+        if reader == "sed" and not any(
+            option.partition("=")[0] in values or option.startswith(("-e", "-f"))
+            for option in parts[1:] if option.startswith("-")
+        ):
+            operands = operands[1:]  # the first positional operand is sed's program
+        return {"file_path": operands[-1] if operands else "", "command": cmd}
 
     elif tool_name in ("Write",):
         # Extract file path from: sed -i, cat >, patch, git apply
@@ -633,30 +713,43 @@ def _build_codex_tool_input(
         if patch_match:
             file_path = patch_match.group(1).strip()
         else:
-            parts = cmd.split()
+            segments = _shell_segments(cmd)
+            parts = segments[0] if segments else []
             file_path = ""
-            for p in reversed(parts):
-                if not p.startswith("-") and ("." in p or "/" in p):
-                    file_path = p
+            for index, token in enumerate(parts):
+                if token in {">", ">>", "1>", "1>>"} and index + 1 < len(parts):
+                    file_path = parts[index + 1]
                     break
+                match = re.match(r"^(?:1)?>>?(.+)$", token)
+                if match:
+                    file_path = match[1]
+                    break
+            if not file_path:
+                for p in reversed(parts):
+                    if not p.startswith("-") and ("." in p or "/" in p):
+                        file_path = p
+                        break
         result = {"file_path": file_path, "command": cmd}
         if str(func_name).lower() == "apply_patch" or cmd.startswith("*** Begin Patch"):
             result["patch"] = raw_text or cmd
         return result
 
     elif tool_name in ("Grep",):
-        # Extract pattern and scope from: rg -n "pattern" dir/
-        #   or: grep -rn "pattern" file
-        parts = cmd.split()
-        non_flag = [p for p in parts[1:] if not p.startswith("-")]
-        pattern = non_flag[0].strip("'\"") if non_flag else ""
-        path = non_flag[-1] if len(non_flag) > 1 else ""
+        segments = _shell_segments(cmd)
+        pattern, path = _search_input(segments[0] if segments else [])
         return {"pattern": pattern, "path": path, "command": cmd}
 
     elif tool_name in ("Glob",):
-        # Extract path from: find dir, ls dir
-        parts = cmd.split()
-        path = parts[1] if len(parts) > 1 and not parts[1].startswith("-") else ""
+        segments = _shell_segments(cmd)
+        parts = segments[0] if segments else []
+        if parts and parts[0].rsplit("/", 1)[-1] == "find":
+            rest = parts[1:]
+            while rest and rest[0] in {"-H", "-L", "-P"}:
+                rest = rest[1:]
+            path = rest[0] if rest and not rest[0].startswith("-") else ""
+        else:
+            operands = _command_operands(parts, frozenset({"-I", "--ignore", "--hide", "--sort", "--format", "--time-style", "--block-size", "-T", "--tabsize", "-w", "--width"}))
+            path = operands[-1] if operands else ""
         return {"path": path, "command": cmd}
 
     else:

@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from ..charts import build_run_group_agent_timeline
 from ..comparison import run_comparison
 from ..run_group import (
+    LoadedRun,
     build_run_group_behavior_html,
     build_run_group_scorecard,
     build_run_group_scorecard_html,
@@ -88,6 +89,7 @@ class ComparisonRefs:
     cmp_report_html: gr.HTML
     cmp_phase_count_chart: gr.Plot
     cmp_phase_duration_chart: gr.Plot
+    cmp_session_selector: gr.Dropdown
 
 
 def layout() -> ComparisonRefs:
@@ -153,6 +155,8 @@ def layout() -> ComparisonRefs:
                     file_types=[".patch", ".diff"],
                     scale=1,
                 )
+            cmp_session_selector = gr.Dropdown(label="Reference captured session", choices=[], value=None,
+                                               visible=False, interactive=True)
             with gr.Row(equal_height=True):
                 cmp_ref_labels_upload = gr.File(
                     label="Reference Labels (optional, *_labeled.json)",
@@ -196,6 +200,7 @@ def layout() -> ComparisonRefs:
         cmp_report_html=cmp_report_html,
         cmp_phase_count_chart=cmp_phase_count_chart,
         cmp_phase_duration_chart=cmp_phase_duration_chart,
+        cmp_session_selector=cmp_session_selector,
     )
 
 
@@ -232,7 +237,18 @@ def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
         outputs=[refs.rg_scorecard_html, refs.rg_agent_timeline_chart, refs.rg_behavior_html],
     )
 
-    def on_run_comparison(ref_file, anchor_file, ref_format, ref_labels_file, cmp_labels_file, overview_run, dark):
+    def inspect_reference_sessions(file, hint):
+        from .load import _inspect_sessions
+        if hint not in {None, "", "otlp"}:
+            return gr.update(choices=[], value=None, visible=False)
+        return _inspect_sessions(file)
+
+    for trigger in (refs.cmp_file_upload.change, refs.cmp_format_selector.change):
+        trigger(fn=inspect_reference_sessions, inputs=[refs.cmp_file_upload, refs.cmp_format_selector],
+                outputs=refs.cmp_session_selector)
+
+    def on_run_comparison(ref_file, anchor_file, ref_format, ref_labels_file, cmp_labels_file, overview_run, dark,
+                          ref_session=None):
         empty_fig = _empty_cmp_fig(380)
 
         if overview_run is None or not overview_run.steps:
@@ -260,7 +276,15 @@ def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
         if anchor_file is not None:
             anchor_path = anchor_file if isinstance(anchor_file, str) else anchor_file.name
 
-        reference = load_run(ref_path, ref_format or None)
+        if ref_session:
+            from ...api import load
+            from ...errors import LoadError
+            try:
+                reference = loaded_run(load(ref_path, format=ref_format or None, session_id=ref_session))
+            except LoadError as exc:
+                reference = LoadedRun(ref_path, {"_error": str(exc)})
+        else:
+            reference = load_run(ref_path, ref_format or None)
         compared = loaded_run(overview_run)
 
         result = run_comparison(
@@ -288,6 +312,7 @@ def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
             if isinstance(cmp_labels_file, str)
             else (cmp_labels_file.name if cmp_labels_file else None)
         )
+        label_notice = ""
         if ref_labels_path and cmp_labels_path:
             try:
                 from ..charts import (
@@ -296,8 +321,14 @@ def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
                 )
                 from ..labels import aggregate_labels, load_labeled_json
 
-                ref_agg = aggregate_labels(load_labeled_json(ref_labels_path))
-                cmp_agg = aggregate_labels(load_labeled_json(cmp_labels_path))
+                from ..presenters.label_ui import validate_labels_for_run
+
+                ref_labels = load_labeled_json(ref_labels_path)
+                cmp_labels = load_labeled_json(cmp_labels_path)
+                validate_labels_for_run(ref_labels, reference)
+                validate_labels_for_run(cmp_labels, compared)
+                ref_agg = aggregate_labels(ref_labels)
+                cmp_agg = aggregate_labels(cmp_labels)
                 ref_label_name = os.path.basename(ref_path) if ref_path else "reference"
                 cmp_label_name = os.path.basename(compared.path) or "compared"
                 phase_count_fig = build_phase_count_comparison_chart(
@@ -318,16 +349,23 @@ def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
                 import logging
 
                 logging.getLogger(__name__).debug("Phase comparison chart build failed: %s", exc)
+                label_notice = ("<div style='color:var(--ov-warn);padding:0.5em;'>"
+                                "Label comparison unavailable: the sidecars could not be aligned with these trajectories.</div>")
 
         if result.get("ok", True):
             status = "<div style='color:var(--ov-success);padding:0.5em;font-size:13px;'>Comparison complete.</div>"
+        elif result.get("unavailable") == "transcript_alignment":
+            status = (
+                "<div style='color:var(--ov-warn);padding:0.5em;font-size:13px;'>"
+                "Transcript alignment unavailable; observed metrics remain available in Overview and Run group.</div>"
+            )
         else:
             status = (
                 "<div style='color:var(--ov-warn);padding:0.5em;font-size:13px;'>"
                 "Comparison failed &mdash; see the report panel for details.</div>"
             )
 
-        return (result["report_html"], phase_count_fig, phase_duration_fig, status)
+        return (result["report_html"], phase_count_fig, phase_duration_fig, status + label_notice)
 
     refs.cmp_run_btn.click(
         fn=on_run_comparison,
@@ -339,6 +377,7 @@ def bind(refs: ComparisonRefs, shared: SharedState, upload: UploadRefs) -> None:
             upload.label_file_upload,
             shared.state_run,
             shared.state_dark,
+            refs.cmp_session_selector,
         ],
         outputs=[refs.cmp_report_html, refs.cmp_phase_count_chart, refs.cmp_phase_duration_chart, refs.cmp_status_html],
     )

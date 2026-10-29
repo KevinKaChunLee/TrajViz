@@ -14,6 +14,7 @@ from agent_trajviz.insight.parser import parse_steps
 
 from agent_trajviz.converge.alignment import (
     DEFAULT_TOKEN_RATE,
+    TranscriptAlignmentUnavailable,
     _parse_anchor_files,
     build_comparison_report_from_steps,
     empty_steps_reason,
@@ -147,6 +148,21 @@ def run_comparison(
 
         return {"report_html": report_html, "ok": True}
 
+    except TranscriptAlignmentUnavailable:
+        # A known evidence limitation is actionable; never echo exception
+        # text, which may be changed by a caller or contain private paths.
+        return {
+            "ok": False,
+            "unavailable": "transcript_alignment",
+            "report_html": (
+                "<div style='color:var(--ov-warn);padding:1em;'>"
+                "<strong>Transcript alignment unavailable</strong>"
+                "<p>This capture records operations rather than a native conversation transcript. "
+                "Transcript alignment and divergence scores have not been computed.</p>"
+                "<p>Inspect observed token usage, timing and tool metrics in Overview, or compare those "
+                "measurements in Run group. Use native session logs for transcript alignment.</p></div>"
+            ),
+        }
     except Exception as e:
         # The traceback goes to the log, not into the page: it
         # carries absolute filesystem paths, and the exception text itself is

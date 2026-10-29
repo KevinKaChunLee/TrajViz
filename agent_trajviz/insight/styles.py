@@ -1218,6 +1218,62 @@ html.tv-theme-dark {
     padding-top: 6px; border-top: 1px dashed var(--ov-border);
 }
 
+/* Attribution content must fit its panel, including long source identifiers. */
+.attribution-tab .score-dim-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.attribution-tab .score-dim-card,
+.attribution-tab .score-dim-header,
+.attribution-tab .score-dim-name,
+.attribution-tab .judge-panel,
+.attribution-tab .judge-reasoning,
+.attribution-tab .attr-link-body { min-width: 0; }
+.attribution-tab .score-dim-header { flex-wrap: wrap; gap: 4px 8px; }
+.attribution-tab .score-dim-badge { flex-shrink: 0; max-width: 100%; }
+.attribution-tab .judge-panel summary { flex-wrap: wrap; overflow-wrap: anywhere; }
+.attribution-tab .score-dim-name,
+.attribution-tab .score-dim-metric,
+.attribution-tab .attr-link-body,
+.attribution-tab .attr-link-src,
+.attribution-tab .attr-quote,
+.attribution-tab .attr-audit,
+.attribution-tab .attr-banner-head,
+.attribution-tab .attr-banner-sub { overflow-wrap: anywhere; }
+.attribution-tab .attr-overrides { min-width: 0; max-width: 100%; }
+.attribution-tab .attr-overrides .label-wrap {
+    min-width: 0;
+    max-width: 100%;
+    height: auto;
+    white-space: normal;
+    align-items: center;
+    gap: 8px;
+}
+.attribution-tab .attr-overrides .label-wrap > span {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+}
+.attribution-tab .attr-overrides .label-wrap > span:first-child { flex: 1; }
+.attribution-tab .attr-overrides .label-wrap > .icon {
+    display: flex;
+    flex: 0 0 1em;
+    align-self: center;
+    align-items: center;
+    justify-content: center;
+    width: 1em;
+    height: 1em;
+    line-height: 1;
+}
+.attribution-tab .attr-overrides .label-wrap > .icon svg {
+    display: block;
+    width: 1em;
+    height: 1em;
+}
+@media (max-width: 600px) {
+    .attribution-tab .score-dim-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* ===== Overview section navigation ===== */
 .overview-content-layout {
     align-items: start;

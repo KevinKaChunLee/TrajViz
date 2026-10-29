@@ -31,6 +31,7 @@ from ..presenters.overview import (
     build_diagnostics_outputs,
     build_overview_outputs,
     empty_plotly_fig,
+    load_warnings_html,
 )
 from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
 from ..llm_config import resolve_session_settings
@@ -599,57 +600,33 @@ def bind(
         template="plotly_white", height=380, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
     )
 
-    def do_load_labels(upload_obj, dark=False):
-        """Load labeled JSON and update all label UI components."""
-        file_path = None
-        if upload_obj is not None:
-            file_path = upload_obj if isinstance(upload_obj, str) else upload_obj.name
-
+    def do_load_labels(upload_obj, dark=False, run=None, warning_html=None):
+        """Load labels and reveal the summary parent only when it has content."""
+        file_path = (upload_obj if isinstance(upload_obj, str) else upload_obj.name) if upload_obj is not None else None
         empty = _empty_label_fig
+        has_warnings = (bool(isinstance(warning_html, str) and warning_html.strip())
+                        or bool(run is not None and load_warnings_html(session_from_run(run, "")).strip()))
+
+        def no_charts(badge, message, visible):
+            return (badge, message, gr.update(visible=False), empty, empty,
+                    gr.update(visible=False), empty, empty, gr.update(visible=False), empty,
+                    gr.update(visible=visible))
 
         if not file_path or not os.path.isfile(file_path):
-            return (
-                "",
-                "<div style='padding:1em;color:var(--ov-muted);text-align:center;'>"
-                "Upload a <code>*_labeled.json</code> file to view label distributions and timeline.</div>",
-                gr.update(visible=False),
-                empty,
-                empty,
-                gr.update(visible=False),
-                empty,
-                empty,
-                gr.update(visible=False),
-                empty,
-            )
-
+            return no_charts("", "<div style='padding:1em;color:var(--ov-muted);text-align:center;'>"
+                             "Upload a <code>*_labeled.json</code> file to view label distributions and timeline.</div>",
+                             has_warnings)
         try:
-            payload = build_label_ui_payload(file_path, dark=bool(dark))
+            payload = build_label_ui_payload(file_path, dark=bool(dark), run=run)
         except Exception as exc:
-            return (
-                "",
-                f"<div style='padding:1em;color:#dc2626;text-align:center;'>Error: {html.escape(str(exc))}</div>",
-                gr.update(visible=False),
-                empty,
-                empty,
-                gr.update(visible=False),
-                empty,
-                empty,
-                gr.update(visible=False),
-                empty,
-            )
+            error = ("<div role='alert' style='padding:0.5em;color:#dc2626;'>"
+                     f"Labels could not be loaded: {html.escape(str(exc))}</div>")
+            return no_charts(error, error, True)
 
-        return (
-            payload["badge_html"],
-            payload["status_html"],
-            gr.update(visible=True),
-            payload["phase_count_fig"],
-            payload["action_count_fig"],
-            gr.update(visible=True),
-            payload["phase_duration_fig"],
-            payload["action_duration_fig"],
-            gr.update(visible=True),
-            payload["timeline_fig"],
-        )
+        return (payload["badge_html"], payload["status_html"], gr.update(visible=True),
+                payload["phase_count_fig"], payload["action_count_fig"], gr.update(visible=True),
+                payload["phase_duration_fig"], payload["action_duration_fig"], gr.update(visible=True),
+                payload["timeline_fig"], gr.update(visible=True))
 
     label_outputs = [
         upload.label_badge_html,
@@ -663,16 +640,16 @@ def bind(
         refs.label_timeline_row,
         refs.label_timeline_chart,
     ]
-    label_inputs = [upload.label_file_upload, shared.state_dark]
+    label_inputs = [upload.label_file_upload, shared.state_dark, shared.state_run, upload.summary_banner]
     upload.label_load_btn.click(
         fn=do_load_labels,
         inputs=label_inputs,
-        outputs=label_outputs,
+        outputs=[*label_outputs, upload.summary_area],
     )
     upload.label_file_upload.change(
         fn=do_load_labels,
         inputs=label_inputs,
-        outputs=label_outputs,
+        outputs=[*label_outputs, upload.summary_area],
     )
 
     def _reset_labels():
@@ -697,5 +674,11 @@ def bind(
     # One trigger only: choosing a trajectory re-clicks Load in the browser
     # rather than running a second load (see `load.bind_load`).
     _reset_outputs = label_outputs + [upload.label_file_upload]
-    upload.load_btn.click(fn=_reset_labels, inputs=None, outputs=_reset_outputs)
+    if load_events:
+        # Clear after the new run is stored, so the file-clear callback cannot
+        # restore the previous run's warning visibility over the new load.
+        for event in load_events:
+            event.then(fn=_reset_labels, inputs=None, outputs=_reset_outputs)
+    else:
+        upload.load_btn.click(fn=_reset_labels, inputs=None, outputs=_reset_outputs)
     return (judge_dependency,)

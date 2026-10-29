@@ -360,3 +360,40 @@ class ChartWorkflowJumpBinderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReasoningDetailContentTests(unittest.TestCase):
+    @staticmethod
+    def render(parts, has_reasoning):
+        from agent_trajviz.insight.rendering import format_step_detail
+        return format_step_detail(WorkflowDetailUiTests._metric_step(parts=parts, has_reasoning=has_reasoning))
+
+    def test_reasoning_record_without_text_has_an_honest_note(self):
+        out = self.render([{"type": "reasoning", "text": ""}, {"type": "text", "text": "Final response."}], True)
+        self.assertIn("Reasoning text unavailable", out)
+        self.assertIn("No readable reasoning text was included in this export.", out)
+        self.assertIn("Final response.", out)
+        self.assertNotIn("<div class='dp-section-title'>Reasoning</div>", out)
+
+    def test_readable_reasoning_is_preserved_while_empty_chunks_are_omitted(self):
+        out = self.render([{"type": "reasoning", "text": "   \n"},
+                           {"type": "reasoning", "text": "A recorded reasoning summary."},
+                           {"type": "text", "text": "Final response."}], True)
+        self.assertIn("A recorded reasoning summary.", out)
+        self.assertEqual(out.count("<div class='dp-section-title'>Reasoning</div>"), 1)
+        self.assertNotIn("Reasoning text unavailable", out)
+
+    def test_truly_blank_content_does_not_leave_empty_section_cards(self):
+        out = self.render([{"type": "reasoning", "text": "  "}, {"type": "text", "text": "\n"}], False)
+        self.assertNotIn("dp-section-reasoning", out)
+        self.assertNotIn("dp-section-text", out)
+        self.assertIn("<em>No content</em>", out)
+
+    def test_reasoning_flag_without_a_readable_part_is_not_silently_lost(self):
+        out = self.render([{"type": "text", "text": "Final response."}], True)
+        self.assertIn("Reasoning text unavailable", out)
+        self.assertIn("Final response.", out)
+
+    def test_several_empty_reasoning_parts_produce_only_one_notice(self):
+        out = self.render([{"type": "reasoning", "text": ""}, {"type": "reasoning", "text": None}], True)
+        self.assertEqual(out.count("No readable reasoning text was included in this export."), 1)

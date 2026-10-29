@@ -23,7 +23,7 @@ class AttributionRefs:
 
 
 def layout(*, allow_server_paths: bool = True) -> AttributionRefs:
-    with gr.TabItem("Attribution"):
+    with gr.TabItem("Attribution", elem_classes=["attribution-tab"]):
         gr.HTML(
             "<div class='section-subtitle'>Capability failure attribution "
             "&mdash; which of the seven workflow capabilities broke, with tiered "
@@ -44,7 +44,7 @@ def layout(*, allow_server_paths: bool = True) -> AttributionRefs:
             gr.Accordion(
                 "Override agent / instance / reference data (for uploaded files)",
                 open=False,
-                elem_classes=["per-message-acc"],
+                elem_classes=["per-message-acc", "attr-overrides"],
             ),
             gr.Row(equal_height=True),
         ):
@@ -153,18 +153,19 @@ def bind(
             "",
         )
 
-    # One trigger only: choosing a file re-clicks Load in the browser rather
-    # than running a second load (see `load.bind_load`).
-    upload.load_btn.click(
-        fn=_clear_attribution, outputs=[refs.attr_result_html, refs.attr_status_html], concurrency_id="attribution"
-    )
-
     def on_diagnose_autoload(overview_raw, root_override):
         html_out, status = on_diagnose(overview_raw, "", "", root_override)
         return html_out, status, "", ""
 
+    # Keep one ordered load -> clear -> diagnose chain. A separate click
+    # listener can clear a completed diagnosis when Gradio schedules it late.
     for _ev in load_events:
-        _ev.then(
+        cleared = _ev.then(
+            fn=_clear_attribution,
+            outputs=[refs.attr_result_html, refs.attr_status_html],
+            concurrency_id="attribution",
+        )
+        cleared.then(
             fn=on_diagnose_autoload,
             inputs=[shared.state_raw, refs.attr_root_override],
             outputs=[refs.attr_result_html, refs.attr_status_html, refs.attr_agent_override, refs.attr_inst_override],

@@ -7,6 +7,19 @@ change the public API (the names exported from `agent_trajviz`).
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject label sidecars with conflicting native-session identity and allow selecting a
+  captured reference session for pairwise comparison.
+- Keep shell counts, formatter arguments and executable invocations out of file-
+  interaction charts while retaining genuine file operands and write targets.
+- Follow executed validation commands through their observed completion in comparison
+  milestones, and explain when a capture lacks transcript evidence.
+- Order automatic failure attribution reliably, distinguish AWE evidence numbering, and
+  show evidence qualifications and untested counterfactual checks.
+- Improve mobile attribution layouts and remove empty warning and reasoning panels.
+
+
 ### Added
 
 - Publish versioned API documentation and tested usage guides, with stable and

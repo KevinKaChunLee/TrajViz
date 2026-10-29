@@ -127,7 +127,32 @@ class SingleLoadPathTests(unittest.TestCase):
             with self.subTest(reset=name):
                 bound = by_name.get(name, [])
                 self.assertEqual(len(bound), 1, f"{name} is bound to more than one load trigger")
-                self.assertEqual(list(bound[0].targets), [(load_btn, "click")])
+                self.assertNotIn((load_btn, "click"), list(bound[0].targets))
+                if name == "_reset_labels":
+                    load_id = next(identity for identity, fn in app.fns.items()
+                                   if getattr(fn.fn, "__name__", "") == "_do_load")
+                    reset_id = next(identity for identity, fn in app.fns.items() if fn is bound[0])
+                    dependency = next(dep for dep in cfg["dependencies"] if dep["id"] == reset_id)
+                    self.assertEqual(dependency["trigger_after"], load_id)
+
+    def test_attribution_clear_and_diagnosis_follow_the_single_load_in_order(self):
+        app, cfg = _app()
+        event_ids: dict[str, list[int]] = {}
+        for event_id, block in app.fns.items():
+            name = getattr(block.fn, "__name__", "")
+            if name in {"_do_load", "_clear_attribution", "on_diagnose_autoload"}:
+                event_ids.setdefault(name, []).append(event_id)
+        for name in ("_do_load", "_clear_attribution", "on_diagnose_autoload"):
+            self.assertEqual(len(event_ids.get(name, [])), 1, f"{name} must be registered once")
+        dependencies = {event["id"]: event for event in cfg["dependencies"]}
+        load_id = event_ids["_do_load"][0]
+        clear_id = event_ids["_clear_attribution"][0]
+        diagnose_id = event_ids["on_diagnose_autoload"][0]
+        self.assertEqual(dependencies[clear_id]["trigger_after"], load_id)
+        self.assertEqual(dependencies[diagnose_id]["trigger_after"], clear_id)
+        self.assertEqual(dependencies[clear_id]["outputs"], dependencies[diagnose_id]["outputs"][:2])
+        self.assertFalse(any(event == "click" for _, event in dependencies[clear_id]["targets"]),
+                         "the clear must not race as an independent button listener")
 
 
 class SafeCallbackTests(unittest.TestCase):
