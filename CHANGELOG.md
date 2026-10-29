@@ -7,6 +7,8 @@ change the public API (the names exported from `agent_trajviz`).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-29
+
 ### Added
 
 - Dashboard Settings for model connections, request options and reply language,
