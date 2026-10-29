@@ -5,6 +5,9 @@
 [![Python](https://img.shields.io/pypi/pyversions/agent-trajviz)](https://pypi.org/project/agent-trajviz/)
 [![Downloads](https://static.pepy.tech/badge/agent-trajviz)](https://pepy.tech/projects/agent-trajviz)
 [![License](https://img.shields.io/pypi/l/agent-trajviz)](https://github.com/rshu/TrajViz/blob/main/LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/rshu/TrajViz/main)](https://github.com/rshu/TrajViz/commits/main)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-blue)](https://github.com/rshu/TrajViz/blob/main/CONTRIBUTING.md)
+![Visitors](https://visitor-badge.laobi.icu/badge?page_id=rshu/TrajViz)
 
 **Analyze coding-agent trajectories as a Python library, JSON exports or an interactive dashboard.**
 
