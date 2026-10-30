@@ -31,6 +31,8 @@ class SharedState:
     # Ranked Overview issues as JSON-friendly dicts (optional judgments).
     # Cards pass a 1-based index; the sidebar rebuilds the AI question here.
     state_overview_issues: gr.State
+    # Session-only model overrides; credentials never enter browser storage.
+    state_settings: gr.State | None = None
 
 
 def format_choices() -> list[tuple[str, str]]:

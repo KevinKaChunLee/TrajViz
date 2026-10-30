@@ -127,7 +127,32 @@ class SingleLoadPathTests(unittest.TestCase):
             with self.subTest(reset=name):
                 bound = by_name.get(name, [])
                 self.assertEqual(len(bound), 1, f"{name} is bound to more than one load trigger")
-                self.assertEqual(list(bound[0].targets), [(load_btn, "click")])
+                self.assertNotIn((load_btn, "click"), list(bound[0].targets))
+                if name == "_reset_labels":
+                    load_id = next(identity for identity, fn in app.fns.items()
+                                   if getattr(fn.fn, "__name__", "") == "_do_load")
+                    reset_id = next(identity for identity, fn in app.fns.items() if fn is bound[0])
+                    dependency = next(dep for dep in cfg["dependencies"] if dep["id"] == reset_id)
+                    self.assertEqual(dependency["trigger_after"], load_id)
+
+    def test_attribution_clear_and_diagnosis_follow_the_single_load_in_order(self):
+        app, cfg = _app()
+        event_ids: dict[str, list[int]] = {}
+        for event_id, block in app.fns.items():
+            name = getattr(block.fn, "__name__", "")
+            if name in {"_do_load", "_clear_attribution", "on_diagnose_autoload"}:
+                event_ids.setdefault(name, []).append(event_id)
+        for name in ("_do_load", "_clear_attribution", "on_diagnose_autoload"):
+            self.assertEqual(len(event_ids.get(name, [])), 1, f"{name} must be registered once")
+        dependencies = {event["id"]: event for event in cfg["dependencies"]}
+        load_id = event_ids["_do_load"][0]
+        clear_id = event_ids["_clear_attribution"][0]
+        diagnose_id = event_ids["on_diagnose_autoload"][0]
+        self.assertEqual(dependencies[clear_id]["trigger_after"], load_id)
+        self.assertEqual(dependencies[diagnose_id]["trigger_after"], clear_id)
+        self.assertEqual(dependencies[clear_id]["outputs"], dependencies[diagnose_id]["outputs"][:2])
+        self.assertFalse(any(event == "click" for _, event in dependencies[clear_id]["targets"]),
+                         "the clear must not race as an independent button listener")
 
 
 class SafeCallbackTests(unittest.TestCase):
@@ -232,12 +257,17 @@ class LightOnlyPinTests(unittest.TestCase):
 
     def test_only_the_page_load_handler_writes_state_dark(self):
         app, cfg = _app()
-        page_load = [dep for dep in cfg["dependencies"] if any(name == "load" for _, name in dep.get("targets", []))]
-        self.assertEqual(len(page_load), 1)
-        dark_ids = list(page_load[0]["outputs"])
-        self.assertEqual(len(dark_ids), 1, "the page-load handler no longer writes exactly state_dark")
-        writers = [dep for dep in cfg["dependencies"] if dark_ids[0] in dep.get("outputs", [])]
+        loads = [bf for bf in _fns(app) if getattr(bf.fn, "__name__", "") == "_do_load"]
+        self.assertEqual(len(loads), 1)
+        dark_inputs = [component for component in loads[0].inputs if isinstance(component, gr.State)]
+        self.assertEqual(len(dark_inputs), 1, "the load path no longer reads exactly state_dark")
+        dark_id = dark_inputs[0]._id
+        writers = [dep for dep in cfg["dependencies"] if dark_id in dep.get("outputs", [])]
         self.assertEqual(len(writers), 1, "something other than page load now writes state_dark")
+        writer = writers[0]
+        self.assertEqual(writer["outputs"], [dark_id], "the page-load handler no longer writes exactly state_dark")
+        self.assertEqual({name for _, name in writer.get("targets", [])}, {"load"})
+        self.assertIs(app.fns[writer["id"]].fn(), False, "the page-load handler must pin light mode")
 
 
 class LaunchPresentationTests(unittest.TestCase):

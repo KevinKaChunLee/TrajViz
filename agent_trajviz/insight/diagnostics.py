@@ -11,9 +11,13 @@ from agent_trajviz.tool_vocab import (
 
 import os
 import re
+import shlex
 import statistics
 
-from .shell_cmd import tool_chart_name
+from .shell_cmd import (
+    _cmd_script_tokens, _is_shell_assignment, _powershell_payload,
+    _shell_segments, _skip_wrapper_options, tool_chart_name,
+)
 from .tool_failure import FAILURE_STATUSES, tool_call_error_kind, tool_call_failed
 from .tool_output import tool_output_text
 
@@ -45,34 +49,109 @@ _TOOL_SEARCH_FIELDS: dict[str, tuple[str, str]] = {
     "grep": ("pattern", "search"),
 }
 
-# Regex for path-like tokens in bash commands
-# Matches: /unix/path, ./relative, ../parent, d:/windows/path
-# Handles both unquoted and quoted paths ("d:/foo", 'd:/foo')
-_PATH_RE = re.compile(
-    r"""(?:^|[\s=;|&(])"""                       # preceded by whitespace or delimiter
-    r"""(?:"""
-    r"""["']((?:/|\.\.?/|[a-zA-Z]:[/\\])[^"']*?)["']"""   # quoted path
-    r"""|"""
-    r"""((?:/|\.\.?/|[a-zA-Z]:[/\\])[^\s;|&)'"]+)"""      # unquoted path
-    r""")"""
-)
+_QUALIFIED_PATH = re.compile(r"^(?:/|\.\.?/|[A-Za-z]:[/\\])")
+_HEREDOC = re.compile(r"<<(-?)\s*(?:'([^']+)'|\"([^\"]+)\"|([A-Za-z_][A-Za-z0-9_]*))")
 
 
-def _extract_bash_paths(command: str) -> list[str]:
-    """Extract file-path-like tokens from a bash command string."""
+def _without_heredoc_bodies(command: str) -> str:
+    """A program passed on stdin is not shell file-argument evidence."""
+    kept = []
+    delimiters: list[tuple[str, bool]] = []
+    for line in command.splitlines(keepends=True):
+        if delimiters:
+            delimiter, strip_tabs = delimiters[0]
+            text = line.rstrip("\r\n")
+            if (text.lstrip("\t") if strip_tabs else text) == delimiter:
+                delimiters.pop(0)
+            continue
+        kept.append(line)
+        quote = ""
+        index = 0
+        while index < len(line):
+            char = line[index]
+            if char == "\\" and quote != "'":
+                index += 2
+                continue
+            if quote:
+                if char == quote:
+                    quote = ""
+            elif char in {"'", '"'}:
+                quote = char
+            elif line.startswith("<<", index) and not line.startswith("<<<", index) and (index == 0 or line[index - 1] != "<"):
+                match = _HEREDOC.match(line, index)
+                if match:
+                    delimiters.append((match[2] or match[3] or match[4], bool(match[1])))
+                    index = match.end()
+                    continue
+            index += 1
+    return "".join(kept)
+
+
+def _extract_bash_paths(command: str, *, _nesting: int = 0) -> list[str]:
+    """Infer path arguments, excluding executables, assignments and navigation.
+
+    This is a conservative command-argument heuristic, not an execution trace.
+    """
+    if not isinstance(command, str):
+        return []
     paths = []
-    for m in _PATH_RE.finditer(command):
-        p = m.group(1) or m.group(2)  # group 1 = quoted, group 2 = unquoted
-        if not p:
+    for parts in _shell_segments(_without_heredoc_bodies(command)):
+        index = 0
+        for _ in range(12):
+            while index < len(parts) and _is_shell_assignment(parts[index]):
+                index += 1
+            if index >= len(parts):
+                break
+            name = parts[index].replace("\\", "/").rsplit("/", 1)[-1]
+            if name in {"env", "sudo", "command", "time", "nice", "nohup", "timeout"}:
+                index = _skip_wrapper_options(parts, index + 1, name)
+                if name == "timeout":
+                    index += 1
+                continue
+            break
+        if index >= len(parts):
             continue
-        p = p.rstrip(",:")
-        # Skip very short or unlikely paths
-        if len(p) < 2 or p.rstrip("/\\") in ("", "/", "./", ".."):
+        name = parts[index].replace("\\", "/").rsplit("/", 1)[-1]
+        if name in {"cd", "pushd", "popd", "which"}:
             continue
-        # Must contain at least one path component with alphanumeric chars
-        parts = [seg for seg in p.replace("\\", "/").split("/") if seg]
-        if parts and any(c.isalnum() for c in parts[-1]):
-            paths.append(p)
+        if name == "type" and not any(re.match(r"^[A-Za-z]:/", token) for token in parts[index + 1:]):
+            continue  # POSIX type queries executables; Windows type reads a file.
+        if name in {"cmd", "cmd.exe"} and _nesting < 3:
+            inner = _cmd_script_tokens(parts, index)
+            if inner:
+                script = inner[0] if len(inner) == 1 else shlex.join(inner)
+                paths.extend(_extract_bash_paths(script, _nesting=_nesting + 1))
+            continue
+        if name in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"} and _nesting < 3:
+            payload = _powershell_payload(parts, index, _nesting)
+            if payload is not None:
+                mode, body = payload
+                if mode == "file" and isinstance(body, str) and body not in {"-", ".", "..", "/"}:
+                    paths.append(body)
+                elif mode == "command":
+                    script = body if isinstance(body, str) else shlex.join(body)
+                    paths.extend(_extract_bash_paths(script, _nesting=_nesting + 1))
+            continue
+        if name in {"bash", "dash", "ksh", "sh", "zsh"} and _nesting < 3:
+            options = index + 1
+            script = None
+            while options < len(parts) and parts[options].startswith("-"):
+                if "c" in parts[options].lstrip("-") and options + 1 < len(parts):
+                    script = parts[options + 1]
+                    break
+                options += 1
+            if script is not None:
+                paths.extend(_extract_bash_paths(script, _nesting=_nesting + 1))
+                continue
+        for token in parts[index + 1:]:
+            if not _QUALIFIED_PATH.match(token) or "\n" in token:
+                continue
+            path = token.rstrip(",:")
+            if path.replace("\\", "/").rstrip("/") in {"", ".", ".."}:
+                continue
+            components = [part for part in path.replace("\\", "/").split("/") if part]
+            if components and any(char.isalnum() for char in components[-1]):
+                paths.append(path)
     return paths
 
 
@@ -116,7 +195,7 @@ def extract_file_interactions(steps: list[dict]) -> list[dict]:
             elif tool_name in _TOOL_SEARCH_FIELDS:
                 _, itype = _TOOL_SEARCH_FIELDS[tool_name]
                 path = inp.get("path", "")
-                if path:
+                if path and str(path).replace("\\", "/").rstrip("/") not in {"", ".", ".."}:
                     found_paths.append((str(path), itype))
                 # Glob patterns are file paths; Grep patterns are text regexes
                 if tool_name in ("Glob", "glob"):

@@ -2,6 +2,26 @@
 
 from __future__ import annotations
 
+import re
+
+from agent_trajviz.insight.diagnostics import _without_heredoc_bodies
+from agent_trajviz.insight.patterns import _VALIDATION_COMMAND_PATTERNS
+from agent_trajviz.insight.shell_cmd import (
+    _cmd_script_tokens,
+    _is_shell_assignment,
+    _is_windows_timeout_invocation,
+    _powershell_payload,
+    _PS_INTERPRETERS,
+    _PYTHON_INTERPRETER_RE,
+    _PYTHON_VALUE_OPTIONS,
+    _shell_name,
+    _shell_segments,
+    _skip_wrapper_options,
+)
+from agent_trajviz.insight.telemetry_quality import tool_field_observed
+from agent_trajviz.insight.tool_failure import tool_call_failed
+from agent_trajviz.tool_vocab import BASH_TOOL_NAMES
+
 from .canonical import CanonicalAction, compute_action_cost, DEFAULT_TOKEN_RATE
 
 
@@ -10,6 +30,208 @@ from .canonical import CanonicalAction, compute_action_cost, DEFAULT_TOKEN_RATE
 # ---------------------------------------------------------------------------
 
 DEFAULT_VALIDATION_PATTERNS = {"test", "build", "lint", "check", "verify"}
+
+_PROCESS_SESSION = re.compile(r"(?m)^Process running with session ID ([^\s]+)\s*$")
+_PROCESS_EXIT = re.compile(r"(?m)^Process exited with code (-?\d+)\s*$")
+_RUNNER_VALUE_OPTIONS = {
+    "--with", "--with-editable", "--project", "--directory", "--python",
+    "--group", "--extra", "--package", "--env-file", "--index", "--index-url",
+}
+
+
+def _runs_validation(command: str, patterns: set[str], nesting: int = 0) -> bool:
+    """Recognize runner argv, never words in script bodies or file arguments."""
+    if nesting > 3:
+        return False
+    command = _without_heredoc_bodies(command).strip()
+    # A shell's successful exit only grounds its final sequential command or
+    # an && chain. Pipes, background jobs, and || branches can hide a failed
+    # validation; do not promote them to a passing milestone.
+    quote = ""
+    tail = 0
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if char == "\\" and quote != "'":
+            index += 2
+            continue
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in {"'", '"'}:
+            quote = char
+        elif char in {"|", "&"}:
+            if char == "&" and ((index and command[index - 1] in "<>") or command[index + 1:index + 2] == ">"):
+                index += 1  # A descriptor redirect (2>&1 / &>file), not a background job.
+                continue
+            if command.startswith("&&", index):
+                index += 2
+                continue
+            return False
+        elif char in {";", "\n"}:
+            tail = index + 1
+        index += 1
+    command = command[tail:]
+    return any(_validation_segment(tokens, patterns, nesting)
+               for tokens in _shell_segments(command))
+
+
+def _validation_segment(tokens: list[str], patterns: set[str], nesting: int) -> bool:
+    index = 0
+    for _ in range(12):
+        while index < len(tokens) and _is_shell_assignment(tokens[index]):
+            index += 1
+        if index >= len(tokens):
+            return False
+        name = _shell_name(tokens[index])
+        if name == "command":
+            index += 1
+            if index < len(tokens) and tokens[index] in {"-v", "-V"}:
+                return False
+            index = _skip_wrapper_options(tokens, index, name)
+            continue
+        if name in {"env", "sudo", "time", "nice", "nohup"}:
+            index = _skip_wrapper_options(tokens, index + 1, name)
+            continue
+        if name == "timeout":
+            if _is_windows_timeout_invocation(tokens, index):
+                return False
+            index = _skip_wrapper_options(tokens, index + 1, name) + 1
+            continue
+        if name == "!":
+            return False  # Shell success here means the validation failed.
+        if name in {"if", "then", "elif", "while", "until", "do"}:
+            index += 1
+            continue
+        if name in {"bash", "dash", "ksh", "sh", "zsh"}:
+            for i in range(index + 1, len(tokens) - 1):
+                if not tokens[i].startswith("-"):
+                    break
+                if "c" in tokens[i].lstrip("-"):
+                    return _runs_validation(tokens[i + 1], patterns, nesting + 1)
+            return False
+        if name in {"cmd", "cmd.exe"}:
+            rest = _cmd_script_tokens(tokens, index)
+            return (_runs_validation(rest[0], patterns, nesting + 1) if len(rest) == 1
+                    else bool(rest) and nesting < 3 and _validation_segment(rest, patterns, nesting + 1))
+        if name in _PS_INTERPRETERS:
+            payload = _powershell_payload(tokens, index, nesting)
+            if payload is None or payload[0] != "command":
+                return False
+            body = payload[1]
+            return (_runs_validation(body, patterns, nesting + 1) if isinstance(body, str)
+                    else nesting < 3 and _validation_segment(body, patterns, nesting + 1))
+        if name in {"uv", "poetry", "pipenv", "pdm", "hatch"}:
+            if index + 1 >= len(tokens) or tokens[index + 1] != "run":
+                return False
+            index += 2
+            while index < len(tokens) and tokens[index].startswith("-"):
+                option = tokens[index]
+                index += 1
+                if option == "--":
+                    break
+                if option in _RUNNER_VALUE_OPTIONS:
+                    index += 1
+            continue
+        if _PYTHON_INTERPRETER_RE.fullmatch(name):
+            index += 1
+            while index < len(tokens):
+                option = tokens[index]
+                if option == "-m" and index + 1 < len(tokens):
+                    index += 1
+                    break
+                if option in {"-c", "-", "--"} or not option.startswith("-"):
+                    return False
+                index += 2 if option in _PYTHON_VALUE_OPTIONS else 1
+            else:
+                return False
+            name = tokens[index].lower()
+        args = tokens[index + 1:]
+        if name == "git":
+            args = tokens[_skip_wrapper_options(tokens, index + 1, name):]
+        # pytest's -v means verbose, unlike its uppercase -V version flag.
+        if any(token in {"--version", "-V", "--help", "-h", "--collect-only", "--co", "--fixtures"}
+               for token in args):
+            return False
+        argv = [name, *[token.lower() for token in args]]
+        options = {arg.split("=", 1)[0] for arg in argv[1:]}
+        no_run_options = {
+            "pytest": {"--markers", "--setup-plan", "--setup-only", "--fixtures-per-test", "--cache-show"},
+            "make": {"-n", "--just-print", "--dry-run", "--recon", "-q", "--question"},
+            "ruff": {"--show-settings", "--show-files"},
+            "tox": {"-l", "--listenvs", "--listenvs-all", "--showconfig"},
+            "nox": {"-l", "--list", "--list-sessions"},
+            "ctest": {"-n", "--show-only"},
+            "jest": {"--listtests", "--showconfig"},
+            "eslint": {"--print-config"},
+        }
+        if options & no_run_options.get(name, set()):
+            return False
+        if name == "make" and any(re.fullmatch(r"-[^-]*[nq][^-]*", arg) for arg in args):
+            return False
+        if name == "vitest" and len(argv) > 1 and argv[1] == "list":
+            return False
+        if name == "ruff":
+            subcommand = argv[1] if len(argv) > 1 else ""
+            if subcommand != "check" and not (subcommand == "format" and "--check" in options):
+                return False
+        candidates = _VALIDATION_COMMAND_PATTERNS if patterns == DEFAULT_VALIDATION_PATTERNS else patterns
+        return any(argv[:len(parts)] == parts for pattern in candidates
+                   if (parts := pattern.lower().split()))
+    return False
+
+
+def _successful_completion(tool: dict, *, process_poll: bool = False) -> bool | None:
+    """None means the process is still running or its outcome was not observed."""
+    if not tool_field_observed(tool, "tool_outcomes"):
+        return None
+    if tool_call_failed(tool):
+        return False
+    metadata = tool.get("metadata") or {}
+    for key in ("exit", "exit_code"):
+        value = metadata.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value == 0
+    output = tool.get("output")
+    if isinstance(output, str):
+        exits = _PROCESS_EXIT.findall(output)
+        if exits:
+            return int(exits[-1]) == 0
+        if _PROCESS_SESSION.search(output):
+            return None
+    if process_poll:
+        # A successful poll request says nothing about process completion.
+        return None
+    return True if str(tool.get("status") or "").lower() in {"success", "completed", "complete", "succeeded", "ok"} else None
+
+
+def _first_passing_validation(steps: list[dict], patterns: set[str]) -> int | None:
+    pending: set[tuple[str, str]] = set()
+    for step in steps:
+        owner = str(step.get("session_id") or "")
+        for tool in step.get("tool_calls", []):
+            args = tool.get("input")
+            if not isinstance(args, dict):
+                continue
+            command = args.get("command")
+            if tool.get("tool_name") in BASH_TOOL_NAMES and isinstance(command, str) and _runs_validation(command, patterns):
+                completed = _successful_completion(tool)
+                if completed is True:
+                    return step["index"]
+                output = tool.get("output")
+                session = _PROCESS_SESSION.search(output) if isinstance(output, str) else None
+                if completed is None and session:
+                    pending.add((owner, session[1]))
+            elif tool.get("tool_name") == "write_stdin":
+                key = (owner, str(args.get("session_id") or ""))
+                if key not in pending:
+                    continue
+                completed = _successful_completion(tool, process_poll=True)
+                if completed is True:
+                    return step["index"]
+                if completed is False:
+                    pending.discard(key)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -45,12 +267,17 @@ def extract_milestones(
     actions: list[CanonicalAction],
     validation_patterns: set[str] | None = None,
     target_files: set[str] | None = None,
+    *,
+    steps: list[dict] | None = None,
 ) -> dict[str, int | None]:
     """Extract first-occurrence milestones from a canonical action sequence.
 
     Args:
         target_files: Set of normalized file paths from the patch footprint or anchor.
             When provided, first_relevant_file and first_edit are grounded to these files.
+        steps: Original parsed steps, when available. Grounds passing validation
+            to an executed runner and observed successful completion, including
+            asynchronous process polling. Actions-only callers retain legacy behavior.
 
     Returns dict with milestone name → step_index or None.
     """
@@ -76,7 +303,7 @@ def extract_milestones(
         "first_relevant_file": None,
         "first_edit": None,
         "first_surviving_edit": None,
-        "first_passing_validation": None,
+        "first_passing_validation": _first_passing_validation(steps, validation_patterns) if steps is not None else None,
         "final_patch": None,
     }
 
@@ -112,7 +339,7 @@ def extract_milestones(
         # completed. assign_effect_labels marks validation commands as
         # "justified" (reason=validation_command), NOT "survived", so match on
         # that; fall back to a pattern match for commands labeled "survived".
-        if milestones["first_passing_validation"] is None and a.action_type == "COMMAND":
+        if steps is None and milestones["first_passing_validation"] is None and a.action_type == "COMMAND":
             reason = a.effect_detail.get("reason") if isinstance(a.effect_detail, dict) else None
             base_cmd = a.target.split("/")[-1] if "/" in a.target else a.target
             if reason == "validation_command" or (

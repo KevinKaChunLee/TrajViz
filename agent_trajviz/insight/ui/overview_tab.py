@@ -25,9 +25,11 @@ from ..issue_export import write_issues_agent_export
 from ..presenters.label_ui import build_label_ui_payload
 from ..presenters.issues import (
     build_overview_issues_html,
+    collect_overview_issues,
     overview_issue_from_payload,
     overview_issues_payload,
     prepare_overview_issues,
+    rank_issues,
 )
 from ..presenters.overview import (
     build_chart_outputs,
@@ -35,11 +37,12 @@ from ..presenters.overview import (
     build_overview_outputs,
     build_token_summary_html,
     empty_plotly_fig,
+    load_warnings_html,
     render_section_guide,
 )
 from ..token_explain import build_token_step_panel_html
 from ..issue_judge import JUDGE_ISSUE_CAP, iter_judge_overview_issues
-from ..llm_config import resolve_analysis_config
+from ..llm_config import resolve_analysis_config, resolve_session_settings
 from ..session import LoadedSession, session_from_run
 from .shared import SharedState, is_latest_run, safe_callback
 from .upload import (
@@ -543,7 +546,7 @@ def prepare_issues_agent_download(run, issues_rows, request: gr.Request | None =
         return _export_off()
 
 
-def on_suggest_fixes(run, request: gr.Request | None = None):
+def on_suggest_fixes(run, settings=None, request: gr.Request | None = None):
     """Run the LLM run summary + Issues judge after load (or on button click); stream progress into the panel.
 
     The stream paints the Issues panel across many yields while the run it
@@ -567,14 +570,17 @@ def on_suggest_fixes(run, request: gr.Request | None = None):
     if _superseded():
         return
 
-    cfg = resolve_analysis_config()
+    active = resolve_session_settings(settings)
+    cfg = active.config
     session = session_from_run(run, "")
-    ranked = prepare_overview_issues(session)
+    # Prefer collect+rank so tests can patch ``collect_overview_issues`` the
+    # same way as upstream; production still gets ranking before judging.
+    ranked = rank_issues(collect_overview_issues(session))
     payload = overview_issues_payload(ranked)
 
     if not cfg.ready:
         missing = ", ".join(cfg.missing)
-        banner = f"Configure {missing} in .env to auto-suggest fixes"
+        banner = f"Open Settings or configure {missing} in .env to auto-suggest fixes"
         if _superseded():
             return
         yield build_overview_issues_html(session, issues=ranked, banner=banner), payload
@@ -593,7 +599,7 @@ def on_suggest_fixes(run, request: gr.Request | None = None):
     if _superseded():
         return
     try:
-        ai_summary = judge_run_summary(session, config=cfg)
+        ai_summary = judge_run_summary(session, config=cfg, language=active.language)
     except Exception as exc:  # noqa: BLE001 — rows stay hidden; banner explains
         summary_error = _judge_error_text(exc)
 
@@ -609,7 +615,7 @@ def on_suggest_fixes(run, request: gr.Request | None = None):
     judged = ranked
     errors: list[str] = []
     for progress in iter_judge_overview_issues(
-        session, ranked, config=cfg, limit=JUDGE_ISSUE_CAP,
+        session, ranked, config=cfg, limit=JUDGE_ISSUE_CAP, language=active.language,
     ):
         judged = progress.issues
         errors = progress.errors
@@ -660,8 +666,8 @@ def bind(
     refs: OverviewRefs,
     shared: SharedState,
     upload: UploadRefs,
-    load_events: tuple = (),
-) -> None:
+    load_events: tuple = (),  # kept for the uniform tab-bind signature
+) -> tuple:
     overview_section_names = OVERVIEW_SECTION_NAMES
     overview_sections = _resolve_overview_sections(refs)
 
@@ -693,9 +699,12 @@ def bind(
         outputs=[refs.gantt_chart],
     )
 
+    settings_inputs = (
+        [shared.state_settings] if shared.state_settings is not None else []
+    )
     judge_event = dict(
         fn=on_suggest_fixes,
-        inputs=[shared.state_run],
+        inputs=[shared.state_run, *settings_inputs],
         outputs=[refs.issues_html, shared.state_overview_issues],
         show_progress="minimal",
         concurrency_id="issues_judge",
@@ -715,7 +724,7 @@ def bind(
     for _ev in load_events:
         _ev.success(**export_event)
         _ev.then(**judge_event).then(**export_event)
-    refs.suggest_fixes_btn.click(**judge_event).then(**export_event)
+    judge_dependency = refs.suggest_fixes_btn.click(**judge_event).then(**export_event)
 
     @safe_callback("Context utilization")
     def _rebuild_utilization(agent_key, window_limit, snapshot_key, steps, raw, dark):
@@ -788,57 +797,33 @@ def bind(
     )
     _badge_off = gr.update(value="", visible=False)
 
-    def do_load_labels(upload_obj, dark=False):
-        """Load labeled JSON and update all label UI components."""
-        file_path = None
-        if upload_obj is not None:
-            file_path = upload_obj if isinstance(upload_obj, str) else upload_obj.name
-
+    def do_load_labels(upload_obj, dark=False, run=None, warning_html=None):
+        """Load labels and reveal the summary parent only when it has content."""
+        file_path = (upload_obj if isinstance(upload_obj, str) else upload_obj.name) if upload_obj is not None else None
         empty = _empty_label_fig
+        has_warnings = (bool(isinstance(warning_html, str) and warning_html.strip())
+                        or bool(run is not None and load_warnings_html(session_from_run(run, "")).strip()))
+
+        def no_charts(badge, message, visible):
+            return (badge, message, gr.update(visible=False), empty, empty,
+                    gr.update(visible=False), empty, empty, gr.update(visible=False), empty,
+                    gr.update(visible=visible))
 
         if not file_path or not os.path.isfile(file_path):
-            return (
-                _badge_off,
-                "<div style='padding:1em;color:var(--ov-muted);text-align:center;'>"
-                "Upload a <code>*_labeled.json</code> file to view label distributions and timeline.</div>",
-                gr.update(visible=False),
-                empty,
-                empty,
-                gr.update(visible=False),
-                empty,
-                empty,
-                gr.update(visible=False),
-                empty,
-            )
-
+            return no_charts("", "<div style='padding:1em;color:var(--ov-muted);text-align:center;'>"
+                             "Upload a <code>*_labeled.json</code> file to view label distributions and timeline.</div>",
+                             has_warnings)
         try:
-            payload = build_label_ui_payload(file_path, dark=bool(dark))
+            payload = build_label_ui_payload(file_path, dark=bool(dark), run=run)
         except Exception as exc:
-            return (
-                _badge_off,
-                f"<div style='padding:1em;color:#dc2626;text-align:center;'>Error: {html.escape(str(exc))}</div>",
-                gr.update(visible=False),
-                empty,
-                empty,
-                gr.update(visible=False),
-                empty,
-                empty,
-                gr.update(visible=False),
-                empty,
-            )
+            error = ("<div role='alert' style='padding:0.5em;color:#dc2626;'>"
+                     f"Labels could not be loaded: {html.escape(str(exc))}</div>")
+            return no_charts(error, error, True)
 
-        return (
-            gr.update(value=payload["badge_html"], visible=True),
-            payload["status_html"],
-            gr.update(visible=True),
-            payload["phase_count_fig"],
-            payload["action_count_fig"],
-            gr.update(visible=True),
-            payload["phase_duration_fig"],
-            payload["action_duration_fig"],
-            gr.update(visible=True),
-            payload["timeline_fig"],
-        )
+        return (payload["badge_html"], payload["status_html"], gr.update(visible=True),
+                payload["phase_count_fig"], payload["action_count_fig"], gr.update(visible=True),
+                payload["phase_duration_fig"], payload["action_duration_fig"], gr.update(visible=True),
+                payload["timeline_fig"], gr.update(visible=True))
 
     label_outputs = [
         upload.label_badge_html,
@@ -852,16 +837,16 @@ def bind(
         refs.label_timeline_row,
         refs.label_timeline_chart,
     ]
-    label_inputs = [upload.label_file_upload, shared.state_dark]
+    label_inputs = [upload.label_file_upload, shared.state_dark, shared.state_run, upload.summary_banner]
     upload.label_load_btn.click(
         fn=do_load_labels,
         inputs=label_inputs,
-        outputs=label_outputs,
+        outputs=[*label_outputs, upload.summary_area],
     )
     upload.label_file_upload.change(
         fn=do_load_labels,
         inputs=label_inputs,
-        outputs=label_outputs,
+        outputs=[*label_outputs, upload.summary_area],
     )
 
     def _reset_labels():
@@ -886,4 +871,11 @@ def bind(
     # One trigger only: choosing a trajectory re-clicks Load in the browser
     # rather than running a second load (see `load.bind_load`).
     _reset_outputs = label_outputs + [upload.label_file_upload]
-    upload.load_btn.click(fn=_reset_labels, inputs=None, outputs=_reset_outputs)
+    if load_events:
+        # Clear after the new run is stored, so the file-clear callback cannot
+        # restore the previous run's warning visibility over the new load.
+        for event in load_events:
+            event.then(fn=_reset_labels, inputs=None, outputs=_reset_outputs)
+    else:
+        upload.load_btn.click(fn=_reset_labels, inputs=None, outputs=_reset_outputs)
+    return (judge_dependency,)

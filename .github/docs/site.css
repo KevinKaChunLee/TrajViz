@@ -1,0 +1,51 @@
+:root { color-scheme: light; --tv-ink:#172b3a; --tv-muted:#526575; --tv-line:#dce4ea; --tv-brand:#006c75; }
+* { box-sizing:border-box; }
+body.tv-guide { margin:0; background:#f8fafc; color:var(--tv-ink); font:16px/1.65 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+a { color:#006772; text-underline-offset:.18em; }
+a:hover { color:#00454c; }
+a:focus-visible,summary:focus-visible,input:focus-visible { outline:3px solid #e29925; outline-offset:4px; }
+.tv-skip { position:absolute; left:1rem; top:-5rem; z-index:10; padding:.5rem 1rem; background:white; }
+.tv-skip:focus { top:.5rem; }
+header.tv-header { position:relative; display:flex; flex-wrap:wrap; align-items:center; gap:.6rem 1.5rem; width:100%; max-width:none; padding:1rem clamp(1rem,4vw,3rem); background:#fff; border-bottom:1px solid var(--tv-line); font:14px/1.5 system-ui,sans-serif; }
+.tv-brand { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem 1rem; }
+.tv-brand>a { color:var(--tv-ink); font-size:1.35rem; font-weight:750; text-decoration:none; }
+.tv-version { padding:.15rem .65rem; border:1px solid #b8d3d5; border-radius:20px; color:#265a60; background:#eef8f7; font-size:.8rem; }
+.tv-header nav.tv-nav,.tv-header nav.tv-channels { position:static; display:flex; flex-wrap:wrap; gap:.5rem 1rem; height:auto; width:auto; padding:0; }
+.tv-header nav.tv-channels { margin-left:auto; font-size:.8rem; }
+.tv-header a { white-space:nowrap; }
+.tv-main { max-width:68rem; margin:0 auto; padding:2.25rem clamp(1rem,4vw,3rem) 4rem; overflow-wrap:anywhere; }
+.tv-main h1 { font-size:clamp(1.9rem,4vw,2.65rem); line-height:1.2; letter-spacing:-.035em; }
+.tv-main h2 { margin-top:2.5rem; font-size:1.5rem; line-height:1.3; }
+.tv-main h3 { margin-top:2rem; font-size:1.15rem; }
+.tv-main pre { overflow:auto; max-width:100%; padding:1.1rem 1.25rem; background:#eaf0f4; border:1px solid #dce4ea; border-radius:.5rem; font-size:.85rem; line-height:1.6; }
+.tv-main code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.9em; }
+.tv-main :not(pre)>code { padding:.1rem .25rem; border-radius:.2rem; background:#eaf0f4; }
+.tv-main blockquote { margin:1.5rem 0; padding:.5rem 1rem; border-left:3px solid #65a4aa; background:#edf6f7; }
+.tv-table { max-width:100%; overflow:auto; margin:1.5rem 0; }
+.tv-table table { min-width:48rem; }
+.tv-table th { white-space:nowrap; }
+.tv-main table { width:100%; border-collapse:collapse; font-size:.9rem; }
+.tv-main th,.tv-main td { border:1px solid var(--tv-line); padding:.65rem .8rem; text-align:left; vertical-align:top; }
+.tv-main thead th { background:#edf3f5; }
+.tv-main caption { text-align:left; font-weight:650; margin-bottom:.6rem; }
+.tv-main img { max-width:100%; height:auto; }
+.tv-footer { max-width:68rem; margin:auto; border-top:1px solid var(--tv-line); padding:1.25rem 3rem; color:var(--tv-muted); font:13px/1.5 system-ui,sans-serif; }
+/* Pdoc fixes body to the viewport; let long API content size the sticky sidebar container. */
+body.tv-api { height:auto; min-height:100%; display:flow-root; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+.tv-api nav.pdoc { position:sticky; top:0; float:left; height:100vh; }
+.tv-api main.pdoc { min-width:0; padding-top:2rem; padding-bottom:4rem; }
+.tv-api header.tv-header + main.pdoc { margin-top:0; }
+.tv-api pre { max-width:100%; overflow:auto; }
+.tv-api section[id],.tv-api div[id],.tv-main [id] { scroll-margin-top:1rem; }
+@media(max-width:769px) {
+ .tv-header nav.tv-nav { flex-basis:100%; gap:.5rem .9rem; }
+ .tv-header nav.tv-channels { margin-left:0; }
+ .tv-api nav.pdoc { position:relative; float:none; width:100%; height:auto; min-height:3.5rem; }
+ .tv-api #navtoggle { top:.5rem; }
+ .tv-api main.pdoc { padding:1.5rem 4vw 3rem; width:100%; }
+ .tv-footer { padding:1rem; }
+}
+.tv-version-picker { display:inline-flex; align-items:center; gap:.4rem; margin:0; color:var(--tv-muted); font-size:.8rem; }
+.tv-version-picker[hidden] { display:none; }
+.tv-version-picker select { max-width:16rem; min-height:2rem; border:1px solid #b8cbd3; border-radius:.35rem; background:#fff; padding:.25rem .5rem; color:var(--tv-ink); font:inherit; }
+@media(max-width:769px) { .tv-version-picker select { max-width:100%; } }

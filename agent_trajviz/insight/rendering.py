@@ -817,12 +817,10 @@ def _format_text_section(
     if section_type == "text" and p.get("synthetic"):
         label = "Synthetic context"
     text = p.get("text", "")
-    if section_type == "text" and not text.strip():
-        # An empty text part carries nothing to show: drop the whole section
-        # rather than render a bare "Text" label above blank space.
+    if not isinstance(text, str) or not text.strip():
         return ""
     # Use the code-fence-aware HTML renderer for content with code blocks
-    rendered = _md_to_html_preview(text) if text else ""
+    rendered = _md_to_html_preview(text)
     if section_type == "reasoning":
         from .presenters.transcript import reasoning_block_label
 
@@ -1077,6 +1075,16 @@ def format_step_detail(step: dict) -> str:
             "<div class='dp-section-title'>Model request failed</div>"
             f"<pre>{html.escape(model_error)}</pre></div>"
         )
+    readable_reasoning = any(
+        part.get("type") == "reasoning" and isinstance(part.get("text"), str) and part["text"].strip()
+        for part in step["parts"]
+    )
+    if step.get("has_reasoning") and not readable_reasoning:
+        content_parts.append(
+            "<div class='dp-section dp-section-reasoning'>"
+            "<div class='dp-section-title'>Reasoning text unavailable</div>"
+            "<div class='dp-content'><em>No readable reasoning text was included in this export.</em></div></div>"
+        )
     for p in step["parts"]:
         ptype = p.get("type", "unknown")
         if ptype == "text":
@@ -1129,7 +1137,7 @@ def format_step_detail(step: dict) -> str:
                 f"</div>"
             )
 
-    content_html = "\n".join(content_parts) if content_parts else "<em>No content</em>"
+    content_html = "\n".join(part for part in content_parts if part) or "<em>No content</em>"
     metrics_html = _format_metrics_tab(step)
     raw_html = _format_raw_tab(step)
 
@@ -1295,6 +1303,36 @@ def _attr_scorecard_html(scorecard: list[dict], primary: dict | None) -> str:
     return "<div class='score-dim-grid'>" + "".join(cards) + "</div>"
 
 
+
+def _attr_chain_context_html(chain: dict) -> str:
+    """Keep evidence qualifications and proposed checks visible on demand."""
+    details = []
+    basis = chain.get("strength_basis")
+    if isinstance(basis, str) and basis.strip():
+        details.append(
+            "<details class='attr-evidence-detail'>"
+            "<summary style='display:list-item;padding:4px 0;font-size:12px;'>Evidence basis</summary>"
+            f"<div class='attr-banner-sub'>{html.escape(basis)}</div></details>"
+        )
+    counterfactual = chain.get("counterfactual")
+    if isinstance(counterfactual, dict):
+        check = counterfactual.get("what_would_confirm")
+        if isinstance(check, str) and check.strip():
+            status = counterfactual.get("status")
+            if isinstance(status, str) and status.strip():
+                status = status.strip().replace("_", " ")
+                status_label = status[0].upper() + status[1:]
+            else:
+                status_label = "Status not provided"
+            details.append(
+                "<details class='attr-evidence-detail'>"
+                "<summary style='display:list-item;padding:4px 0;font-size:12px;'>"
+                f"Proposed counterfactual check &mdash; {html.escape(status_label)}</summary>"
+                f"<div class='attr-banner-sub'>{html.escape(check)}</div></details>"
+            )
+    return "".join(details)
+
+
 def _attr_fault_html(fault: dict) -> str:
     """One collapsible fault panel: claim + strength badge + evidence chain."""
     cap, et = fault.get("capability", ""), fault.get("error_type", "")
@@ -1317,7 +1355,7 @@ def _attr_fault_html(fault: dict) -> str:
         stmt = html.escape(link.get("statement", ""))
         quotes = ""
         for q in link.get("quotes", []) or []:
-            quotes += (f"<div class='attr-quote'>step {html.escape(str(q.get('step')))}: "
+            quotes += (f"<div class='attr-quote'>AWE step {html.escape(str(q.get('step')))}: "
                        f"{html.escape(str(q.get('text', '')))}</div>")
         links_html.append(
             f"<div class='attr-link'><span class='attr-link-icon'>{icon}</span>"
@@ -1335,7 +1373,7 @@ def _attr_fault_html(fault: dict) -> str:
         f"<span style='color:var(--ov-muted);font-size:12px;'>"
         f"(blame {weight:.2f}{primary_tag})</span>"
         f"</summary>"
-        f"<div class='judge-reasoning'>{''.join(links_html)}{audit_html}</div>"
+        f"<div class='judge-reasoning'>{''.join(links_html)}{_attr_chain_context_html(chain)}{audit_html}</div>"
         f"</details>"
     )
 
@@ -1389,7 +1427,9 @@ def build_attribution_html(data: dict) -> str:
         f"<div class='attr-banner'>"
         f"<div class='attr-banner-head'>{head}</div>"
         f"<div class='attr-banner-sub'>blame status: <b>{html.escape(status)}</b>"
-        f" &middot; {html.escape(tier_note)}</div></div>")
+        f" &middot; {html.escape(tier_note)}</div>"
+        "<div class='attr-banner-sub attr-step-note'>Evidence step references use AWE numbering, "
+        "which may differ from Workflow step numbers.</div></div>")
     notes_html = "".join(
         f"<div class='attr-banner-sub'>&#9888; {html.escape(n)}</div>"
         for n in data.get("notes") or [])

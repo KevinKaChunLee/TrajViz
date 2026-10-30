@@ -2,15 +2,19 @@
 
 [![CI](https://github.com/rshu/TrajViz/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rshu/TrajViz/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/agent-trajviz)](https://pypi.org/project/agent-trajviz/)
+[![Homebrew](https://raw.githubusercontent.com/rshu/TrajViz/main/.github/homebrew-badge.svg)](https://github.com/rshu/homebrew-tap#readme)
 [![Python](https://img.shields.io/pypi/pyversions/agent-trajviz)](https://pypi.org/project/agent-trajviz/)
 [![Downloads](https://static.pepy.tech/badge/agent-trajviz)](https://pepy.tech/projects/agent-trajviz)
 [![License](https://img.shields.io/pypi/l/agent-trajviz)](https://github.com/rshu/TrajViz/blob/main/LICENSE)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-blue)](https://github.com/rshu/TrajViz/blob/main/CONTRIBUTING.md)
 
 **Analyze coding-agent trajectories as a Python library, JSON exports or an interactive dashboard.**
 
 Inspect tokens, timing, tool calls, subagents and failure patterns across native
 agent sessions. TrajViz also imports saved Claude Code OpenTelemetry (OTLP)
 captures. The core uses only the Python standard library.
+
+[Documentation](https://rshu.github.io/TrajViz/)
 
 ## Install
 
@@ -21,6 +25,9 @@ pip install "agent-trajviz[app]"   # dashboards, figures, reports and LLM featur
 ```
 
 For the library and collection tools alone: `pip install agent-trajviz`.
+
+[Homebrew](https://github.com/rshu/homebrew-tap): `brew install rshu/tap/trajviz`
+includes the dashboards and Python runtime.
 
 | Extra | Features |
 |---|---|
@@ -80,6 +87,8 @@ The Converge comparison dashboard runs on port 7861:
 ```bash
 python -m agent_trajviz.converge --data-root /path/to/trajectories
 ```
+
+With Homebrew, use `agent-trajviz-converge-app --data-root /path/to/trajectories`.
 
 Batch manifest paths must remain inside `--data-root`. For headless comparisons,
 use `agent-trajviz-converge --help`. Every command provides `--help`.
@@ -256,16 +265,16 @@ usage analyses.
 
 The **AI Trajectory Analysis** sidebar starts closed; open it from the labeled
 control on the right edge. It runs an automatic analysis when a trajectory
-loads, then answers follow-up questions. It uses the same dashboard statistics
-(health verdicts, bottlenecks, failures, fruitless streaks) and replies in
-English by default (set `ANALYZE_LANGUAGE`, e.g. `Simplified Chinese` or
-`German`, to change it — the Issues fix judge follows the same setting and runs
-automatically after each load when configured; the button re-runs it). Each
-Overview issue also has **AI 深入分析**, which opens this sidebar and asks a
-focused follow-up about that issue. It does not re-upload the raw file.
+loads (and the panel is open), then answers follow-up questions. It uses the
+same dashboard statistics (health verdicts, bottlenecks, failures, fruitless
+streaks). Each Overview issue also has **AI 深入分析**, which opens this
+sidebar and asks a focused follow-up about that issue. It does not re-upload
+the raw file.
 
-Configure the AI sidebar with `ANALYZE_BASE_URL`, `ANALYZE_API_KEY` and
-`ANALYZE_MODEL` in `.env`. See
+Open **Settings** in the dashboard to configure the provider, API key, base URL,
+model and request options. Connection details can be remembered in this browser;
+API keys stay in the current session. You can also set `ANALYZE_BASE_URL`,
+`ANALYZE_API_KEY` and `ANALYZE_MODEL` in `.env`. See
 [.env.example](https://github.com/rshu/TrajViz/blob/main/.env.example) for provider,
 language and timeout options. Analysis sends trajectory excerpts to the
 configured provider.

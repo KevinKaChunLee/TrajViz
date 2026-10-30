@@ -11,6 +11,10 @@ from .canonical import (
 )
 
 
+class TranscriptAlignmentUnavailable(ValueError):
+    """The capture supplies operation records rather than transcript evidence."""
+
+
 def _describe_format(raw: dict) -> str:
     """Human-readable format name for a loaded trajectory (best-effort)."""
     from agent_trajviz.insight.loaders import detect_format, FORMAT_LABELS
@@ -373,8 +377,9 @@ def build_comparison_report_from_steps(
     agent_trajviz.insight.comparison.run_comparison (pre-loaded dicts).
     """
     if ref_raw.get("_otel") or cmp_raw.get("_otel"):
-        raise ValueError("Transcript alignment is unavailable for operation-based OTLP captures. "
-                         "Inspect their observed token, timing and tool views instead.")
+        raise TranscriptAlignmentUnavailable(
+            "Transcript alignment is unavailable for operation-based OTLP captures. "
+            "Inspect their observed token, timing and tool views instead.")
     from .milestones import (
         extract_milestones, compute_milestone_deltas,
         segment_by_milestones, compare_segments,
@@ -429,8 +434,8 @@ def build_comparison_report_from_steps(
         milestone_targets = ref_targets | cmp_targets if (ref_targets or cmp_targets) else None
 
     # Milestones
-    ref_milestones = extract_milestones(ref_actions, target_files=milestone_targets)
-    cmp_milestones = extract_milestones(cmp_actions, target_files=milestone_targets)
+    ref_milestones = extract_milestones(ref_actions, target_files=milestone_targets, steps=ref_steps)
+    cmp_milestones = extract_milestones(cmp_actions, target_files=milestone_targets, steps=cmp_steps)
     milestone_deltas = compute_milestone_deltas(ref_milestones, cmp_milestones)
 
     ref_segments = segment_by_milestones(ref_actions, ref_milestones)

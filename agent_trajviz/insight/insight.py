@@ -18,6 +18,7 @@ from .ui import (
     patterns_tab,
     raw_tab,
     sidebar,
+    settings,
     upload,
     views_tab,
     workflow_tab,
@@ -32,6 +33,8 @@ from .ui.shared import SharedState
 LAUNCH_PRESENTATION = {
     "css": APP_CSS,
     "head": '<meta name="color-scheme" content="light">',
+    # The application has its own Settings panel; avoid a second settings menu.
+    "footer_links": ["gradio"],
 }
 
 
@@ -60,10 +63,12 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
             state_analysis_brief=gr.State(""),
             state_run=gr.State(None),
             state_overview_issues=gr.State([]),
+            state_settings=gr.State(None),
         )
 
         sidebar_refs = sidebar.layout()
         upload_refs = upload.layout()
+        settings_refs = settings.layout()
         # Global health strip — above Overview/Patterns/… so it stays visible on every tab.
         overview_kpi_html = gr.HTML(
             "",
@@ -104,8 +109,10 @@ def build_ui(*, allow_server_paths: bool = True) -> gr.Blocks:
         )
         upload.bind_export(upload_refs, shared, load_events)
 
-        sidebar.bind(sidebar_refs, shared, load_events)
-        overview_tab.bind(overview, shared, upload_refs, load_events)
+        sidebar_events = sidebar.bind(sidebar_refs, shared, load_events)
+        judge_events = overview_tab.bind(overview, shared, upload_refs, load_events)
+        settings.bind(settings_refs, shared, sidebar_refs, overview, app,
+                      model_events=sidebar_events + judge_events)
         attribution_tab.bind(attribution, shared, upload_refs, load_events,
                              allow_server_paths=allow_server_paths)
         comparison_tab.bind(comparison, shared, upload_refs)

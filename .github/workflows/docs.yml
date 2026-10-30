@@ -1,0 +1,171 @@
+name: Documentation
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      rebuild_stable:
+        description: Rebuild the stable documentation snapshot from current guides
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-documentation
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.11.28"
+  UV_PYTHON: "3.13"
+
+jobs:
+  build:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_sha == github.sha) ||
+      (github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: read
+    outputs:
+      version: ${{ steps.archives.outputs.latest_version }}
+      publish: ${{ steps.freshness.outputs.current }}
+      source_sha: ${{ steps.freshness.outputs.source_sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Set documentation scratch directory
+        run: echo "DOCS_TEMP=$RUNNER_TEMP/trajviz-docs" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Install locked development dependencies
+        run: uv sync --locked --extra dev
+      - name: Build and validate development documentation
+        run: >-
+          uv run --locked --with pdoc==16.0.0 python .github/scripts/build_docs.py
+          --package-root "$PWD" --output "$DOCS_TEMP/dev"
+          --version-label development --check-examples
+      - name: Restore published documentation archives
+        id: archives
+        env:
+          REBUILD_STABLE: ${{ inputs.rebuild_stable || false }}
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+        run: |
+          args=(--reconcile-from 0.3.1)
+          if [ "$REBUILD_STABLE" = "true" ]; then args+=(--rebuild-stable); fi
+          if [ -n "$RELEASE_TAG" ]; then args+=(--release-version "${RELEASE_TAG#v}"); fi
+          uv run --locked python .github/scripts/docs_archive.py download \
+            --repository "$GITHUB_REPOSITORY" --directory "$DOCS_TEMP/archives" \
+            --metadata "$DOCS_TEMP/releases.json" "${args[@]}"
+      - name: Build released package references
+        if: steps.archives.outputs.needs_build == 'true'
+        env:
+          LATEST_VERSION: ${{ steps.archives.outputs.latest_version }}
+          REBUILD_STABLE: ${{ inputs.rebuild_stable || false }}
+        run: |
+          python -c 'import json,os,pathlib; d=pathlib.Path(os.environ["DOCS_TEMP"]); versions=json.loads((d/"releases.json").read_text())["build_versions"]; (d/"build-versions.txt").write_text("".join(v+"\n" for v in versions))'
+          while IFS= read -r release_version; do
+            source_args=()
+            if [ "$REBUILD_STABLE" = "true" ] && [ "$release_version" = "$LATEST_VERSION" ]; then
+              source_args+=(--current-guides)
+            fi
+            source_dir="$DOCS_TEMP/sources/$release_version"
+            release_env="$DOCS_TEMP/environments/$release_version"
+            release_site="$DOCS_TEMP/releases/$release_version"
+            uv run --locked python .github/scripts/release_docs_source.py \
+              --tag "v$release_version" --output "$source_dir" "${source_args[@]}"
+            uv venv --python 3.13 "$release_env"
+            uv pip install --python "$release_env/bin/python" \
+              --index-url https://pypi.org/simple "agent-trajviz[app]==$release_version" pdoc==16.0.0
+            package_root=$("$release_env/bin/python" -I -c 'import sysconfig; print(sysconfig.get_path("purelib"))')
+            "$release_env/bin/python" -I "$source_dir/.github/scripts/build_docs.py" \
+              --docs-root "$source_dir/docs" --package-root "$package_root" \
+              --expected-version "$release_version" --version-label release \
+              --output "$release_site" --check-examples
+            cp "$source_dir/build-info.json" "$release_site/build-info.json"
+            uv run --locked python .github/scripts/docs_archive.py pack \
+              --site "$release_site" --output "$DOCS_TEMP/archives/trajviz-docs-v$release_version.zip"
+          done < "$DOCS_TEMP/build-versions.txt"
+      - name: Assemble and check the versioned site
+        env:
+          RELEASE_VERSION: ${{ steps.archives.outputs.latest_version }}
+        run: |
+          uv run --locked python .github/scripts/docs_archive.py assemble \
+            --dev-site "$DOCS_TEMP/dev" --version "$RELEASE_VERSION" \
+            --archives "$DOCS_TEMP/archives" --output site
+          uv run --locked --with pdoc==16.0.0 python .github/scripts/build_docs.py --check site
+      - name: Check this build still matches main
+        id: freshness
+        run: |
+          source_sha=$(git rev-parse HEAD)
+          current_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          if [ "$source_sha" = "$current_sha" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "A newer main commit superseded this documentation build."
+          fi
+      - name: Retain release documentation snapshots
+        if: steps.archives.outputs.needs_build == 'true' && steps.freshness.outputs.current == 'true'
+        run: |
+          while IFS= read -r release_version; do
+            gh release upload "v$release_version" "$DOCS_TEMP/archives/trajviz-docs-v$release_version.zip" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          done < "$DOCS_TEMP/build-versions.txt"
+      - name: Configure Pages
+        if: steps.freshness.outputs.current == 'true'
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - name: Upload documentation site
+        if: steps.freshness.outputs.current == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+    steps:
+      - name: Recheck main before deployment
+        id: freshness
+        run: |
+          current_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [ "$SOURCE_SHA" = "$current_sha" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "A newer main commit superseded this documentation deployment."
+          fi
+      - name: Publish documentation
+        if: steps.freshness.outputs.current == 'true'
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

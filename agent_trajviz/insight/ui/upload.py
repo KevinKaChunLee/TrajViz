@@ -94,7 +94,7 @@ def layout() -> UploadRefs:
             label_load_btn = gr.Button("Load Labels", variant="secondary", size="sm", min_width=120, scale=0)
 
     with gr.Column(visible=False) as summary_area:
-        summary_banner = gr.HTML("", elem_classes=["summary-banner"])
+        summary_banner = gr.HTML("", container=False, padding=False, elem_classes=["summary-banner"])
         # Hidden until Load Labels fills it — an empty gr.HTML still paints a
         # padded block (~20px) between the upload row and the KPI strip.
         label_badge_html = gr.HTML("", visible=False)
@@ -296,7 +296,7 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
         return {
             "summary_area": gr.update(visible=has_banner),
             "upload_accordion": gr.update(),
-            "summary_banner": gr.update(value=banner, visible=has_banner),
+            "summary_banner": gr.update(value=f'<div class="summary-banner">{banner}</div>' if has_banner else "", visible=has_banner),
             "export_btn": export_off,
         }
     warnings = load_warnings_html(session)
@@ -305,8 +305,9 @@ def pack_load(session: LoadedSession | None = None, *, dark: bool = False, banne
     # sight, and `report.py` repeats the same strip in the exported header.
     # Kept visible after load so label badges can appear (badge HTML starts hidden).
     return {
-        "summary_area": gr.update(visible=True),
+        # Label callbacks reveal this parent when their own badge has content.
+        "summary_area": gr.update(visible=bool(warnings.strip())),
         "upload_accordion": gr.update(),
-        "summary_banner": gr.update(value=warnings, visible=bool(warnings.strip())),
+        "summary_banner": gr.update(value=f'<div class="summary-banner">{warnings}</div>' if warnings.strip() else "", visible=bool(warnings.strip())),
         "export_btn": export_off,
     }

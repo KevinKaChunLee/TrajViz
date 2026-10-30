@@ -48,8 +48,12 @@ htmlcov/
 .DS_Store
 
 # Project-specific
-# Local notes and review records: never published.
-docs/
+# Local notes remain private; only these maintained documentation sources ship.
+docs/*
+!docs/index.md
+!docs/quickstart.md
+!docs/guides.md
+!docs/data-reference.md
 gradio_cached_examples/
 *.log
 *.db

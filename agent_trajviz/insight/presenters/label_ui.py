@@ -15,9 +15,34 @@ from ..labels import aggregate_labels, load_labeled_json
 from ..palette import LABEL_PHASE_COLORS
 
 
-def build_label_ui_payload(file_path: str, dark: bool = False) -> dict:
+def validate_labels_for_run(data: dict, run) -> None:
+    """Reject contradictory identity evidence; sparse and legacy sidecars remain valid."""
+    if run is None:
+        return
+    steps = {step["index"]: step for step in run.steps}
+    seen = set()
+    for record in data.get("steps", []):
+        if not isinstance(record, dict):
+            raise ValueError("Label records must be objects.")
+        index = record.get("index")
+        if not isinstance(index, int) or isinstance(index, bool) or index not in steps:
+            raise ValueError("Labels contain an index absent from the loaded trajectory.")
+        if index in seen:
+            raise ValueError("Labels contain duplicate step indices.")
+        seen.add(index)
+        step = steps[index]
+        if record.get("role") and record["role"] != step.get("role"):
+            raise ValueError("Label roles do not match the loaded trajectory.")
+        if "raw_index" in record and "raw_index" in step and record["raw_index"] != step["raw_index"]:
+            raise ValueError("Label source indices do not match the loaded trajectory.")
+        if record.get("session_id") and step.get("session_id") and record["session_id"] != step["session_id"]:
+            raise ValueError("Labels belong to a different captured session.")
+
+
+def build_label_ui_payload(file_path: str, dark: bool = False, *, run=None) -> dict:
     """Build UI-facing label payload for a *_labeled.json label file."""
     data = load_labeled_json(file_path)
+    validate_labels_for_run(data, run)
     agg = aggregate_labels(data)
     pc_fig = build_label_phase_count_chart(agg["phase_counts"], dark=dark)
     ac_fig = build_label_action_count_chart(agg["action_counts"], agg["action_to_phase"], dark=dark)
