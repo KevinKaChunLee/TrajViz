@@ -26,6 +26,9 @@ pip install "agent-trajviz[app]"   # dashboards, figures, reports and LLM featur
 
 For the library and collection tools alone: `pip install agent-trajviz`.
 
+[Homebrew](https://github.com/rshu/homebrew-tap): `brew install rshu/tap/trajviz`
+includes the dashboards and Python runtime.
+
 | Extra | Features |
 |---|---|
 | `charts` | Plotly figures and HTML reports |
