@@ -66,7 +66,7 @@ Markdown files under `docs/`. Local notes in that directory remain ignored.
 Generated HTML is built in `site/` and is never committed.
 
 ```bash
-uv run --locked --with pdoc==16.0.0 python .github/scripts/build_docs.py \
+uv run --locked --extra dev --with pdoc==16.0.0 python .github/scripts/build_docs.py \
     --package-root . --output site --version-label development --check-examples
 ```
 

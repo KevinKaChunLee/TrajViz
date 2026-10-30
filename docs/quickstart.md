@@ -99,7 +99,8 @@ report_path = tv.write_report(run, "report.html", inline_plotly=True)
 ## Open the dashboard
 
 With the `app` extra installed through pip, or with Homebrew, run
-`agent-trajviz` and open the local URL it prints. Load the same session there. Use **Settings** to configure the model
+`agent-trajviz` and open the local URL it prints. Load the same session there.
+Use **Settings** to configure the model
 connection, request options and reply language. Connection details can be
 remembered in the browser; entered API keys remain in that session. Applying
 settings sends no model request.
