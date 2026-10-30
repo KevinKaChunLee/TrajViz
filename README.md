@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/rshu/TrajViz/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rshu/TrajViz/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/agent-trajviz)](https://pypi.org/project/agent-trajviz/)
-[![Homebrew](https://img.shields.io/badge/Homebrew-install-FBB040?logo=homebrew&logoColor=white)](https://github.com/rshu/homebrew-tap#readme)
+[![Homebrew](https://raw.githubusercontent.com/rshu/TrajViz/main/.github/homebrew-badge.svg)](https://github.com/rshu/homebrew-tap#readme)
 [![Python](https://img.shields.io/pypi/pyversions/agent-trajviz)](https://pypi.org/project/agent-trajviz/)
 [![Downloads](https://static.pepy.tech/badge/agent-trajviz)](https://pepy.tech/projects/agent-trajviz)
 [![License](https://img.shields.io/pypi/l/agent-trajviz)](https://github.com/rshu/TrajViz/blob/main/LICENSE)
