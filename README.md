@@ -88,6 +88,8 @@ The Converge comparison dashboard runs on port 7861:
 python -m agent_trajviz.converge --data-root /path/to/trajectories
 ```
 
+With Homebrew, use `agent-trajviz-converge-app --data-root /path/to/trajectories`.
+
 Batch manifest paths must remain inside `--data-root`. For headless comparisons,
 use `agent-trajviz-converge --help`. Every command provides `--help`.
 

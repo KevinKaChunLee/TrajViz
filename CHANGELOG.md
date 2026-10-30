@@ -19,11 +19,12 @@ change the public API (the names exported from `agent_trajviz`).
   show evidence qualifications and untested counterfactual checks.
 - Improve mobile attribution layouts and remove empty warning and reasoning panels.
 
-
 ### Added
 
 - Publish versioned API documentation and tested usage guides, with stable and
   development sites built automatically from the supported public interfaces.
+- Provide a Homebrew tap for the dashboard and CLI, with tested updates tied to
+  the corresponding PyPI release.
 
 ## [0.3.1] - 2026-10-29
 
@@ -318,7 +319,8 @@ First release as the `agent-trajviz` package.
   passwords, authorization headers and generated-looking values of
   secret-named assignments become `[REDACTED]`.
 
-[Unreleased]: https://github.com/rshu/TrajViz/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/rshu/TrajViz/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/rshu/TrajViz/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/rshu/TrajViz/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rshu/TrajViz/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rshu/TrajViz/releases/tag/v0.1.0

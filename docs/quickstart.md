@@ -16,6 +16,15 @@ pip install "agent-trajviz[charts]"
 # Or: pip install "agent-trajviz[app]"
 ```
 
+For the dashboards and CLI, Homebrew includes Python and the app dependencies:
+
+```bash
+brew install rshu/tap/trajviz
+```
+
+Use pip in your project environment for the Python examples below; Homebrew
+keeps the application in an isolated environment.
+
 ## Load a session
 
 Use a native session export of your own in place of `capture.jsonl`. TrajViz
@@ -89,8 +98,8 @@ report_path = tv.write_report(run, "report.html", inline_plotly=True)
 
 ## Open the dashboard
 
-With the `app` extra installed, run `agent-trajviz` and open the local URL it
-prints. Load the same session there. Use **Settings** to configure the model
+With the `app` extra installed through pip, or with Homebrew, run
+`agent-trajviz` and open the local URL it prints. Load the same session there. Use **Settings** to configure the model
 connection, request options and reply language. Connection details can be
 remembered in the browser; entered API keys remain in that session. Applying
 settings sends no model request.

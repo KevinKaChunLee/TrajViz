@@ -51,6 +51,13 @@ the optional DECAF checkout skip without it.
 3. `.github/workflows/release.yml` checks the tag against `__version__`, runs
    the suite, builds and checks the distributions, and publishes to PyPI
    through Trusted Publishing once the `pypi` environment is approved.
+4. Verify that version is available on PyPI, then publish the matching GitHub
+   release `vX.Y.Z` with focused release notes. Check that the Documentation
+   workflow retains its versioned archive and updates the stable site.
+5. Run the [Homebrew Update formula workflow](https://github.com/rshu/homebrew-tap/actions/workflows/update.yml)
+   with the same `X.Y.Z`. Review its prepared branch and passing macOS/Linux
+   checks, then merge it into the tap's `main`. Confirm the formula reports the
+   same upstream version.
 
 ## Documentation
 
